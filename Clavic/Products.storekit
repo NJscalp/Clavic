@@ -1,0 +1,128 @@
+{
+  "identifier" : "CLAVIC-STOREKIT",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+    {
+      "displayPrice" : "24.99",
+      "familyShareable" : false,
+      "internalID" : "1001",
+      "localizations" : [
+        {
+          "description" : "10 generations – Starter pack",
+          "displayName" : "10 Credits",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "Clavic.10",
+      "referenceName" : "10 Credits",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "69.99",
+      "familyShareable" : false,
+      "internalID" : "1002",
+      "localizations" : [
+        {
+          "description" : "30 generations – most popular",
+          "displayName" : "30 Credits",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "Clavic.30",
+      "referenceName" : "30 Credits",
+      "type" : "Consumable"
+    },
+    {
+      "displayPrice" : "135.99",
+      "familyShareable" : false,
+      "internalID" : "1003",
+      "localizations" : [
+        {
+          "description" : "75 generations – best price per video",
+          "displayName" : "75 Credits",
+          "locale" : "en_US"
+        }
+      ],
+      "productID" : "Clavic.75",
+      "referenceName" : "75 Credits",
+      "type" : "Consumable"
+    }
+  ],
+  "settings" : {
+    "_failTransactionsEnabled" : false,
+    "_storeKitErrors" : [
+
+    ]
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "20001",
+      "localizations" : [
+
+      ],
+      "name" : "Clavic Membership",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "9.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "30001",
+          "introductoryOffer" : {
+            "internalID" : "40001",
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P3D"
+          },
+          "localizations" : [
+            {
+              "description" : "10 credits per week + no watermark",
+              "displayName" : "Weekly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "Clavic.W",
+          "recurringSubscriptionPeriod" : "P1W",
+          "referenceName" : "Clavic Weekly",
+          "subscriptionGroupID" : "20001",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "149.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "30002",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "150 credits per year – best price per video",
+              "displayName" : "Yearly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "Clavic.Y",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Clavic Yearly",
+          "subscriptionGroupID" : "20001",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}
