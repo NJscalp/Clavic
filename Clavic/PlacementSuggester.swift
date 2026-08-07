@@ -89,15 +89,23 @@ enum PlacementSuggester {
         rectangles.minimumAspectRatio = 0.2
         rectangles.maximumObservations = 8
 
+        // Jeder Request einzeln: die drei modellgestützten (Saliency, Personen,
+        // Gesichter) können auf einem Gerät fehlschlagen, auf dem die anderen
+        // laufen. Liefen alle in einem Aufruf, würde ein einziger Fehlschlag
+        // den gesamten Vorschlag kosten — und die Nutzerin sähe gar keine Box.
         let handler = VNImageRequestHandler(ciImage: small, options: [:])
-        do {
-            try handler.perform([saliency, horizon, humans, faces, rectangles])
-        } catch {
-            return nil
+        for request in [saliency, horizon, humans, faces, rectangles] as [VNRequest] {
+            try? handler.perform([request])
         }
 
         // --- Schritt 3: Saliency-Matrix.
-        let map = saliencyMatrix(saliency.results?.first as? VNSaliencyImageObservation)
+        // Fällt Vision aus, messen wir die Unruhe des Bildes selbst. Das ist
+        // gröber, aber es hält den Vorschlag am Leben statt ihn zu streichen.
+        var map = saliencyMatrix(saliency.results?.first as? VNSaliencyImageObservation)
+        let usedFallbackMap = map.isEmpty
+        if usedFallbackMap {
+            map = structureMatrix(small)
+        }
 
         // Horizont: Vision liefert eine Transformation, aus der sich die Höhe
         // der Linie in der Bildmitte ableiten lässt.
@@ -197,6 +205,7 @@ enum PlacementSuggester {
         // --- Schritt 8: Confidence.
         var confidence = min(max(winner.score, 0), 1)
         if horizonY == nil { confidence *= 0.6 }
+        if usedFallbackMap { confidence *= 0.85 }
 
         return PlacementSuggestion(
             rect: rect,
@@ -244,6 +253,11 @@ enum PlacementSuggester {
     /// benutzt wie die zurückgegebene Box.
     private static func saliencyMatrix(_ observation: VNSaliencyImageObservation?) -> [[Float]] {
         guard let buffer = observation?.pixelBuffer else { return [] }
+        // Wir lesen die Karte als rohe Floats. Liefert Vision je ein anderes
+        // Format, wäre das eine Fehlinterpretation fremden Speichers.
+        guard CVPixelBufferGetPixelFormatType(buffer) == kCVPixelFormatType_OneComponent32Float else {
+            return []
+        }
         CVPixelBufferLockBaseAddress(buffer, .readOnly)
         defer { CVPixelBufferUnlockBaseAddress(buffer, .readOnly) }
 
@@ -278,6 +292,82 @@ enum PlacementSuggester {
             }
         }
         return rows
+    }
+
+    /// Ersatz für die Saliency, wenn Vision keine liefert.
+    ///
+    /// Zwei Beobachtungen reichen, um „hier ist schon etwas" von „hier ist
+    /// Platz" zu trennen: eine Fläche ist belegt, wenn sie unruhig ist
+    /// (Struktur, Muster, Kanten) oder wenn ihr Ton deutlich vom vorherrschenden
+    /// Ton der Szene abweicht (eine dunkle Gestalt vor heller Wand). Der Median
+    /// steht für den vorherrschenden Ton, weil ein Mittelwert schon von einer
+    /// halb vollen Bildhälfte verzogen wird.
+    private static func structureMatrix(_ image: CIImage) -> [[Float]] {
+        guard let gray = grayscale(image) else { return [] }
+        let cell = 4
+        let columns = gray.width / cell
+        let rows = gray.height / cell
+        guard columns > 0, rows > 0 else { return [] }
+
+        var means = [[Float]](repeating: [Float](repeating: 0, count: columns), count: rows)
+        var spreads = means
+
+        for row in 0..<rows {
+            for column in 0..<columns {
+                var sum: Float = 0
+                var sumOfSquares: Float = 0
+                for y in (row * cell)..<((row + 1) * cell) {
+                    for x in (column * cell)..<((column + 1) * cell) {
+                        let value = Float(gray.pixels[y * gray.width + x]) / 255
+                        sum += value
+                        sumOfSquares += value * value
+                    }
+                }
+                let count = Float(cell * cell)
+                let mean = sum / count
+                means[row][column] = mean
+                spreads[row][column] = Swift.max(0, sumOfSquares / count - mean * mean).squareRoot()
+            }
+        }
+
+        let median = means.flatMap { $0 }.sorted()[rows * columns / 2]
+
+        var result = means
+        for row in 0..<rows {
+            for column in 0..<columns {
+                let tone = Swift.min(1, abs(means[row][column] - median) * 3)
+                let texture = Swift.min(1, spreads[row][column] * 4)
+                result[row][column] = Swift.max(tone, texture)
+            }
+        }
+        return result
+    }
+
+    /// Graustufen, Zeile 0 ist die OBERSTE Bildzeile.
+    private static func grayscale(_ image: CIImage) -> (pixels: [UInt8], width: Int, height: Int)? {
+        let extent = image.extent
+        let width = Int(extent.width.rounded())
+        let height = Int(extent.height.rounded())
+        guard width > 0, height > 0, !extent.isInfinite else { return nil }
+
+        let context = CIContext(options: [.workingColorSpace: NSNull()])
+        guard let cgImage = context.createCGImage(image, from: extent) else { return nil }
+
+        var pixels = [UInt8](repeating: 0, count: width * height)
+        let drawn: Bool = pixels.withUnsafeMutableBytes { raw in
+            guard let bitmap = CGContext(
+                data: raw.baseAddress,
+                width: width,
+                height: height,
+                bitsPerComponent: 8,
+                bytesPerRow: width,
+                space: CGColorSpaceCreateDeviceGray(),
+                bitmapInfo: CGImageAlphaInfo.none.rawValue
+            ) else { return false }
+            bitmap.draw(cgImage, in: CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
+            return true
+        }
+        return drawn ? (pixels, width, height) : nil
     }
 
     /// Mittlere Auffälligkeit innerhalb einer normalisierten Box (Ursprung oben links).
@@ -401,6 +491,11 @@ enum PlacementSuggester {
         // Kein Anlehnen, wenn der Horizont mitten durch die Box laeuft — dann
         // steht die Person im Freien, nicht an einer Wand.
         if let horizonY, horizonY > candidate.minY, horizonY < candidate.maxY { return false }
+
+        // Eine ruhige Flaeche ist nur dann eine Wand, wenn ueberhaupt etwas im
+        // Bild ist, wovon sie sich abhebt. In einer voellig leeren Szene waere
+        // jede Stelle „ruhig" — dort steht die Person frei.
+        guard meanSaliency(map, in: CGRect(x: 0, y: 0, width: 1, height: 1)) > 0.2 else { return false }
 
         let stripWidth: CGFloat = 0.12
         let left = CGRect(x: candidate.minX - stripWidth, y: candidate.minY,
