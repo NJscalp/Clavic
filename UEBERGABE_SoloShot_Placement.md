@@ -122,6 +122,26 @@ Rangfolge und Schwellen fest.
 
 ## Was noch offen ist
 
+- [ ] **Der Testlauf stürzt sporadisch ab — nicht im neuen Code.** In 2 von 6
+      Läufen bricht der Host-Prozess mit `SIGABRT` ab, XCTest schreibt es dem
+      Test zu, der gerade läuft (einmal `testBoxDoesNotOverlapDetectedPerson`,
+      einmal `testBoxAvoidsClutteredHalf`, beide mit Dauer 0,000 s). Der Stack
+      ist beide Male identisch und enthält **keinen** Frame aus dem
+      Platzierungs-Code:
+
+      ```
+      ___BUG_IN_CLIENT_OF_LIBMALLOC_POINTER_BEING_FREED_WAS_NOT_ALLOCATED
+      swift_task_deinitOnExecutorImpl
+      TemplateStore.__deallocating_deinit
+      destroy for ContentView
+      ```
+
+      Reports: `~/Library/Logs/DiagnosticReports/Clavic-2026-08-07-1624*.ips`
+      und `-1935*.ips`. Der erste stammt aus einer Zeit, in der `ContentView`
+      noch unverändert war — das spricht für einen Altbestand: ein
+      `@MainActor`-`TemplateStore`, der über den Concurrency-Executor
+      abgeräumt wird, während `load()` noch läuft. **Eigene Aufgabe.**
+
 - [ ] **Auf echter Hardware prüfen.** Im Simulator gibt es keine Kamera: der
       Frame-Strom, die Box im Livebild, der Burst und die 15-%-CPU-Grenze aus
       den Abnahmekriterien sind **nicht** gemessen.
