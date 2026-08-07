@@ -831,6 +831,60 @@ enum ImageCrop {
         return UIImage(cgImage: cropped).jpegData(compressionQuality: 0.95)
     }
 
+    /// Rechnet eine normalisierte Box von einem Zuschnitt in einen anderen um.
+    ///
+    /// Gebraucht, sobald das Format NACH der Aufnahme noch gewechselt wird: die
+    /// Box wurde gegen das damalige Rahmenformat gemessen, geschnitten wird
+    /// aber neu. Ohne diese Umrechnung säße die Markierung im exportierten Bild
+    /// an einer anderen Stelle als die, auf die die Nutzerin sie gezogen hat.
+    ///
+    /// Beide Zuschnitte sind mittige Ausschnitte derselben Aufnahme, deshalb
+    /// führt der Weg über die absoluten Koordinaten der Aufnahme.
+    static func remap(
+        _ rect: CGRect,
+        fromAspect source: CGFloat,
+        toAspect target: CGFloat,
+        sourceAspect raw: CGFloat
+    ) -> CGRect {
+        guard source > 0, target > 0, raw > 0, source != target else { return rect }
+
+        /// Ausschnitt in einem gedachten Bild der Breite `raw` und Höhe 1.
+        func crop(for aspect: CGFloat) -> CGRect {
+            if raw > aspect {
+                let width = aspect
+                return CGRect(x: (raw - width) / 2, y: 0, width: width, height: 1)
+            }
+            let height = raw / aspect
+            return CGRect(x: 0, y: (1 - height) / 2, width: raw, height: height)
+        }
+
+        let from = crop(for: source)
+        let to = crop(for: target)
+        guard to.width > 0, to.height > 0 else { return rect }
+
+        let absolute = CGRect(
+            x: from.minX + rect.minX * from.width,
+            y: from.minY + rect.minY * from.height,
+            width: rect.width * from.width,
+            height: rect.height * from.height
+        )
+
+        var mapped = CGRect(
+            x: (absolute.minX - to.minX) / to.width,
+            y: (absolute.minY - to.minY) / to.height,
+            width: absolute.width / to.width,
+            height: absolute.height / to.height
+        )
+
+        // Der neue Ausschnitt kann schmaler sein als der alte — dann ragt die
+        // Box heraus und wird auf das sichtbare Bild gestutzt.
+        mapped.size.width = min(mapped.width, 1)
+        mapped.size.height = min(mapped.height, 1)
+        mapped.origin.x = min(max(mapped.minX, 0), 1 - mapped.width)
+        mapped.origin.y = min(max(mapped.minY, 0), 1 - mapped.height)
+        return mapped
+    }
+
     /// Zeichnet das Bild ohne EXIF-Drehung neu — danach stimmen Pixel- und
     /// Anzeigekoordinaten überein, was `cropping(to:)` voraussetzt.
     static func redrawUpright(_ image: UIImage) -> UIImage {

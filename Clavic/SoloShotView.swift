@@ -245,6 +245,10 @@ struct SoloShotView: View {
     @State private var manualPlacementRect: CGRect?
     @State private var placementIsAnalyzing = false
     @State private var capturedPlacement: PlacementSuggestion?
+    /// Rahmenformat im Moment des Auslösens. Wird das Format im Review noch
+    /// gewechselt, muss die Box mit umgerechnet werden — sie wurde gegen
+    /// DIESES Verhältnis gemessen.
+    @State private var capturedPlacementAspect: CGFloat = 1
     @FocusState private var noteFocused: Bool
 
     private var frameAspect: CGFloat { selectedFormat.aspect }
@@ -1179,6 +1183,20 @@ struct SoloShotView: View {
         }
     }
 
+    /// Die Box im Koordinatensystem des AKTUELLEN Zuschnitts. Solange das
+    /// Format seit der Aufnahme gleich geblieben ist, ändert sich nichts.
+    private func markerRect(_ rect: CGRect) -> CGRect {
+        guard capturedPlacementAspect != frameAspect,
+              let raw = rawBackgroundData,
+              let image = UIImage(data: raw), image.size.height > 0 else { return rect }
+        return ImageCrop.remap(
+            rect,
+            fromAspect: capturedPlacementAspect,
+            toAspect: frameAspect,
+            sourceAspect: image.size.width / image.size.height
+        )
+    }
+
     /// Beim Auslösen zählt, was in diesem Moment auf dem Bild lag — danach
     /// bewegt sich die Kamera weiter, der Vorschlag aber nicht mehr.
     private func freezePlacement() {
@@ -1190,6 +1208,7 @@ struct SoloShotView: View {
                 confidence: placement?.confidence ?? 1,
                 poseSentence: PlacementSuggester.sentence(for: pose)
             )
+            capturedPlacementAspect = frameAspect
         } else {
             capturedPlacement = nil
         }
@@ -1293,7 +1312,7 @@ struct SoloShotView: View {
         // Ohne Box bleibt es bei der von Hand ausgerichteten Silhouette.
         let guide: Data?
         if let capturedPlacement {
-            guide = SoloShotGuide.renderMarker(on: image, rect: capturedPlacement.rect)
+            guide = SoloShotGuide.renderMarker(on: image, rect: markerRect(capturedPlacement.rect))
         } else if let personOverlay {
             guide = SoloShotGuide.render(
                 on: image,
