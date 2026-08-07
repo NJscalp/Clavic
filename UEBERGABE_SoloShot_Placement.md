@@ -92,6 +92,24 @@ Kopf der Datei ausgebaut worden („sie versprachen mehr, als sie hielten").
 Das Bild wird geladen, die Ansicht bleibt auf der Voreinstellung. Wenn die
 kostenlosen Regler zurückkommen sollen, ist das eine eigene Aufgabe.
 
+### Vorschau-Bilder der neuen Looks
+
+Die sieben neuen Kacheln haben echte Beispielbilder. Sie sind **nicht**
+danebengemalt, sondern über genau den Weg entstanden, den die Vorlage selbst
+nimmt: Clavic-Backend → WaveSpeed → Seedream v5.0 Pro (edit), Referenz
+`face_model_1`, Prompt wörtlich aus `ViralLooks.swift`, 9:16 bei 1k.
+Die Nutzerin sieht damit auf der Kachel, was der Prompt dahinter wirklich
+erzeugt.
+
+Das Skript liegt im Projekt: `Scripts/make_look_previews.py`. Ein Look wird so
+neu gebaut:
+
+```
+python3 Scripts/make_look_previews.py cafe-window
+```
+
+Kosten: rund 0,045 $ je Bild, also ~0,32 $ für alle sieben.
+
 ### Aufgabe 5 — zwei Abweichungen
 
 - **Der Trends-Chip ist geblieben**, die Reihenfolge ist Looks · Tools ·
@@ -145,16 +163,6 @@ Rangfolge und Schwellen fest.
 - [ ] **Auf echter Hardware prüfen.** Im Simulator gibt es keine Kamera: der
       Frame-Strom, die Box im Livebild, der Burst und die 15-%-CPU-Grenze aus
       den Abnahmekriterien sind **nicht** gemessen.
-- [ ] **Vorschau-Bilder für die 7 neuen Looks.** Sie fehlen als Einzige; die
-      Kacheln zeigen deshalb nur Verlauf + Symbol. Der Asset-Katalog erwartet
-      genau diese Namen (je ein Hochformat-JPG, 9:16):
-      `preview_look_cafe_window`, `preview_look_car_seat_night`,
-      `preview_look_elevator_mirror`, `preview_look_flower_market`,
-      `preview_look_rooftop_dusk`, `preview_look_morning_bed`,
-      `preview_look_rain_streetlight`.
-      Die passenden Prompts stehen schon in `ViralLooks.swift` — ein Durchlauf
-      je Look über den normalen Bild-Weg liefert genau das Bild, das die Kachel
-      versprechen soll.
 - [ ] Beispielvideo für den Solo-Shot-Hero. Aktuell steht dort das Standbild
       `preview_pro_glow_after` (eine Frau allein an einem Ort). Vorher lag hier
       ein Vorher/Nachher-Wischer über die Garagen-Aufnahme — der zeigte ein
