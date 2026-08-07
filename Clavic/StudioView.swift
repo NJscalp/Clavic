@@ -854,7 +854,7 @@ struct StudioView: View {
         // GPT Image 2 liess die Haltung unveraendert und setzte stattdessen
         // eine Sonnenbrille auf, Nano Banana 2 drehte Kopf, Arm und Standbein
         // und behielt Gesicht und Kleidung.
-        let model = EditPromptBooster.wantsPoseChange(instruction)
+        let model = EditPromptBooster.needsPoseModel(instruction)
             ? ImageEditAPI.poseModel
             : nil
 

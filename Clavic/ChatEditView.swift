@@ -1172,7 +1172,12 @@ struct ChatEditView: View {
                 guard let ui = UIImage(data: data) else { return nil }
                 return await SubjectDetector.hasPerson(in: ui)
             }()
-            prompt = EditPromptBooster.build(rawPrompt, hasPerson: hasPerson)
+            // Wie viele Bilder wirklich rausgehen — davon haengt ab, ob der
+            // Prompt die Bilder nummerieren muss (Szene vs. Person).
+            let outgoing = EditPromptBooster.wantsPersonInsert(rawPrompt) && !pendingImages.isEmpty
+                ? 1 + pendingImages.count
+                : max(1, pendingImages.count)
+            prompt = EditPromptBooster.build(rawPrompt, hasPerson: hasPerson, referenceCount: outgoing)
         } else {
             prompt = rawPrompt
         }
@@ -1200,9 +1205,23 @@ struct ChatEditView: View {
         // Alle neu angehängten Fotos gehen als Referenzen mit (z. B. Person +
         // Auto). Ohne neue Anhänge dient das laufende Ergebnis als Referenz,
         // damit Folge-Edits weiter auf dem letzten Bild aufbauen.
-        let references: [Data] = pendingImages.isEmpty
-            ? (currentImage.map { [$0] } ?? [])
-            : pendingImages
+        // Beim Einsetzen einer Person braucht das Modell BEIDE Bilder: die
+        // Szene, in die sie soll, UND die Person selbst.
+        //
+        // GEMESSENER FEHLER: hier ging bei einem Anhang NUR der Anhang raus,
+        // das laufende Bild fiel weg. Wer eine Szene offen hatte und sein
+        // Selfie anhing, schickte also nur das Selfie los — „add me in the
+        // image" hatte gar kein Bild, in das eingefuegt werden konnte. Das
+        // Modell gab die Person zurueck, und das sah aus wie ein Aufkleber.
+        let isPersonInsert = EditPromptBooster.wantsPersonInsert(rawPrompt)
+        let references: [Data]
+        if pendingImages.isEmpty {
+            references = currentImage.map { [$0] } ?? []
+        } else if isPersonInsert, let currentImage {
+            references = [currentImage] + pendingImages
+        } else {
+            references = pendingImages
+        }
         // Seitenverhältnis: Nutzerwahl (Proportion-Chip) hat Vorrang; bei „auto"
         // aus dem echten Referenzbild ableiten, damit das Format nicht umgedreht
         // wird. Ohne Bild (Text-to-Image) und „auto" → 1:1.
@@ -1246,7 +1265,7 @@ struct ChatEditView: View {
             model: modelForThisRun
                 ?? (isTextToImage
                     ? ImageEditAPI.chatGenerateModel
-                    : (EditPromptBooster.wantsPoseChange(rawPrompt) ? ImageEditAPI.poseModel : ImageEditAPI.chatModel))
+                    : (EditPromptBooster.needsPoseModel(rawPrompt) ? ImageEditAPI.poseModel : ImageEditAPI.chatModel))
         )
 
         do {

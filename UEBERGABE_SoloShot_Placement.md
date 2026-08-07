@@ -95,7 +95,30 @@ gemacht.
 
 Jetzt gibt es EINEN Graustufen-Durchgang, aus dem beide Messungen rechnen —
 kein `CIAreaAverage`, kein `render(toBitmap:)`, kein roher Zeiger in ein
-Swift-Array. Danach: **drei volle Laeufe, je 42 bestanden, kein Absturz.**
+Swift-Array.
+
+**Der Absturz ist damit seltener, aber NICHT weg.** Nach dem Umbau liefen vier
+Durchgaenge sauber, der fuenfte stuerzte wieder ab. Und diesmal mit einer
+anderen Klasse im Stack:
+
+```
+___BUG_IN_CLIENT_OF_LIBMALLOC_POINTER_BEING_FREED_WAS_NOT_ALLOCATED
+swift_task_deinitOnExecutorImpl
+OncePlayerView.Coordinator.__deallocating_deinit   ← vorher: TemplateStore
+```
+
+Dass zwei voellig verschiedene Klassen denselben Weg nehmen, verschiebt den
+Verdacht: es geht nicht um `TemplateStore` und nicht um eine einzelne Zeile,
+sondern um `swift_task_deinitOnExecutorImpl` — das Projekt uebersetzt mit
+`-default-isolation=MainActor`, also ist fast jede Klasse `@MainActor`, und
+ihr `deinit` springt auf den Main-Executor, sobald die letzte Referenz auf
+einem Hintergrund-Thread faellt.
+
+**Naechster Schritt, und diesmal mit dem richtigen Werkzeug:** Address
+Sanitizer im Test-Schema einschalten. Der schlaegt an der Stelle an, an der
+ueber den Speicher hinausgeschrieben wird — nicht erst beim spaeteren
+Freigeben. Alles bisherige war Raten anhand eines Stacks, der auf den
+Tatort NICHT zeigt.
 
 ---
 
