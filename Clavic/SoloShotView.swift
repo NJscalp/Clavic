@@ -597,7 +597,7 @@ struct SoloShotView: View {
                 captureSettings
                     .padding(.horizontal, 34)
 
-                Text("Wir zeigen dir, wo du am besten stehst. Box verschieben, wenn du woanders hin willst.")
+                Text("We show you where to stand. Drag the box if you want to be somewhere else.")
                     .font(.system(size: 11.5, weight: .medium, design: .rounded))
                     .foregroundStyle(Theme.textSecondary)
                     .multilineTextAlignment(.center)
@@ -744,7 +744,7 @@ struct SoloShotView: View {
                     editHandoff.pendingChatImage = resultData
                     onCancel()
                 } label: {
-                    Text("Im Chat weiterbearbeiten")
+                    Text("Keep editing in Chat")
                         .font(.system(size: 14, weight: .bold, design: .rounded))
                         .foregroundStyle(Theme.textPrimary)
                         .frame(maxWidth: .infinity)
@@ -758,7 +758,7 @@ struct SoloShotView: View {
                     editHandoff.pendingStudioImage = resultData
                     onCancel()
                 } label: {
-                    Text("Im Studio öffnen")
+                    Text("Open in Studio")
                         .font(.system(size: 14, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)

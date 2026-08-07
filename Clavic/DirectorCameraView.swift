@@ -40,10 +40,10 @@ enum DirectorHint: String, Equatable, CaseIterable {
 
     var text: String {
         switch self {
-        case .comeCloser:   return "Zwei Schritte näher"
-        case .phoneLower:   return "Handy tiefer halten"
-        case .tiltDown:     return "Weiter runter"
-        case .holdStraight: return "Gerade halten"
+        case .comeCloser:   return "Two steps closer"
+        case .phoneLower:   return "Hold the phone lower"
+        case .tiltDown:     return "Tilt further down"
+        case .holdStraight: return "Hold it level"
         }
     }
 }
@@ -163,10 +163,10 @@ struct DirectorCameraView: View {
             Spacer()
 
             VStack(spacing: 1) {
-                Text("REGIE")
+                Text("DIRECTOR")
                     .font(.system(size: 12, weight: .black, design: .rounded))
                     .kerning(1.1)
-                Text(isReviewing ? "Aussuchen" : "Echte Fotos, keine KI")
+                Text(isReviewing ? "Pick your shots" : "Real photos, no AI")
                     .font(.system(size: 10.5, weight: .semibold, design: .rounded))
                     .foregroundStyle(Theme.textSecondary)
             }
@@ -197,7 +197,7 @@ struct DirectorCameraView: View {
                         VStack(spacing: 8) {
                             Image(systemName: camera.permissionDenied ? "lock.fill" : "camera.fill")
                                 .font(.system(size: 25, weight: .light))
-                            Text(camera.permissionDenied ? "Kamerazugriff ist aus" : "Keine Kamera")
+                            Text(camera.permissionDenied ? "Camera access is off" : "No camera available")
                                 .font(.system(size: 12.5, weight: .semibold, design: .rounded))
                         }
                         .foregroundStyle(Theme.textSecondary)
@@ -215,7 +215,7 @@ struct DirectorCameraView: View {
             .aspectRatio(3.0 / 4.0, contentMode: .fit)
             .padding(.horizontal, Theme.screenPadding)
 
-            Text("Gib das Telefon jemandem in die Hand. Wenn alles stimmt, löst es von selbst aus.")
+            Text("Hand the phone to someone. It shoots by itself once everything lines up.")
                 .font(.system(size: 11.5, weight: .medium, design: .rounded))
                 .foregroundStyle(Theme.textSecondary)
                 .multilineTextAlignment(.center)
@@ -236,7 +236,7 @@ struct DirectorCameraView: View {
                     .font(.system(size: 21, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
             } else {
-                Label("Halt so", systemImage: "checkmark.circle.fill")
+                Label("Hold it there", systemImage: "checkmark.circle.fill")
                     .font(.system(size: 21, weight: .bold, design: .rounded))
                     .foregroundStyle(Theme.go)
             }
@@ -293,7 +293,7 @@ struct DirectorCameraView: View {
                     goodSince = nil
                     Task { await start() }
                 } label: {
-                    Text("Noch mal")
+                    Text("Again")
                         .font(.system(size: 15, weight: .bold, design: .rounded))
                         .foregroundStyle(Theme.textPrimary)
                         .frame(maxWidth: .infinity)
@@ -303,7 +303,7 @@ struct DirectorCameraView: View {
                 .buttonStyle(.plain)
 
                 Button { saveChosen() } label: {
-                    Text("Speichern")
+                    Text("Save")
                         .font(.system(size: 15, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
@@ -380,7 +380,7 @@ struct DirectorCameraView: View {
         }
 
         guard !captured.isEmpty else {
-            flash("Das hat nicht geklappt — noch mal versuchen.")
+            flash("That didn't work — give it another go.")
             goodSince = nil
             camera.startFrameStream(minimumInterval: 0.125) { buffer, orientation in
                 Task { @MainActor in analyse(buffer, orientation: orientation) }
@@ -400,7 +400,7 @@ struct DirectorCameraView: View {
 
         for data in selected {
             let project = VideoProject(
-                prompt: "Regie", templateTitle: "Regie",
+                prompt: "Director", templateTitle: "Director",
                 ratio: .portrait, resolution: .p720, duration: 0,
                 generateAudio: false, useFastModel: true,
                 referenceImagesData: [],

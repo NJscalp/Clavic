@@ -1037,7 +1037,7 @@ struct ChatEditView: View {
         messages.append(ChatMessage(role: .assistant, text: nil, image: data,
                                     isLoading: false, isOriginal: true))
         messages.append(ChatMessage(role: .assistant,
-                                    text: "Dein Bild ist geladen. Sag, was du ändern willst.",
+                                    text: "Your photo is loaded. Tell me what to change.",
                                     image: nil, isLoading: false))
         ChatSessionStore.save(messages: messages, currentImage: currentImage)
     }

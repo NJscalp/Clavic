@@ -60,16 +60,24 @@ struct DiscoverView: View {
     /// das, was die App von anderen unterscheidet — sich selbst an einen Ort
     /// stellen, an dem niemand mitgekommen ist.
     ///
-    /// Als Beispiel läuft der Vorher/Nachher-Wischer über echte Aufnahmen. Ein
-    /// eigenes Beispiel-VIDEO liegt nicht im Bundle; sobald es eines gibt,
+    /// Das Bild muss die Behauptung der Überschrift zeigen: EINE Person, allein
+    /// an einem echten Ort. Vorher lag hier ein Vorher/Nachher-Wischer über die
+    /// Garagen-Aufnahme — der zeigte ein Auto und erzählte damit die Geschichte
+    /// einer ganz anderen Vorlage.
+    ///
+    /// Ein eigenes Beispiel-VIDEO liegt nicht im Bundle; sobald es eines gibt,
     /// gehört an diese Stelle ein `LoopingVideoView`.
     @ViewBuilder
     private var soloShotHero: some View {
         Button(action: onSoloShot) {
             ZStack(alignment: .bottomLeading) {
-                if let before = UIImage(named: "sc_garage_before"),
-                   let after = UIImage(named: "sc_garage_after") {
-                    BeforeAfterSlider(before: before, after: after, sweepDuration: 3.4, showLabels: false)
+                if let example = UIImage(named: "preview_pro_glow_after") {
+                    Color.clear.overlay(
+                        Image(uiImage: example)
+                            .resizable()
+                            .scaledToFill()
+                    )
+                    .clipped()
                 } else {
                     Theme.brandGradient
                 }
@@ -85,7 +93,7 @@ struct DiscoverView: View {
                         .font(.system(size: 11.5, weight: .black, design: .rounded))
                         .kerning(1.1)
                         .foregroundStyle(.white.opacity(0.85))
-                    Text("Fotos von dir — ganz allein unterwegs")
+                    Text("Photos of you, out on your own")
                         .font(.system(size: 23, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
                         .lineLimit(2)
@@ -100,14 +108,17 @@ struct DiscoverView: View {
             .padding(.horizontal, Theme.screenPadding)
         }
         .buttonStyle(.plain)
-        .overlay(alignment: .bottomTrailing) { directorPill }
+        .overlay(alignment: .topTrailing) { directorPill }
     }
 
     /// Eigener Knopf ÜBER der Hero-Fläche, nicht in ihr: ein Knopf im Label
     /// eines anderen Knopfes bekommt in SwiftUI keine eigenen Tipps ab.
+    ///
+    /// Oben rechts, nicht unten: unten steht die Überschrift, und die soll die
+    /// volle Breite haben statt an einem Bedienelement abzuknicken.
     private var directorPill: some View {
         Button(action: onDirector) {
-            Label("Regie", systemImage: "person.2.wave.2.fill")
+            Label("Director", systemImage: "person.2.wave.2.fill")
                 .font(.system(size: 12.5, weight: .bold, design: .rounded))
                 .foregroundStyle(Theme.textPrimary)
                 .padding(.horizontal, 13)
@@ -116,7 +127,7 @@ struct DiscoverView: View {
         }
         .buttonStyle(.plain)
         .padding(.trailing, Theme.screenPadding + 14)
-        .padding(.bottom, 18)
+        .padding(.top, 14)
     }
 
     // MARK: - Clavic Tools (App-eigene Pro-Werkzeuge ganz oben)

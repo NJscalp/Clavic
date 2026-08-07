@@ -50,9 +50,9 @@ struct PlacementBoxOverlay: View {
 
     private var label: String {
         switch suggestion?.pose ?? .standing {
-        case .standing: return "Hier stehst du"
-        case .seated:   return "Hier sitzt du"
-        case .leaning:  return "Hier lehnst du"
+        case .standing: return "You stand here"
+        case .seated:   return "You sit here"
+        case .leaning:  return "You lean here"
         }
     }
 
@@ -133,7 +133,7 @@ struct PlacementBoxOverlay: View {
                 .background(Capsule().fill(Theme.surface.opacity(0.9)))
         }
         .buttonStyle(.plain)
-        .accessibilityLabel("Vorgeschlagene Position wiederherstellen")
+        .accessibilityLabel("Restore the suggested spot")
     }
 
     // MARK: - Gesten

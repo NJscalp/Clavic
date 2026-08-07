@@ -145,13 +145,25 @@ Rangfolge und Schwellen fest.
 - [ ] **Auf echter Hardware prüfen.** Im Simulator gibt es keine Kamera: der
       Frame-Strom, die Box im Livebild, der Burst und die 15-%-CPU-Grenze aus
       den Abnahmekriterien sind **nicht** gemessen.
-- [ ] Vorschau-Assets für die 7 neuen Looks
-- [ ] Beispielvideo für den Solo-Shot-Hero
+- [ ] **Vorschau-Bilder für die 7 neuen Looks.** Sie fehlen als Einzige; die
+      Kacheln zeigen deshalb nur Verlauf + Symbol. Der Asset-Katalog erwartet
+      genau diese Namen (je ein Hochformat-JPG, 9:16):
+      `preview_look_cafe_window`, `preview_look_car_seat_night`,
+      `preview_look_elevator_mirror`, `preview_look_flower_market`,
+      `preview_look_rooftop_dusk`, `preview_look_morning_bed`,
+      `preview_look_rain_streetlight`.
+      Die passenden Prompts stehen schon in `ViralLooks.swift` — ein Durchlauf
+      je Look über den normalen Bild-Weg liefert genau das Bild, das die Kachel
+      versprechen soll.
+- [ ] Beispielvideo für den Solo-Shot-Hero. Aktuell steht dort das Standbild
+      `preview_pro_glow_after` (eine Frau allein an einem Ort). Vorher lag hier
+      ein Vorher/Nachher-Wischer über die Garagen-Aufnahme — der zeigte ein
+      Auto und passte nicht zur Überschrift.
 - [ ] Entscheiden, ob die kostenlosen Studio-Regler zurückkommen (siehe
       Aufgabe 4)
-- [ ] Die deutschen Texte („Hier stehst du", „Auto", „Wir zeigen dir, wo du am
-      besten stehst", die Regie-Texte) stehen laut Vorgabe auf Deutsch, der
-      Rest der Oberfläche ist Englisch. Das ist so gebaut, aber es fällt auf.
+Die Oberfläche ist wieder **durchgehend Englisch**. Die deutschen Texte aus der
+Vorgabe („Hier stehst du", „Regie", …) sind übersetzt; die Kommentare im Code
+bleiben deutsch, so wie es die harten Regeln verlangen.
 
 ## Harte Regeln (galten und gelten weiter)
 
