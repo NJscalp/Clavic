@@ -16,6 +16,14 @@ struct BeforeAfterSlider: View {
     /// Dauer eines kompletten Durchlaufs (links → rechts).
     var sweepDuration: Double = 2.4
     var showLabels: Bool = true
+    /// Steuert, ob der Slider animiert. Bei `false` steht er still (spart CPU,
+    /// z. B. wenn die Kachel nicht sichtbar ist oder ein Sheet offen ist).
+    var isAnimating: Bool = true
+    /// Bei `true` kann der Nutzer die Trennlinie per Wisch steuern (Vollbild-Vergleich).
+    var interactive: Bool = false
+    /// true = Bild füllt (croppt); false = ganzes Bild sichtbar (Fit) mit weichem
+    /// Blur-Hintergrund als Fade – so wird nichts abgeschnitten.
+    var contentFill: Bool = true
 
     @State private var fraction: CGFloat = 0.18
 
@@ -25,17 +33,28 @@ struct BeforeAfterSlider: View {
             let h = geo.size.height
 
             ZStack(alignment: .leading) {
+                // Fit-Modus: weicher Blur-Hintergrund füllt die Ränder (Fade).
+                if !contentFill {
+                    Image(uiImage: after)
+                        .resizable()
+                        .scaledToFill()
+                        .frame(width: w, height: h)
+                        .clipped()
+                        .blur(radius: 22)
+                        .opacity(0.5)
+                }
+
                 // Vorher (Hintergrund)
                 Image(uiImage: before)
                     .resizable()
-                    .scaledToFill()
+                    .aspectRatio(contentMode: contentFill ? .fill : .fit)
                     .frame(width: w, height: h)
                     .clipped()
 
                 // Nachher (oben, durch die wandernde Maske freigelegt)
                 Image(uiImage: after)
                     .resizable()
-                    .scaledToFill()
+                    .aspectRatio(contentMode: contentFill ? .fill : .fit)
                     .frame(width: w, height: h)
                     .clipped()
                     .mask(alignment: .leading) {
@@ -66,12 +85,34 @@ struct BeforeAfterSlider: View {
                 }
             }
             .frame(width: w, height: h)
-            .onAppear {
-                fraction = 0.18
-                withAnimation(.easeInOut(duration: sweepDuration).repeatForever(autoreverses: true)) {
-                    fraction = 0.82
-                }
+            .contentShape(Rectangle())
+            .gesture(interactive ? dragGesture(width: w) : nil)
+            .onAppear { updateAnimation() }
+            .onChange(of: isAnimating) { _, _ in updateAnimation() }
+            .onChange(of: interactive) { _, _ in updateAnimation() }
+        }
+    }
+
+    private func dragGesture(width w: CGFloat) -> some Gesture {
+        DragGesture(minimumDistance: 0)
+            .onChanged { value in
+                fraction = min(0.98, max(0.02, value.location.x / w))
             }
+    }
+
+    private func updateAnimation() {
+        if interactive {
+            fraction = 0.5
+            return
+        }
+        if isAnimating {
+            fraction = 0.18
+            withAnimation(.easeInOut(duration: sweepDuration).repeatForever(autoreverses: true)) {
+                fraction = 0.82
+            }
+        } else {
+            // Animation stoppen und auf einen ruhigen Stand setzen.
+            withAnimation(.easeInOut(duration: 0.2)) { fraction = 0.5 }
         }
     }
 
@@ -79,9 +120,9 @@ struct BeforeAfterSlider: View {
         VStack {
             Spacer()
             HStack {
-                badge("Vorher")
+                badge("Before")
                 Spacer()
-                badge("Nachher")
+                badge("After")
             }
             .padding(8)
         }

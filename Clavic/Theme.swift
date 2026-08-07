@@ -6,6 +6,7 @@
 //
 
 import SwiftUI
+import UIKit
 
 enum Theme {
 
@@ -32,6 +33,28 @@ enum Theme {
     static let warning = Color(red: 0.95, green: 0.62, blue: 0.10)
     static let danger = Color(red: 0.95, green: 0.26, blue: 0.30)
 
+    /// Dritte Leitfarbe „Go" (frisches Grün): signalisiert den WEG — der nächste
+    /// Schritt bzw. die fertige Aktion. Blau = Auswahl/Marke, Weiß = Fläche,
+    /// Grün = „hier geht's weiter / jetzt erstellen".
+    static let go = Color(red: 0.12, green: 0.76, blue: 0.42)
+    static let goSoft = Color(red: 0.12, green: 0.76, blue: 0.42).opacity(0.12)
+    static let goGradient = LinearGradient(
+        colors: [
+            Color(red: 0.08, green: 0.68, blue: 0.38),
+            Color(red: 0.18, green: 0.84, blue: 0.50)
+        ],
+        startPoint: .topLeading,
+        endPoint: .bottomTrailing
+    )
+
+    /// Blauer Kontrast-Fade von unten nach oben (legt sich hinter Inhalte,
+    /// gibt dem unteren Bereich — CTA/Eingaben — mehr Tiefe).
+    static let bottomFade = LinearGradient(
+        colors: [accent.opacity(0.14), accent.opacity(0.05), .clear],
+        startPoint: .bottom,
+        endPoint: .center
+    )
+
     /// Marken-Verlauf für Buttons & Highlights
     static let brandGradient = LinearGradient(
         colors: [
@@ -48,6 +71,13 @@ enum Theme {
     static let cornerMedium: CGFloat = 16
     static let cornerSmall: CGFloat = 12
     static let screenPadding: CGFloat = 18
+}
+
+/// Blendet die Tastatur aus — feldunabhängig (für „Done"/Enter überall).
+@MainActor
+func hideKeyboard() {
+    UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),
+                                    to: nil, from: nil, for: nil)
 }
 
 // MARK: - Wiederverwendbare Stile
@@ -162,19 +192,20 @@ struct SelectableChip: View {
                 Text(title)
                     .font(.system(size: 14, weight: .semibold, design: .rounded))
             }
-            .foregroundStyle(isSelected ? Theme.accent : Theme.textSecondary)
-            .padding(.vertical, 9)
-            .padding(.horizontal, 14)
+            // Eindeutiger An/Aus-Zustand: ausgewählt = voll gefüllt (weiß auf
+            // Akzent), nicht ausgewählt = ruhige weiße Pille mit feinem Rand.
+            .foregroundStyle(isSelected ? .white : Theme.textSecondary)
+            .padding(.vertical, 10)
+            .padding(.horizontal, 16)
             .background(
-                isSelected ? AnyShapeStyle(Theme.accentSoft) : AnyShapeStyle(Theme.surfaceHigh),
+                isSelected ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Theme.surface),
                 in: Capsule()
             )
-            .overlay(
-                Capsule().strokeBorder(
-                    isSelected ? Theme.accent.opacity(0.6) : Theme.stroke,
-                    lineWidth: 1
-                )
-            )
+            .overlay {
+                if !isSelected {
+                    Capsule().strokeBorder(Theme.stroke, lineWidth: 1)
+                }
+            }
         }
         .buttonStyle(.plain)
         .animation(.spring(duration: 0.25), value: isSelected)

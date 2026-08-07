@@ -18,29 +18,40 @@ import StoreKit
 enum StoreIDs {
     static let weekly = "Clavic.W"
     static let yearly = "Clavic.Y"
-    // Credit-Packs: 1 Credit = 1 Video. Preise sind auf 720p-Kosten kalkuliert,
-    // erzeugt wird in 480p → wir sind immer im Plus.
+    // Credit-Packs. Die Produkt-IDs heißen historisch .10/.30/.75, die
+    // gewährte Credit-Menge ist aber großzügiger gestaffelt (siehe creditPacks).
+    // Auch nach 30 % Apple + AI-Kosten bleiben ~52–58 % Marge.
     static let credits10 = "Clavic.10"
     static let credits30 = "Clavic.30"
     static let credits75 = "Clavic.75"
 
     static let subscriptions: Set<String> = [weekly, yearly]
-    static let creditPacks: [String: Int] = [credits10: 10, credits30: 30, credits75: 75]
+    // Pro Produkt-ID die gewährte Credit-Menge. FAIRE Bulk-Preise (mehr Credits
+    // als die Abos pro $), trotzdem profitabel selbst wenn der User ALLE Credits
+    // ins teuerste Template (Fruit Story / Veo) steckt:
+    //   $24,99→40 (~$0,62/cr) · $69,99→110 (~$0,64/cr) · $135,99→220 (~$0,62/cr).
+    static let creditPacks: [String: Int] = [credits10: 40, credits30: 110, credits75: 220]
     static let all: [String] = [weekly, yearly, credits10, credits30, credits75]
 
     /// Credits, die ein Abo pro Abrechnungszeitraum gutschreibt (1 Credit = 1 Video).
     static let subscriptionCredits: [String: Int] = [weekly: 10, yearly: 150]
 }
 
-enum StoreError: Error { case failedVerification }
+enum StoreError: Error {
+    case failedVerification
+    /// Credit-Packs nur mit aktivem Abo kaufbar.
+    case subscriptionRequired
+}
 
 @Observable
 @MainActor
 final class Store {
     static let creditsKey = "clavic.credits"
     static let grantedTxKey = "clavic.grantedTransactions"
-    /// Gratis-Videos zum Ausprobieren (1 Credit = 1 Video).
-    static let defaultCredits = 3
+    /// Willkommens-Credits für neue Nutzer (einmalig nach Anmeldung).
+    static let welcomeCredits = 3
+    static let defaultCredits = 0
+    static let welcomeGrantedKey = "clavic.welcomeCreditsGranted"
 
     private(set) var products: [Product] = []
     private(set) var isPro = false
@@ -91,6 +102,9 @@ final class Store {
         products.filter { $0.type == .autoRenewable }.sorted { $0.price < $1.price }
     }
 
+    /// Alias für Paywall — Weekly + Yearly.
+    var mainSubscriptions: [Product] { subscriptions }
+
     var creditPacks: [Product] {
         products.filter { $0.type == .consumable }.sorted { $0.price < $1.price }
     }
@@ -99,14 +113,30 @@ final class Store {
 
     @discardableResult
     func purchase(_ product: Product) async throws -> Bool {
+        guard canPurchase(product) else {
+            throw StoreError.subscriptionRequired
+        }
         let result = try await product.purchase()
         switch result {
         case .success(let verification):
             let transaction = try checkVerified(verification)
+            // Erst Entitlement/Credits verarbeiten (setzt isPro) – das darf NIE
+            // von RevenueCat abhängen oder durch dessen Netzwerk blockiert werden.
             await handle(transaction)
             await transaction.finish()
+            // Kauf an RevenueCat melden – nicht-blockierend.
+            Task { await RevenueCatManager.record(result) }
+            // Revenue-Event an AppsFlyer (→ TikTok ROAS-Postback).
+            AppsFlyerEventTracker.trackSubscriptionPurchase(.init(
+                value: NSDecimalNumber(decimal: product.price).doubleValue,
+                currency: transaction.currency?.identifier ?? Locale.current.currency?.identifier ?? "USD",
+                productId: product.id,
+                plan: product.id,
+                transactionId: String(transaction.id)
+            ))
             return true
         case .userCancelled, .pending:
+            Task { await RevenueCatManager.record(result) }
             return false
         @unknown default:
             return false
@@ -137,7 +167,13 @@ final class Store {
             if let amount = StoreIDs.subscriptionCredits[transaction.productID] {
                 grantCredits(amount, for: transaction)
             }
-            await refreshEntitlements()
+            // Direkt aus der verifizierten Transaktion freischalten. NICHT über
+            // refreshEntitlements gehen – `Transaction.currentEntitlements` meldet
+            // einen frischen Kauf teils verzögert und würde isPro fälschlich auf
+            // false zurücksetzen (Paywall bliebe stehen).
+            let active = transaction.revocationDate == nil
+                && (transaction.expirationDate.map { $0 > .now } ?? true)
+            isPro = active
         } else if let amount = StoreIDs.creditPacks[transaction.productID] {
             // Credit-Pack: Credits bei jedem Kauf. Jeder Kauf hat eine eigene
             // Transaction-ID → beim nächsten Kauf wird erneut gutgeschrieben.
@@ -162,6 +198,8 @@ final class Store {
                 guard let self else { continue }
                 if let transaction = try? await self.checkVerifiedAsync(result) {
                     await self.handle(transaction)
+                    // Verlängerungen/aktualisierte Transaktionen an RevenueCat melden.
+                    RevenueCatManager.record(productID: transaction.productID)
                     await transaction.finish()
                 }
             }
@@ -191,8 +229,28 @@ final class Store {
     /// Kosten einer Generierung: 1 Credit pro Video (unabhängig von der Dauer).
     func cost(forDuration duration: Int) -> Int { 1 }
 
+    /// Generieren ist nur mit aktivem Abo möglich (Credit-Packs laden nur Guthaben auf).
+    var canCreate: Bool { isPro }
+
+    /// Credit-Packs nur mit aktivem Abo kaufbar.
+    var canPurchaseCredits: Bool { isPro }
+
+    func canPurchase(_ product: Product) -> Bool {
+        if StoreIDs.creditPacks[product.id] != nil {
+            return isPro
+        }
+        return true
+    }
+
     /// Kann der Nutzer eine Generierung mit diesen Kosten starten?
     func canAfford(_ cost: Int) -> Bool { credits >= cost }
+
+    /// Einmalige Willkommens-Credits nach der ersten Anmeldung.
+    func grantWelcomeCreditsIfNeeded() {
+        guard !UserDefaults.standard.bool(forKey: Self.welcomeGrantedKey) else { return }
+        credits += Self.welcomeCredits
+        UserDefaults.standard.set(true, forKey: Self.welcomeGrantedKey)
+    }
 
     /// Zieht Credits ab.
     func consume(_ cost: Int) {

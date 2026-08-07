@@ -10,6 +10,7 @@ import SwiftUI
 struct DiscoverView: View {
     let onSelect: (VideoTemplate) -> Void
 
+    @Environment(TemplateStore.self) private var store
     @State private var category: TemplateCategory = .all
 
     private let columns = [
@@ -18,33 +19,33 @@ struct DiscoverView: View {
     ]
 
     private var gridTemplates: [VideoTemplate] {
-        TemplateLibrary.filtered(by: category)
+        store.filtered(by: category)
     }
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
-                trendingSection
+                clavicToolsSection
                 categorySection
                 gridSection
             }
             .padding(.top, 8)
-            .padding(.bottom, 120)
+            .padding(.bottom, 16)   // Tab-Bar-Freiraum wird via safeAreaInset gesichert
         }
     }
 
-    // MARK: - Trending
+    // MARK: - Clavic Tools (App-eigene Pro-Werkzeuge ganz oben)
 
-    private var trendingSection: some View {
+    private var clavicToolsSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Trending")
+            Text("Clavic Tools")
                 .font(.system(size: 22, weight: .bold, design: .rounded))
                 .foregroundStyle(Theme.textPrimary)
                 .padding(.horizontal, Theme.screenPadding)
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 12) {
-                    ForEach(TemplateLibrary.trending) { template in
+                    ForEach(store.filtered(by: .tools)) { template in
                         Button {
                             onSelect(template)
                         } label: {
@@ -179,14 +180,15 @@ struct TemplateTile: View {
             )
             VStack(alignment: .leading, spacing: 2) {
                 Text(template.title)
-                    .font(.system(size: 15, weight: .bold, design: .rounded))
+                    .font(.system(size: 13, weight: .bold, design: .rounded))
                     .foregroundStyle(.white)
-                    .lineLimit(1)
-                Text(template.hashtag)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.white.opacity(0.85))
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.8)
+                    .multilineTextAlignment(.leading)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             .padding(12)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             NicheBadge(category: template.category)
                 .padding(10)

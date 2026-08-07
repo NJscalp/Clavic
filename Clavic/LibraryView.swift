@@ -31,17 +31,18 @@ struct LibraryView: View {
                     .padding(.horizontal, Theme.screenPadding)
                     .padding(.top, 8)
 
-                    LazyVGrid(columns: columns, spacing: 12) {
-                        ForEach(projects) { project in
+                    LazyVGrid(columns: columns, alignment: .center, spacing: 12) {
+                        ForEach(Array(projects.enumerated()), id: \.element.id) { index, project in
                             NavigationLink(value: project) {
-                                ProjectCard(project: project)
+                                // Nummerierung chronologisch: älteste = #1.
+                                ProjectCard(project: project, number: projects.count - index)
                             }
                             .buttonStyle(.plain)
                         }
                     }
                     .padding(.horizontal, Theme.screenPadding)
                     .padding(.top, 8)
-                    .padding(.bottom, 120)
+                    .padding(.bottom, 16)   // Tab-Bar-Freiraum via safeAreaInset gesichert
                 }
             }
         }
@@ -60,7 +61,7 @@ struct LibraryView: View {
             Text("Nothing here yet")
                 .font(.system(size: 20, weight: .semibold, design: .rounded))
                 .foregroundStyle(Theme.textPrimary)
-            Text("Tap the wand at the bottom right\nor pick a template to start.")
+            Text("Pick a template in Discover or tap\nthe wand below to start creating.")
                 .font(.system(size: 15))
                 .foregroundStyle(Theme.textSecondary)
                 .multilineTextAlignment(.center)
@@ -74,24 +75,40 @@ struct LibraryView: View {
 
 struct ProjectCard: View {
     let project: VideoProject
+    var number: Int = 1
+
+    /// Name des genutzten Templates (Fallback für freie Generierungen).
+    private var displayName: String {
+        project.templateTitle.isEmpty ? "Custom video" : project.templateTitle
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             thumbnail
-            VStack(alignment: .leading, spacing: 6) {
-                Text(project.prompt)
-                    .font(.system(size: 13, weight: .medium))
+            // Feste Höhe → alle Karten sind gleich hoch, auch bei langen Namen
+            // (verhindert ungleiche/überlappende Container im Raster).
+            VStack(alignment: .leading, spacing: 4) {
+                Text(displayName)
+                    .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(Theme.textPrimary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
+                    .lineLimit(1)
+                    .truncationMode(.tail)
+                Text("Creation #\(number)")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundStyle(Theme.textTertiary)
+                    .lineLimit(1)
                 HStack(spacing: 6) {
                     statusBadge
                     Spacer()
                     Text(project.createdAt, format: .relative(presentation: .named))
                         .font(.system(size: 11))
                         .foregroundStyle(Theme.textTertiary)
+                        .lineLimit(1)
                 }
+                .padding(.top, 2)
             }
+            .frame(height: 78, alignment: .top)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(10)
         }
         .cardStyle()
@@ -99,32 +116,39 @@ struct ProjectCard: View {
     }
 
     private var thumbnail: some View {
-        ZStack {
-            if let data = project.thumbnailData, let image = UIImage(data: data) {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-            } else if project.status.isActive {
-                // Saubere Lade-Animation: das Intro-Video als Loop.
-                Rectangle().fill(Theme.background)
-                IntroLoader()
-                    .frame(width: 76, height: 76)
-                    .allowsHitTesting(false)
-            } else {
-                Rectangle().fill(Theme.surfaceHigh)
-                placeholderContent
-            }
+        // Feste 4:3-Kachel, deren Größe von Color.clear (nicht vom Bild) bestimmt
+        // wird. So werden ALLE Creations im Raster in der gleichen Standardgröße
+        // angezeigt – egal welches Seitenverhältnis das Video hat. Das echte
+        // Format sieht man erst beim Öffnen.
+        Color.clear
+            .aspectRatio(4.0 / 3.0, contentMode: .fit)
+            .frame(maxWidth: .infinity)
+            .overlay {
+                ZStack {
+                    if let data = project.thumbnailData, let image = UIImage(data: data) {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFill()
+                    } else if project.status.isActive {
+                        // Saubere Lade-Animation: das Intro-Video als Loop.
+                        Rectangle().fill(Theme.background)
+                        IntroLoader()
+                            .frame(width: 76, height: 76)
+                            .allowsHitTesting(false)
+                    } else {
+                        Rectangle().fill(Theme.surfaceHigh)
+                        placeholderContent
+                    }
 
-            if project.status == .succeeded && !project.isImageOutput {
-                Image(systemName: "play.circle.fill")
-                    .font(.system(size: 34))
-                    .foregroundStyle(.white.opacity(0.95))
-                    .shadow(color: .black.opacity(0.4), radius: 8)
+                    if project.status == .succeeded && !project.isImageOutput {
+                        Image(systemName: "play.circle.fill")
+                            .font(.system(size: 34))
+                            .foregroundStyle(.white.opacity(0.95))
+                            .shadow(color: .black.opacity(0.4), radius: 8)
+                    }
+                }
             }
-        }
-        .frame(height: 130)
-        .frame(maxWidth: .infinity)
-        .clipped()
+            .clipped()
     }
 
     @ViewBuilder
@@ -133,9 +157,13 @@ struct ProjectCard: View {
         case .queued, .running:
             VStack(spacing: 10) {
                 ProgressView().tint(Theme.accent)
-                Text(project.status.label)
-                    .font(.system(size: 12, weight: .medium))
+                Text(project.progressStage.isEmpty ? project.status.label : project.progressStage)
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundStyle(Theme.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .padding(.horizontal, 6)
+                    .animation(.easeInOut(duration: 0.25), value: project.progressStage)
             }
         case .failed, .cancelled:
             Image(systemName: "exclamationmark.triangle")

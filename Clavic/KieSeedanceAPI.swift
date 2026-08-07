@@ -27,26 +27,62 @@ enum KieSeedanceAPI {
 
     // MARK: - Request einreichen
 
-    /// Reicht den Job über das Backend (Provider kie) ein und gibt die kie-`taskId` zurück.
+    /// Reicht den Job über das Backend ein (Provider WAVESPEED — alle Modelle
+    /// laufen über WaveSpeed) und gibt die `taskId` zurück.
+    /// • Bild→Video: Seedance 2.0 Fast (WaveSpeed)
+    /// • Referenz-Video / Motion Control: Kling Omni 3 (O3) VIDEO-EDIT —
+    ///   Person aus dem Bild ersetzt die Person im Video, Bewegung, Timing,
+    ///   Szene und Original-Ton bleiben erhalten (keep_original_sound = default).
     static func createTask(_ request: SeedanceRequest) async throws -> String {
         guard BackendConfiguration.isConfigured else { throw SeedanceError.missingBackend }
 
         let images = request.referenceImages.map { $0.base64EncodedString() }
-        var body: [String: Any] = [
-            "provider": "kie",
-            "prompt": request.prompt,
-            "images": images,
-            "resolution": request.resolution.rawValue,
-            "duration": request.duration,
-            "aspectRatio": kieAspectRatio(request.ratio),
-            "generateAudio": request.generateAudio,
-            "fast": request.useFastModel
-        ]
-        if !request.referenceVideoURLs.isEmpty {
-            body["videoUrls"] = request.referenceVideoURLs
+        let hasRefVideo = !request.referenceVideoURLs.isEmpty || !request.referenceVideosData.isEmpty
+
+        var body: [String: Any] = ["provider": "wavespeed", "images": images]
+
+        if request.model?.contains("gemini-omni-flash") == true {
+            // Google Gemini Omni Flash (reference-to-video): Bilder (Pflicht) +
+            // optionales Referenz-Video + Prompt, Dauer 1-8 s.
+            body["model"] = "google/gemini-omni-flash/reference-to-video"
+            body["prompt"] = request.prompt
+            body["imagesField"] = "images"
+            body["aspectRatio"] = "9:16"
+            body["duration"] = min(8, max(3, request.duration))
+            if !request.referenceVideosData.isEmpty {
+                body["videosField"] = "videos"
+                body["videos"] = request.referenceVideosData.map { $0.base64EncodedString() }
+            } else if !request.referenceVideoURLs.isEmpty {
+                body["videosField"] = "videos"
+                body["videoUrls"] = request.referenceVideoURLs
+            }
+        } else if request.kling || hasRefVideo {
+            // Referenz-Video / Motion Control: Kling O3 (Omni 3) VIDEO-EDIT.
+            // Schema: prompt (Pflicht) + video (Pflicht) + images (max 4).
+            // Nur die Person wird getauscht; Bewegung, Kamera, Szene und der
+            // Original-Ton des Referenzvideos bleiben erhalten. Kein
+            // resolution-Feld — O3 kennt es nicht.
+            body["model"] = "kwaivgi/kling-video-o3-std/video-edit"
+            let prompt = request.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
+            body["prompt"] = prompt.isEmpty ? Self.defaultSwapPrompt : prompt
+            body["imagesField"] = "images"
+            if !request.referenceVideoURLs.isEmpty {
+                body["videoUrls"] = request.referenceVideoURLs
+            }
+            if !request.referenceVideosData.isEmpty {
+                body["videos"] = request.referenceVideosData.map { $0.base64EncodedString() }
+            }
+        } else {
+            // Bild→Video: Seedance 2.0 Fast auf WaveSpeed.
+            body["model"] = "bytedance/seedance-2.0-fast/image-to-video"
+            body["prompt"] = request.prompt
+            body["resolution"] = request.resolution.rawValue
+            body["duration"] = max(request.duration, 4)   // WaveSpeed-Minimum 4 s
+            body["aspectRatio"] = kieAspectRatio(request.ratio)
+            body["generateAudio"] = request.generateAudio
         }
 
-        // Upload + Job-Erstellung können bei kie etwas dauern.
+        // Upload + Job-Erstellung können etwas dauern.
         let json = try await post(submitURL, body: body, timeout: 120)
         guard let data = json["data"] as? [String: Any] else {
             throw SeedanceError.invalidResponse
@@ -57,13 +93,20 @@ enum KieSeedanceAPI {
         throw SeedanceError.invalidResponse
     }
 
+    /// Standard-Prompt für Kling O3 video-edit, wenn das Template/Studio keinen
+    /// eigenen Prompt mitgibt (z. B. der Kling-Motion-Flow: nur Foto + Video).
+    private static let defaultSwapPrompt = "Replace the main person in the video with the person from the image. Keep exactly the same movements, body motion, timing, camera work, background and scene from the video. Preserve the exact identity, face and hair of the person from the image. Photorealistic, natural, looks like real footage, no morphing, no distortion. No text, no watermark."
+
     // MARK: - Status abfragen
 
-    /// `id` ist die kie-`taskId`.
+    /// `id` ist die WaveSpeed-`taskId` (Alt-Tasks mit "ws:"-Präfix werden toleriert).
     static func fetchTask(id taskID: String) async throws -> SeedanceTaskState {
         guard BackendConfiguration.isConfigured else { throw SeedanceError.missingBackend }
 
-        let json = try await post(statusURL, body: ["provider": "kie", "taskId": taskID], timeout: 30)
+        let cleanID = taskID.hasPrefix("ws:") ? String(taskID.dropFirst(3)) : taskID
+        let json = try await post(statusURL,
+                                  body: ["provider": "wavespeed", "taskId": cleanID],
+                                  timeout: 30)
         guard let data = json["data"] as? [String: Any] else {
             throw SeedanceError.invalidResponse
         }
@@ -77,11 +120,13 @@ enum KieSeedanceAPI {
         case "succeeded":
             return SeedanceTaskState(status: .succeeded, videoURL: data["videoUrl"] as? String, failureReason: nil)
         default:
-            return SeedanceTaskState(
-                status: .failed,
-                videoURL: nil,
-                failureReason: data["failMsg"] as? String ?? "The generation failed."
-            )
+            // Rohen Provider-Fehler (z. B. „video pixel count … >= 409600")
+            // nie ungefiltert zeigen → in eine verständliche Meldung übersetzen.
+            let rawMsg = data["failMsg"] as? String ?? ""
+            let friendly = rawMsg.isEmpty
+                ? "The generation failed. Your credits were refunded — please try again."
+                : friendlyBackendError(json: ["error": rawMsg], statusCode: 200)
+            return SeedanceTaskState(status: .failed, videoURL: nil, failureReason: friendly)
         }
     }
 
@@ -103,10 +148,7 @@ enum KieSeedanceAPI {
         let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
 
         guard (200..<300).contains(http.statusCode) else {
-            let message = json?["error"] as? String
-                ?? json?["message"] as? String
-                ?? "Server error (\(http.statusCode))."
-            throw SeedanceError.server(message)
+            throw SeedanceError.server(friendlyBackendError(json: json, statusCode: http.statusCode))
         }
         guard let json else { throw SeedanceError.invalidResponse }
         return json

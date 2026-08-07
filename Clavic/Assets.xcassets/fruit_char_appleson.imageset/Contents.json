@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "fruit_char_appleson.png",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

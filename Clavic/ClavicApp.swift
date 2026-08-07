@@ -8,10 +8,17 @@ import SwiftData
 
 @main
 struct ClavicApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @Environment(\.scenePhase) private var scenePhase
     @State private var generationManager = GenerationManager()
     @State private var store = Store()
     @State private var showIntro = true
+
+    init() {
+        // RevenueCat einmalig beim Start konfigurieren (Observer-Mode).
+        // Trackt Downloads/Nutzer; Käufe werden aus Store.swift gemeldet.
+        RevenueCatManager.configure()
+    }
 
     var sharedModelContainer: ModelContainer = {
         let schema = Schema([
@@ -38,6 +45,9 @@ struct ClavicApp: App {
                         .transition(.opacity)
                         .zIndex(10)
                 }
+            }
+            .onOpenURL { url in
+                AppsFlyerEventTracker.handleOpenURL(url, options: [:])
             }
         }
         .modelContainer(sharedModelContainer)

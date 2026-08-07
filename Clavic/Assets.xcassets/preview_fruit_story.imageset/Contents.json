@@ -1,0 +1,12 @@
+{
+  "images" : [
+    {
+      "filename" : "preview_fruit_story.png",
+      "idiom" : "universal"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

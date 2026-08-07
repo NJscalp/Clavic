@@ -14,11 +14,11 @@ struct SignInView: View {
     @Binding var isSignedIn: Bool
 
     @State private var showError = false
-    @State private var legalDocument: LegalDocument?
 
+    // Viraler Before/After: leere Garage → echter Ferrari + Porsche.
     private let example: OnboardingExample = .slider(
-        before: "preview_glowup_swap_before",
-        after: "preview_glowup_swap_after"
+        before: "preview_image_edit_before",
+        after: "preview_image_edit_after"
     )
 
     var body: some View {
@@ -27,7 +27,7 @@ struct SignInView: View {
 
             // Beispiel-Visual oben
             VStack(spacing: 0) {
-                ExampleCardView(example: example, corner: 28)
+                ExampleCardView(example: example, corner: 28, animated: true)
                     .frame(maxWidth: .infinity)
                     .padding(.horizontal, 18)
                     .padding(.top, 70)
@@ -37,9 +37,6 @@ struct SignInView: View {
             sheet
         }
         .preferredColorScheme(.light)
-        .sheet(item: $legalDocument) { doc in
-            LegalTextView(document: doc)
-        }
         .alert("Couldn't sign in", isPresented: $showError) {
             Button("Try again", role: .cancel) {}
         } message: {
@@ -75,10 +72,10 @@ struct SignInView: View {
                 Text("By continuing, you agree to our")
                     .foregroundStyle(Theme.textTertiary)
                 HStack(spacing: 4) {
-                    Button("Terms of Use") { legalDocument = .terms }
+                    Link("Terms of Use", destination: LegalLinks.terms)
                         .foregroundStyle(Theme.accent)
                     Text("and").foregroundStyle(Theme.textTertiary)
-                    Button("Privacy Policy") { legalDocument = .privacy }
+                    Link("Privacy Policy", destination: LegalLinks.privacy)
                         .foregroundStyle(Theme.accent)
                 }
             }

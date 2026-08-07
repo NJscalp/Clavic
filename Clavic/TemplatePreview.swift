@@ -12,17 +12,32 @@
 import SwiftUI
 import AVFoundation
 
+/// Schaltet die laufenden Kachel-Vorschauen (Slider-Animation, Video-Loops)
+/// global ab, wenn sie nicht sichtbar sind (anderer Tab, offenes Sheet,
+/// App im Hintergrund). Das hält Tab-Wechsel und Tastatur flüssig.
+private struct PreviewsActiveKey: EnvironmentKey {
+    static let defaultValue = true
+}
+
+extension EnvironmentValues {
+    var previewsActive: Bool {
+        get { self[PreviewsActiveKey.self] }
+        set { self[PreviewsActiveKey.self] = newValue }
+    }
+}
+
 /// Overlay, das die Kachelfläche mit einer Vorschau füllt (oder leer bleibt).
 struct TemplatePreviewOverlay: View {
     let template: VideoTemplate
+    @Environment(\.previewsActive) private var previewsActive
 
     var body: some View {
         if let before = template.previewBeforeImage,
            let after = template.previewAfterImage {
-            BeforeAfterSlider(before: before, after: after, showLabels: false)
+            BeforeAfterSlider(before: before, after: after, showLabels: false, isAnimating: previewsActive)
                 .allowsHitTesting(false)
         } else if let url = template.previewVideoURL {
-            LoopingVideoView(url: url)
+            LoopingVideoView(url: url, isActive: previewsActive)
                 .allowsHitTesting(false)
         } else if let image = template.previewImage {
             Color.clear.overlay(
@@ -40,6 +55,7 @@ struct TemplatePreviewOverlay: View {
 /// Stummer, endlos loopender Video-Player ohne Steuerelemente (für Kacheln).
 struct LoopingVideoView: UIViewRepresentable {
     let url: URL
+    var isActive: Bool = true
 
     func makeUIView(context: Context) -> LoopingPlayerUIView {
         LoopingPlayerUIView(url: url)
@@ -47,6 +63,7 @@ struct LoopingVideoView: UIViewRepresentable {
 
     func updateUIView(_ uiView: LoopingPlayerUIView, context: Context) {
         uiView.update(url: url)
+        uiView.setActive(isActive)
     }
 
     static func dismantleUIView(_ uiView: LoopingPlayerUIView, coordinator: ()) {
@@ -60,6 +77,8 @@ final class LoopingPlayerUIView: UIView {
     private var queuePlayer: AVQueuePlayer?
     private var looper: AVPlayerLooper?
     private var currentURL: URL?
+    /// Vom View gewünschter Zustand (sichtbar/aktiv). Window-Zustand hat Vorrang.
+    private var wantsActive = true
 
     private var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
 
@@ -77,6 +96,18 @@ final class LoopingPlayerUIView: UIView {
         setup(url: url)
     }
 
+    /// Pausiert/spielt den vorhandenen Player ohne teure Neuerstellung.
+    func setActive(_ active: Bool) {
+        guard wantsActive != active else { return }
+        wantsActive = active
+        applyPlaybackState()
+    }
+
+    private func applyPlaybackState() {
+        let shouldPlay = wantsActive && window != nil
+        if shouldPlay { queuePlayer?.play() } else { queuePlayer?.pause() }
+    }
+
     private func setup(url: URL) {
         teardown()
         currentURL = url
@@ -88,7 +119,7 @@ final class LoopingPlayerUIView: UIView {
         looper = AVPlayerLooper(player: player, templateItem: item)
         playerLayer.player = player
         queuePlayer = player
-        player.play()
+        applyPlaybackState()
     }
 
     func teardown() {
@@ -103,10 +134,7 @@ final class LoopingPlayerUIView: UIView {
     override func willMove(toWindow newWindow: UIWindow?) {
         super.willMove(toWindow: newWindow)
         // Pausiert, sobald die Kachel aus der Ansicht scrollt; spielt wieder beim Erscheinen.
-        if newWindow == nil {
-            queuePlayer?.pause()
-        } else {
-            queuePlayer?.play()
-        }
+        let shouldPlay = wantsActive && newWindow != nil
+        if shouldPlay { queuePlayer?.play() } else { queuePlayer?.pause() }
     }
 }

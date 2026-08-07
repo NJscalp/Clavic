@@ -2,30 +2,41 @@
 //  HardPaywallView.swift
 //  Clavic
 //
-//  Welcome-Paywall direkt nach der Anmeldung. Ruhiges, hochwertiges Design,
-//  passend zur App (kein „Sale"-Ton). Passt komplett auf den Bildschirm und
-//  scrollt nur auf sehr kleinen Geräten.
+//  Legacy full-screen subscription view. No longer used as a blocking gate —
+//  see ContentView (dismissible PaywallView sheet). Kept for reference.
 //
 
 import SwiftUI
 import StoreKit
 
-struct HardPaywallView: View {
-    /// Wird aufgerufen, wenn der Nutzer ohne Kauf fortfährt.
-    var onClose: () -> Void
+/// Palette der dunklen, immersiven Paywall (hebt sie klar vom hellen App-UI ab,
+/// damit sie nicht „wie ein Dokument" wirkt, sondern hochwertig/premium).
+private enum PW {
+    static let bgTop = Color(red: 0.11, green: 0.10, blue: 0.17)
+    static let bgMid = Color(red: 0.07, green: 0.06, blue: 0.11)
+    static let bgBottom = Color(red: 0.03, green: 0.03, blue: 0.06)
+    static let card = Color.white.opacity(0.06)
+    static let cardStroke = Color.white.opacity(0.10)
+    static let text = Color.white
+    static let textSec = Color.white.opacity(0.64)
+    static let textTer = Color.white.opacity(0.40)
+    static let gold = Color(red: 1.0, green: 0.78, blue: 0.30)
+}
 
+struct HardPaywallView: View {
     @Environment(Store.self) private var store
 
     @State private var selected: Product?
     @State private var isPurchasing = false
     @State private var infoMessage: String?
-    @State private var legalDocument: LegalDocument?
+    /// Sanfte Einblend-Animation beim Erscheinen.
+    @State private var appeared = false
 
     private let benefits: [(String, String)] = [
-        ("infinity", "Credits refilled every period"),
-        ("sparkles", "Every trend, edit & upscaler"),
-        ("bolt.fill", "Priority processing"),
-        ("checkmark.seal.fill", "No watermark on your exports")
+        ("sparkles", "Every trend, dance & fan cam"),
+        ("infinity", "Credits topped up automatically"),
+        ("wand.and.stars", "Realistic AI photos & glow-ups"),
+        ("checkmark.seal.fill", "No watermark — post anywhere")
     ]
 
     var body: some View {
@@ -35,8 +46,10 @@ struct HardPaywallView: View {
             let showVisual = !isSmall
             let gap: CGFloat = isSmall ? 10 : 16
             let titleSize: CGFloat = isSmall ? 23 : 28
-            let visualH = min(h * 0.15, 132)
-            let contentW = geo.size.width - Theme.screenPadding * 2
+            let visualH = min(h * 0.2, 172)
+            // Inhaltsspalte auf dem iPad/Querformat begrenzen, damit nichts
+            // über die volle Breite gestreckt wirkt; wird zentriert dargestellt.
+            let contentW = min(geo.size.width - Theme.screenPadding * 2, 460)
 
             VStack(spacing: 0) {
                 if showVisual {
@@ -48,9 +61,13 @@ struct HardPaywallView: View {
 
                 Spacer(minLength: gap)
                 benefitList(isSmall: isSmall)
+                    .opacity(appeared ? 1 : 0)
+                    .offset(y: appeared ? 0 : 16)
 
                 Spacer(minLength: gap)
                 planSection
+                    .opacity(appeared ? 1 : 0)
+                    .offset(y: appeared ? 0 : 16)
 
                 Spacer(minLength: gap)
                 ctaBlock(isSmall: isSmall)
@@ -65,13 +82,27 @@ struct HardPaywallView: View {
             .frame(width: geo.size.width, height: geo.size.height, alignment: .top)
             .clipped()
         }
-        .background(Theme.background.ignoresSafeArea())
-        .preferredColorScheme(.light)
-        .onAppear { preselect() }
-        .onChange(of: store.subscriptions.count) { _, _ in preselect() }
-        .sheet(item: $legalDocument) { doc in
-            LegalTextView(document: doc)
+        .background {
+            ZStack {
+                LinearGradient(colors: [PW.bgTop, PW.bgMid, PW.bgBottom],
+                               startPoint: .top, endPoint: .bottom)
+                // Weiche Brand-Glows oben für Tiefe.
+                RadialGradient(colors: [Theme.accent.opacity(0.45), .clear],
+                               center: .init(x: 0.18, y: 0.02), startRadius: 0, endRadius: 360)
+                    .blendMode(.screen)
+                RadialGradient(colors: [Color(red: 0.55, green: 0.38, blue: 1).opacity(0.40), .clear],
+                               center: .init(x: 0.9, y: 0.12), startRadius: 0, endRadius: 320)
+                    .blendMode(.screen)
+            }
+            .ignoresSafeArea()
         }
+        .onAppear {
+            preselect()
+            withAnimation(.spring(duration: 0.7).delay(0.1)) { appeared = true }
+            AppsFlyerEventTracker.trackPaywallView()
+            AdTracking.requestAuthorizationIfAppropriate()
+        }
+        .onChange(of: store.subscriptions.count) { _, _ in preselect() }
         .alert(infoMessage ?? "", isPresented: Binding(
             get: { infoMessage != nil },
             set: { if !$0 { infoMessage = nil } }
@@ -80,15 +111,15 @@ struct HardPaywallView: View {
         }
     }
 
+
     // MARK: - Visual
 
     private func visual(height: CGFloat, width: CGFloat) -> some View {
-        MarqueeRow(
-            examples: OnboardingExamples.rowA,
-            cardWidth: height * 0.72,
-            cardHeight: height,
-            speed: 20
-        )
+        let rowH = (height - 8) / 2
+        return VStack(spacing: 8) {
+            MarqueeRow(examples: OnboardingExamples.rowA, cardWidth: rowH * 0.72, cardHeight: rowH, speed: 19)
+            MarqueeRow(examples: OnboardingExamples.rowB, cardWidth: rowH * 0.72, cardHeight: rowH, speed: 25, reversed: true)
+        }
         .frame(width: width, height: height)
         .clipped()
         .mask(
@@ -101,17 +132,17 @@ struct HardPaywallView: View {
     }
 
     private func titleBlock(titleSize: CGFloat, isSmall: Bool) -> some View {
-        VStack(spacing: isSmall ? 5 : 8) {
-            Text("Create without limits")
+        VStack(spacing: isSmall ? 6 : 9) {
+            (Text("Unlock the ").foregroundStyle(PW.text)
+             + Text("full studio").foregroundStyle(Theme.accent))
                 .font(.system(size: titleSize, weight: .heavy, design: .rounded))
-                .foregroundStyle(Theme.textPrimary)
                 .multilineTextAlignment(.center)
                 .minimumScaleFactor(0.8)
                 .lineLimit(1)
 
-            Text("Unlock every tool and keep your credits topped up – make as much as you want.")
+            Text("Every trend, dance and realistic AI edit — credits refill automatically.")
                 .font(.system(size: isSmall ? 13.5 : 15))
-                .foregroundStyle(Theme.textSecondary)
+                .foregroundStyle(PW.textSec)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 18)
@@ -120,58 +151,63 @@ struct HardPaywallView: View {
 
     private func benefitList(isSmall: Bool) -> some View {
         let items = isSmall ? Array(benefits.prefix(3)) : benefits
-        return VStack(spacing: isSmall ? 9 : 12) {
+        return VStack(spacing: isSmall ? 11 : 14) {
             ForEach(items, id: \.1) { icon, text in
                 HStack(spacing: 13) {
-                    Image(systemName: icon)
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Theme.accent)
-                        .frame(width: 24)
+                    ZStack {
+                        Circle().fill(Theme.accent.opacity(0.18)).frame(width: 30, height: 30)
+                        Image(systemName: icon)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundStyle(Theme.accent)
+                    }
                     Text(text)
                         .font(.system(size: isSmall ? 14 : 15, weight: .medium))
-                        .foregroundStyle(Theme.textPrimary)
+                        .foregroundStyle(PW.text)
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
                     Spacer()
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(Theme.success)
                 }
             }
         }
-        .padding(isSmall ? 13 : 16)
-        .cardStyle()
+        .padding(isSmall ? 15 : 18)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(PW.card, in: RoundedRectangle(cornerRadius: Theme.cornerLarge, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.cornerLarge, style: .continuous)
+                .strokeBorder(PW.cardStroke, lineWidth: 1)
+        )
     }
 
     // MARK: - Pläne
 
     private var planSection: some View {
         Group {
-            if !store.subscriptions.isEmpty {
-                VStack(spacing: 10) {
-                    ForEach(store.subscriptions, id: \.id) { product in
+            if !store.mainSubscriptions.isEmpty {
+                VStack(spacing: 11) {
+                    ForEach(store.mainSubscriptions, id: \.id) { product in
                         HardPlanCard(
                             product: product,
                             isSelected: selected?.id == product.id,
-                            isBestValue: product.id == StoreIDs.yearly
-                        ) { selected = product }
+                            isBestValue: product.id == StoreIDs.yearly,
+                            savingsPercent: savings(for: product)
+                        ) { withAnimation(.spring(duration: 0.25)) { selected = product } }
                     }
                 }
             } else if store.isLoadingProducts {
                 VStack(spacing: 10) {
-                    ProgressView()
+                    ProgressView().tint(.white)
                     Text("Loading plans …")
                         .font(.system(size: 13))
-                        .foregroundStyle(Theme.textTertiary)
+                        .foregroundStyle(PW.textTer)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(22)
-                .cardStyle()
+                .background(PW.card, in: RoundedRectangle(cornerRadius: Theme.cornerLarge, style: .continuous))
             } else {
                 VStack(spacing: 10) {
                     Text("Plans couldn't load.")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(Theme.textSecondary)
+                        .foregroundStyle(PW.textSec)
                     Button("Try again") {
                         Task { await store.reload(); preselect() }
                     }
@@ -179,9 +215,22 @@ struct HardPaywallView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(20)
-                .cardStyle()
+                .background(PW.card, in: RoundedRectangle(cornerRadius: Theme.cornerLarge, style: .continuous))
             }
         }
+    }
+
+    /// Ersparnis (%) vs. Wochen-Abo aufs Jahr gerechnet – nur fürs Jahres-Abo.
+    private func savings(for product: Product) -> Int? {
+        guard product.id == StoreIDs.yearly,
+              let weekly = store.products.first(where: { $0.id == StoreIDs.weekly }) else { return nil }
+        let yearAtWeekly = weekly.price * 52
+        guard yearAtWeekly > 0 else { return nil }
+        let fraction = (yearAtWeekly - product.price) / yearAtWeekly * 100
+        // Über doubleValue runden: NSDecimalNumber.intValue liefert bei Decimals
+        // mit sehr langer Nachkommastelle fälschlich 0.
+        let pct = Int(NSDecimalNumber(decimal: fraction).doubleValue)
+        return pct > 0 ? pct : nil
     }
 
     private func ctaBlock(isSmall: Bool) -> some View {
@@ -203,7 +252,7 @@ struct HardPaywallView: View {
 
             Text(ctaSubtitle)
                 .font(.system(size: 12.5))
-                .foregroundStyle(Theme.textTertiary)
+                .foregroundStyle(PW.textSec)
                 .multilineTextAlignment(.center)
 
             Button("Restore purchases") {
@@ -215,7 +264,7 @@ struct HardPaywallView: View {
                 }
             }
             .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(Theme.textSecondary)
+            .foregroundStyle(PW.textSec)
         }
     }
 
@@ -223,17 +272,17 @@ struct HardPaywallView: View {
         VStack(spacing: 4) {
             Text("Auto-renews until cancelled. Manage anytime in your App Store settings.")
                 .font(.system(size: 10.5))
-                .foregroundStyle(Theme.textTertiary)
+                .foregroundStyle(PW.textTer)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
 
             HStack(spacing: 4) {
-                Button("Terms of Use") { legalDocument = .terms }
-                Text("·").foregroundStyle(Theme.textTertiary)
-                Button("Privacy Policy") { legalDocument = .privacy }
+                Link("Terms of Use", destination: LegalLinks.terms)
+                Text("·").foregroundStyle(PW.textTer)
+                Link("Privacy Policy", destination: LegalLinks.privacy)
             }
             .font(.system(size: 10.5, weight: .medium))
-            .foregroundStyle(Theme.textSecondary)
+            .foregroundStyle(PW.textSec)
         }
         .padding(.horizontal, 24)
     }
@@ -241,38 +290,20 @@ struct HardPaywallView: View {
     // MARK: - Texte
 
     private var ctaTitle: String {
-        guard let selected else { return "Choose a plan" }
-        if let offer = selected.subscription?.introductoryOffer, offer.paymentMode == .freeTrial {
-            return "Start free trial"
-        }
-        return "Continue"
+        selected == nil ? "Choose a plan" : "Subscribe & continue"
     }
 
     private var ctaSubtitle: String {
         guard let selected else { return "Cancel anytime." }
-        if let offer = selected.subscription?.introductoryOffer, offer.paymentMode == .freeTrial {
-            return "\(trialDays(offer)) days free, then \(selected.displayPrice). Cancel anytime."
-        }
         return "\(selected.displayPrice), renews automatically. Cancel anytime."
-    }
-
-    private func trialDays(_ offer: Product.SubscriptionOffer) -> Int {
-        let p = offer.period
-        switch p.unit {
-        case .day: return p.value
-        case .week: return p.value * 7
-        case .month: return p.value * 30
-        case .year: return p.value * 365
-        @unknown default: return p.value
-        }
     }
 
     // MARK: - Aktionen
 
     private func preselect() {
-        if selected == nil || !store.subscriptions.contains(where: { $0.id == selected?.id }) {
-            selected = store.subscriptions.first(where: { $0.id == StoreIDs.yearly })
-                ?? store.subscriptions.first
+        if selected == nil || !store.mainSubscriptions.contains(where: { $0.id == selected?.id }) {
+            selected = store.mainSubscriptions.first(where: { $0.id == StoreIDs.yearly })
+                ?? store.mainSubscriptions.first
         }
     }
 
@@ -296,62 +327,123 @@ private struct HardPlanCard: View {
     let product: Product
     let isSelected: Bool
     let isBestValue: Bool
+    var savingsPercent: Int? = nil
     let action: () -> Void
+
+    private var corner: CGFloat { 18 }
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 14) {
+            HStack(spacing: 13) {
+                // Radio
                 ZStack {
                     Circle()
-                        .strokeBorder(isSelected ? Theme.accent : Theme.stroke, lineWidth: 2)
+                        .strokeBorder(isSelected ? Color.clear : Color.white.opacity(0.25), lineWidth: 2)
                         .frame(width: 24, height: 24)
                     if isSelected {
-                        Circle().fill(Theme.accent).frame(width: 13, height: 13)
+                        Circle().fill(Theme.brandGradient).frame(width: 24, height: 24)
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundStyle(.white)
                     }
                 }
 
-                HStack(spacing: 8) {
+                VStack(alignment: .leading, spacing: 3) {
                     Text(planLabel)
-                        .font(.system(size: 16.5, weight: .bold, design: .rounded))
-                        .foregroundStyle(Theme.textPrimary)
-                    if isBestValue {
-                        Text("Best value")
-                            .font(.system(size: 10, weight: .bold))
+                        .font(.system(size: 17, weight: .bold, design: .rounded))
+                        .foregroundStyle(PW.text)
+                    if let creditsText {
+                        Text(creditsText)
+                            .font(.system(size: 12.5, weight: .semibold))
                             .foregroundStyle(Theme.accent)
-                            .padding(.vertical, 3)
-                            .padding(.horizontal, 8)
-                            .background(Theme.accentSoft, in: Capsule())
                     }
                 }
 
                 Spacer()
 
-                Text(product.displayPrice)
-                    .font(.system(size: 16.5, weight: .bold, design: .rounded))
-                    .foregroundStyle(Theme.textPrimary)
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(product.displayPrice)
+                        .font(.system(size: 17, weight: .heavy, design: .rounded))
+                        .foregroundStyle(PW.text)
+                    if let perWeek {
+                        Text(perWeek)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundStyle(PW.textTer)
+                    }
+                }
             }
-            .padding(15)
+            .padding(.vertical, 15)
+            .padding(.horizontal, 16)
             .background(
-                isSelected ? AnyShapeStyle(Theme.accentSoft) : AnyShapeStyle(Theme.surface),
-                in: RoundedRectangle(cornerRadius: Theme.cornerMedium, style: .continuous)
+                isSelected ? AnyShapeStyle(Theme.accent.opacity(0.16)) : AnyShapeStyle(PW.card),
+                in: RoundedRectangle(cornerRadius: corner, style: .continuous)
             )
             .overlay(
-                RoundedRectangle(cornerRadius: Theme.cornerMedium, style: .continuous)
-                    .strokeBorder(isSelected ? Theme.accent : Theme.stroke, lineWidth: isSelected ? 2 : 1)
+                RoundedRectangle(cornerRadius: corner, style: .continuous)
+                    .strokeBorder(
+                        isSelected ? AnyShapeStyle(Theme.brandGradient) : AnyShapeStyle(PW.cardStroke),
+                        lineWidth: isSelected ? 2 : 1
+                    )
             )
+            .shadow(color: isSelected ? Theme.accent.opacity(0.35) : .clear, radius: 14, y: 6)
+            .overlay(alignment: .topTrailing) {
+                if isBestValue || savingsPercent != nil {
+                    Text(savingsPercent.map { "\($0)% off vs weekly" } ?? "Best value")
+                        .font(.system(size: 10, weight: .heavy, design: .rounded))
+                        .foregroundStyle(.white)
+                        .padding(.vertical, 4)
+                        .padding(.horizontal, 9)
+                        .background(Theme.brandGradient, in: Capsule())
+                        .offset(x: -10, y: -9)
+                        .shadow(color: Theme.accent.opacity(0.4), radius: 6, y: 2)
+                }
+            }
         }
         .buttonStyle(.plain)
     }
 
-    /// Zeigt nur „Weekly" bzw. „Yearly" – abgeleitet aus der Abo-Laufzeit.
+    /// Optionaler Pro-Woche-Preis (nur fürs Jahres-Abo, macht den Wert greifbar).
+    private var perWeek: String? {
+        guard product.id == StoreIDs.yearly else { return nil }
+        let weekly = product.price / 52
+        return weekly.formatted(product.priceFormatStyle) + " / week"
+    }
+
+    /// Wie viele Credits dieses Abo pro Zeitraum gutschreibt, z. B.
+    /// „10 credits / week" bzw. „150 credits / year". Periode nach Produkt-ID,
+    /// da StoreKit-Testing eine Woche teils als „7 Tage" meldet.
+    private var creditsText: String? {
+        guard let amount = StoreIDs.subscriptionCredits[product.id] else { return nil }
+        let per: String
+        switch product.id {
+        case StoreIDs.weekly: per = "week"
+        case StoreIDs.yearly: per = "year"
+        default:
+            switch product.subscription?.subscriptionPeriod.unit {
+            case .some(.day): per = "day"
+            case .some(.week): per = "week"
+            case .some(.month): per = "month"
+            case .some(.year): per = "year"
+            default: per = "period"
+            }
+        }
+        return "\(amount) credits / \(per)"
+    }
+
+    /// Plan-Name nach Produkt-ID (robust gegen StoreKit-Perioden-Eigenheiten).
     private var planLabel: String {
-        guard let period = product.subscription?.subscriptionPeriod else { return product.displayName }
-        switch period.unit {
-        case .day: return "Daily"
-        case .week: return "Weekly"
-        case .month: return "Monthly"
-        case .year: return "Yearly"
-        @unknown default: return product.displayName
+        switch product.id {
+        case StoreIDs.weekly: return "Weekly"
+        case StoreIDs.yearly: return "Yearly"
+        default:
+            guard let period = product.subscription?.subscriptionPeriod else { return product.displayName }
+            switch period.unit {
+            case .day: return "Daily"
+            case .week: return "Weekly"
+            case .month: return "Monthly"
+            case .year: return "Yearly"
+            @unknown default: return product.displayName
+            }
         }
     }
 }

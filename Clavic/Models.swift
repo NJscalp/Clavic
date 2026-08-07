@@ -76,6 +76,9 @@ final class VideoProject {
     var createdAt: Date = Date()
 
     var prompt: String = ""
+    /// Titel des genutzten Templates (für die Anzeige in „My Creations").
+    /// Leer = freie Generierung ohne Template.
+    var templateTitle: String = ""
     var ratioRaw: String = AspectRatio.widescreen.rawValue
     var resolutionRaw: String = Resolution.p720.rawValue
     var duration: Int = 5
@@ -86,10 +89,38 @@ final class VideoProject {
     @Attribute(.externalStorage) var referenceImagesData: [Data] = []
     /// Öffentliche Referenz-Video-URLs (z. B. Trend-Clip als @Video1)
     var referenceVideoURLs: [String] = []
+    /// Vom Nutzer hochgeladenes Referenz-Video (Motion Studio) als Daten.
+    @Attribute(.externalStorage) var referenceVideosData: [Data] = []
 
     var statusRaw: String = GenerationStatus.queued.rawValue
     var taskID: String?
     var errorMessage: String?
+    /// Live-Fortschrittstext (z. B. „Step 3/9 · Building the house"), wird während
+    /// der Generierung laufend aktualisiert → echte Echtzeit-Anzeige im UI.
+    var progressStage: String = ""
+    /// true, sobald die abgebuchten Credits für dieses Projekt erstattet wurden –
+    /// verhindert Doppel-Refund und garantiert, dass JEDER Fehlschlag erstattet wird.
+    var refunded: Bool = false
+    /// true = pausierte mehrstufige Generierung mit Checkpoint → kann über
+    /// „Continue" ab der Abbruchstelle fortgesetzt werden (keine erneute Abbuchung).
+    var resumable: Bool = false
+    /// true = Video-Generierung über Kling 3.0 Motion Control (statt Seedance 2.0).
+    var useKlingMotion: Bool = false
+
+    /// Optionaler Seedance-Modell-Override (z. B. "bytedance/seedance-2-mini" für
+    /// günstige Action-Templates). Leer = Backend-Default (seedance-2-fast).
+    var seedanceModel: String = ""
+
+    /// Optionaler Vor-Edit fürs Referenzfoto (Nano Banana 2): z. B. „change the
+    /// background to a beach" oder „swap the person". Läuft VOR der Video-/
+    /// Motion-Generierung — ersetzt die Steuer-Prompts, die Kling Motion Control
+    /// (anders als Seedance r2v) nicht unterstützt. Leer = kein Vor-Edit.
+    var preEditPrompt: String = ""
+
+    /// „Brainrot Character – reden lassen": was der Charakter sagt (TTS-Text).
+    var talkText: String = ""
+    /// ElevenLabs-Voice-ID für das Sprechen (echte Stimme pro Charakter).
+    var talkVoice: String = ""
 
     /// Temporäre Remote-URL der API (läuft nach 24 h ab)
     var remoteVideoURL: String?
@@ -104,11 +135,27 @@ final class VideoProject {
     /// true = Generierung läuft über kie.ai (Seedance 2.0) statt fal.ai.
     var useKie: Bool = false
 
+    /// true = mehrstufige Musikvideo-Pipeline (Segmente + Original-Sound, siehe
+    /// `MusicVideoPipeline`). Ignoriert die normale Seedance/Upscale-Logik.
+    var useMusicLipSync: Bool = false
+
+    /// Welches Pipeline-Template (Chunks/Sound/Seitenverhältnis) genutzt wird,
+    /// z. B. "music" oder "nerv" – siehe `MusicVideoPipeline.configs`.
+    var musicVideoKey: String = ""
+
     /// Upscale-Job: "image" oder "video" (nil = normale Generierung).
     var upscaleKind: String? = nil
 
+    /// Tatsächlich abgebuchte Credits für diese Generierung. Wird bei Fehlschlag
+    /// 1:1 zurückerstattet, damit nie zu viel/zu wenig erstattet wird.
+    var creditCost: Int = 0
+
+    /// Bild-Qualität für Image-Edit: "low" (1K), "medium" (2K), "high" (4K).
+    var imageQuality: String = "low"
+
     init(
         prompt: String,
+        templateTitle: String = "",
         ratio: AspectRatio,
         resolution: Resolution,
         duration: Int,
@@ -116,13 +163,19 @@ final class VideoProject {
         useFastModel: Bool,
         referenceImagesData: [Data],
         referenceVideoURLs: [String] = [],
+        referenceVideosData: [Data] = [],
         isImageOutput: Bool = false,
         useKie: Bool = false,
-        upscaleKind: String? = nil
+        useMusicLipSync: Bool = false,
+        musicVideoKey: String = "",
+        upscaleKind: String? = nil,
+        creditCost: Int = 0,
+        imageQuality: String = "low"
     ) {
         self.id = UUID()
         self.createdAt = Date()
         self.prompt = prompt
+        self.templateTitle = templateTitle
         self.ratioRaw = ratio.rawValue
         self.resolutionRaw = resolution.rawValue
         self.duration = duration
@@ -130,9 +183,14 @@ final class VideoProject {
         self.useFastModel = useFastModel
         self.referenceImagesData = referenceImagesData
         self.referenceVideoURLs = referenceVideoURLs
+        self.referenceVideosData = referenceVideosData
         self.isImageOutput = isImageOutput
         self.useKie = useKie
+        self.useMusicLipSync = useMusicLipSync
+        self.musicVideoKey = musicVideoKey
         self.upscaleKind = upscaleKind
+        self.creditCost = creditCost
+        self.imageQuality = imageQuality
         self.statusRaw = GenerationStatus.queued.rawValue
     }
 

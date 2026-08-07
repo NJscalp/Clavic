@@ -124,7 +124,7 @@ struct CreditsView: View {
 
     private var costLegend: some View {
         HStack(spacing: 0) {
-            legendItem(icon: "play.rectangle.fill", title: "Video", detail: "from \(CreditCosts.video(seconds: 3, hasReferenceVideo: false))")
+            legendItem(icon: "play.rectangle.fill", title: "Video", detail: "from \(CreditCosts.video(seconds: 3, hasReferenceVideo: false, resolution: .p480))")
             legendDivider
             legendItem(icon: "arrow.up.forward.app.fill", title: "Upscale", detail: "\(CreditCosts.imageUpscale)–\(CreditCosts.videoUpscale)")
             legendDivider
@@ -153,11 +153,31 @@ struct CreditsView: View {
         Rectangle().fill(Theme.stroke).frame(width: 1, height: 34)
     }
 
+    private var subscriptionRequiredCard: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "lock.fill")
+                .font(.system(size: 28, weight: .semibold))
+                .foregroundStyle(Theme.accent)
+            Text("Subscription required")
+                .font(.system(size: 17, weight: .bold, design: .rounded))
+                .foregroundStyle(Theme.textPrimary)
+            Text("Credit packs are only available with an active Clavic subscription. Subscribe first, then top up credits here.")
+                .font(.system(size: 14))
+                .foregroundStyle(Theme.textSecondary)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(24)
+        .cardStyle()
+    }
+
     // MARK: - Packs
 
     private var packs: some View {
         Group {
-            if !store.creditPacks.isEmpty {
+            if !store.isPro {
+                subscriptionRequiredCard
+            } else if !store.creditPacks.isEmpty {
                 VStack(spacing: 12) {
                     ForEach(store.creditPacks, id: \.id) { product in
                         packRow(product)
@@ -242,12 +262,12 @@ struct CreditsView: View {
             )
         }
         .buttonStyle(.plain)
-        .disabled(isPurchasing)
+        .disabled(isPurchasing || !store.isPro)
     }
 
     private var buyButton: some View {
         Group {
-            if let product = selectedProduct {
+            if store.isPro, let product = selectedProduct {
                 let credits = StoreIDs.creditPacks[product.id] ?? 0
                 Button {
                     Task { await buy(product) }
@@ -275,7 +295,9 @@ struct CreditsView: View {
     }
 
     private var footer: some View {
-        Text("One-time purchase charged to your App Store account. Credits never expire.")
+        Text(store.isPro
+             ? "One-time purchase charged to your App Store account. Credits never expire."
+             : "Close this screen and subscribe to unlock credit packs.")
             .font(.system(size: 11))
             .foregroundStyle(Theme.textTertiary)
             .multilineTextAlignment(.center)
@@ -300,6 +322,8 @@ struct CreditsView: View {
                 let amount = StoreIDs.creditPacks[product.id] ?? 0
                 infoMessage = "\(amount) credits have been added."
             }
+        } catch StoreError.subscriptionRequired {
+            infoMessage = "Subscribe first to purchase credit packs."
         } catch {
             infoMessage = "Purchase failed. Please try again."
         }

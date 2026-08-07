@@ -3,12 +3,14 @@
 //  Clavic
 //
 //  Image- & Video-Upscaling über das gemeinsame Vercel-Backend mit
-//  kie.ai Topaz (KIE_API_KEY liegt server-seitig). Die App lädt die
-//  Datei als Base64 hoch.
+//  WaveSpeed (WAVESPEED_API_KEY liegt server-seitig). Die App lädt die
+//  Datei als Base64 hoch; das Backend lädt sie zu WaveSpeed und mappt sie
+//  auf das `image`/`video`-Feld der Upscaler-Modelle.
 //
 //  Ablauf:
-//   1. POST /v1/upscale/submit  { type, image|video, factor, provider } → responseUrl (= kie taskId)
-//   2. POST /v1/upscale/status  { type, responseUrl, provider }         → pollt
+//   1. POST /v1/gpt-image/edit bzw. /v1/seedance/reference-to-video
+//      { provider:"wavespeed", model, images|videos } → taskId
+//   2. …/status { provider:"wavespeed", taskId } → pollt
 //
 
 import Foundation
@@ -16,43 +18,47 @@ import Foundation
 enum UpscaleAPI {
     static var hasAPIKey: Bool { BackendConfiguration.isConfigured }
 
+    /// WaveSpeed-Upscaler-Modelle.
+    private static let imageModel = "wavespeed-ai/image-upscaler"
+    private static let videoModel = "wavespeed-ai/video-upscaler"
+
     private static var base: String {
         var copy = BackendConfiguration.baseURL
         while copy.hasSuffix("/") { copy.removeLast() }
         return copy
     }
 
-    private static var submitURL: URL { URL(string: base + "/v1/upscale/submit")! }
-    private static var statusURL: URL { URL(string: base + "/v1/upscale/status")! }
-
-    /// Reicht einen Upscale-Job ein und gibt die `responseUrl` (Poll-Handle) zurück.
+    /// Reicht einen Upscale-Job ein und gibt die `taskId` (Poll-Handle) zurück.
     static func createTask(type: String, fileData: Data, factor: Int = 2) async throws -> String {
         guard BackendConfiguration.isConfigured else { throw SeedanceError.missingBackend }
 
         let isVideo = type == "video"
         var body: [String: Any] = [
-            "type": isVideo ? "video" : "image",
-            "factor": factor,
-            "provider": "kie"
+            "provider": "wavespeed",
+            "model": isVideo ? videoModel : imageModel,
         ]
-        body[isVideo ? "video" : "image"] = fileData.base64EncodedString()
-
-        let json = try await post(submitURL, body: body, timeout: 120)
-        guard let data = json["data"] as? [String: Any] else { throw SeedanceError.invalidResponse }
-        if let responseURL = data["responseUrl"] as? String, !responseURL.isEmpty {
-            return responseURL
+        if isVideo {
+            body["videos"] = [fileData.base64EncodedString()]
+        } else {
+            body["images"] = [fileData.base64EncodedString()]
         }
-        if let statusURLString = data["statusUrl"] as? String, !statusURLString.isEmpty {
-            return statusURLString
+        let path = isVideo ? "/v1/seedance/reference-to-video" : "/v1/gpt-image/edit"
+        let json = try await post(URL(string: base + path)!, body: body, timeout: 120)
+        guard let data = json["data"] as? [String: Any] else { throw SeedanceError.invalidResponse }
+        if let taskID = (data["taskId"] as? String ?? data["responseUrl"] as? String), !taskID.isEmpty {
+            return taskID
         }
         throw SeedanceError.invalidResponse
     }
 
-    /// `id` ist die `responseUrl` des fal-Jobs. Liefert Status + Ergebnis-URL.
+    /// `id` ist die WaveSpeed-`taskId`. Liefert Status + Ergebnis-URL.
     static func fetchTask(id responseURL: String, type: String) async throws -> SeedanceTaskState {
         guard BackendConfiguration.isConfigured else { throw SeedanceError.missingBackend }
 
-        let json = try await post(statusURL, body: ["type": type, "responseUrl": responseURL, "provider": "kie"], timeout: 30)
+        let isVideo = type == "video"
+        let path = isVideo ? "/v1/seedance/status" : "/v1/gpt-image/status"
+        let json = try await post(URL(string: base + path)!,
+                                  body: ["provider": "wavespeed", "taskId": responseURL], timeout: 30)
         guard let data = json["data"] as? [String: Any] else { throw SeedanceError.invalidResponse }
 
         let state = (data["state"] as? String ?? "").lowercased()
@@ -62,7 +68,8 @@ enum UpscaleAPI {
         case "running", "processing":
             return SeedanceTaskState(status: .running, videoURL: nil, failureReason: nil)
         case "succeeded":
-            return SeedanceTaskState(status: .succeeded, videoURL: data["resultUrl"] as? String, failureReason: nil)
+            let url = (data["videoUrl"] as? String) ?? (data["imageUrl"] as? String) ?? (data["outputUrl"] as? String)
+            return SeedanceTaskState(status: .succeeded, videoURL: url, failureReason: nil)
         default:
             return SeedanceTaskState(
                 status: .failed,

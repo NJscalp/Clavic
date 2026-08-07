@@ -43,6 +43,42 @@ enum SeedanceError: LocalizedError {
     }
 }
 
+/// Wandelt eine Backend-Fehlerantwort in eine nutzerfreundliche Meldung um.
+/// Wichtig: Provider-/Kontostandsfehler unseres KI-Dienstes (z. B. kie.ai ohne
+/// Guthaben → Antwort `kie_missing_task_id` / „Credits insufficient") dürfen NICHT
+/// roh angezeigt werden – das wirkt wie ein Bug bzw. suggeriert fälschlich, der
+/// Nutzer sei schuld. Stattdessen ein generischer „später erneut versuchen"-Hinweis.
+func friendlyBackendError(json: [String: Any]?, statusCode: Int) -> String {
+    let code = (json?["error"] as? String ?? json?["message"] as? String ?? "").lowercased()
+    let detailMsg = ((json?["detail"] as? [String: Any])?["msg"] as? String ?? "").lowercased()
+    let combined = code + " " + detailMsg
+    if combined.contains("credit") || combined.contains("insufficient")
+        || combined.contains("balance") || combined.contains("missing_task_id")
+        || combined.contains("quota") || combined.contains("rate limit")
+        || statusCode == 429 || statusCode >= 500 {
+        return "The AI service is busy right now. Your credits were refunded — please try again in a few minutes."
+    }
+    if combined.contains("recognition") {
+        return "This photo couldn't be processed. Please try a clear photo of a person."
+    }
+    if combined.contains("sensitive") || combined.contains("moderat")
+        || combined.contains("policy") || combined.contains("nsfw") {
+        return "This couldn't be created — it was flagged by the content filter. Try a different character, wording or photo."
+    }
+    if combined.contains("pixel count") || combined.contains("409600")
+        || combined.contains("greater than or equal")
+        || combined.contains("higher quality")
+        || (combined.contains("quality") && combined.contains("low"))
+        || (combined.contains("resolution") && combined.contains("video")) {
+        return "Couldn't render this clip. Tip: Motion Control works best at 720p — set Resolution to 720p and try again."
+    }
+    if statusCode == 413 || combined.contains("too_large") || combined.contains("payload") {
+        return "Photos are too large to upload. Try a closer crop or a smaller image, then try again."
+    }
+    if !code.isEmpty { return "Couldn't create your video right now. Please try again." }
+    return "Server error (\(statusCode)). Please try again."
+}
+
 struct SeedanceRequest {
     var prompt: String
     var referenceImages: [Data]
@@ -52,6 +88,14 @@ struct SeedanceRequest {
     var generateAudio: Bool
     var useFastModel: Bool
     var referenceVideoURLs: [String] = []
+    /// Vom Nutzer hochgeladenes Referenz-Video (Motion Studio), als Daten.
+    var referenceVideosData: [Data] = []
+    /// true → Kling 3.0 Motion Control statt Seedance reference-to-video
+    /// (Charakter aus dem Bild, Bewegung + Szene aus dem Video).
+    var kling: Bool = false
+    /// Optionaler Modell-Override (z. B. "bytedance/seedance-2-mini" für günstige
+    /// Action-Templates). Leer/nil = Backend-Default (seedance-2-fast).
+    var model: String? = nil
 }
 
 struct SeedanceTaskState {
@@ -130,11 +174,11 @@ struct SeedanceAPI {
         case "succeeded":
             return SeedanceTaskState(status: .succeeded, videoURL: data["videoUrl"] as? String, failureReason: nil)
         default:
-            return SeedanceTaskState(
-                status: .failed,
-                videoURL: nil,
-                failureReason: data["failMsg"] as? String ?? "The generation failed."
-            )
+            let rawMsg = data["failMsg"] as? String ?? ""
+            let friendly = rawMsg.isEmpty
+                ? "The generation failed. Your credits were refunded — please try again."
+                : friendlyBackendError(json: ["error": rawMsg], statusCode: 200)
+            return SeedanceTaskState(status: .failed, videoURL: nil, failureReason: friendly)
         }
     }
 
