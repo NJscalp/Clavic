@@ -120,10 +120,13 @@ enum PlacementSuggester {
         // --- Schritt 3: Saliency-Matrix.
         // Fällt Vision aus, messen wir die Unruhe des Bildes selbst. Das ist
         // gröber, aber es hält den Vorschlag am Leben statt ihn zu streichen.
+        // EIN Graustufen-Durchgang für beide Messungen unten.
+        let gray = grayscale(small)
+
         var map = saliencyMatrix(saliency.results?.first as? VNSaliencyImageObservation)
         let usedFallbackMap = map.isEmpty
-        if usedFallbackMap {
-            map = structureMatrix(small)
+        if usedFallbackMap, let gray {
+            map = structureMatrix(gray)
         }
 
         // Horizont: Vision liefert eine Transformation, aus der sich die Höhe
@@ -134,7 +137,7 @@ enum PlacementSuggester {
         let blockers = (humans.results ?? []).map { flip($0.boundingBox) }
             + (faces.results ?? []).map { flip($0.boundingBox) }
 
-        let columnLuma = columnLuminance(small)
+        let columnLuma = gray.map(columnLuminance) ?? []
 
         // --- Schritt 4 + 5: Kandidaten bilden und bewerten.
         let centers: [CGFloat] = [0.25, 0.33, 0.50, 0.67, 0.75]
@@ -346,8 +349,7 @@ enum PlacementSuggester {
     /// Ton der Szene abweicht (eine dunkle Gestalt vor heller Wand). Der Median
     /// steht für den vorherrschenden Ton, weil ein Mittelwert schon von einer
     /// halb vollen Bildhälfte verzogen wird.
-    private static func structureMatrix(_ image: CIImage) -> [[Float]] {
-        guard let gray = grayscale(image) else { return [] }
+    private static func structureMatrix(_ gray: GrayImage) -> [[Float]] {
         let cell = 4
         let columns = gray.width / cell
         let rows = gray.height / cell
@@ -387,8 +389,14 @@ enum PlacementSuggester {
         return result
     }
 
-    /// Graustufen, Zeile 0 ist die OBERSTE Bildzeile.
-    private static func grayscale(_ image: CIImage) -> (pixels: [UInt8], width: Int, height: Int)? {
+    /// Dicht gepackte Graustufen, Zeile 0 ist die OBERSTE Bildzeile.
+    struct GrayImage {
+        let pixels: [UInt8]
+        let width: Int
+        let height: Int
+    }
+
+    private static func grayscale(_ image: CIImage) -> GrayImage? {
         let extent = image.extent
         let width = Int(extent.width.rounded())
         let height = Int(extent.height.rounded())
@@ -430,7 +438,7 @@ enum PlacementSuggester {
                     .update(from: source.advanced(by: row * stride), count: width)
             }
         }
-        return (pixels, width, height)
+        return GrayImage(pixels: pixels, width: width, height: height)
     }
 
     /// Mittlere Auffälligkeit innerhalb einer normalisierten Box (Ursprung oben links).
@@ -470,36 +478,35 @@ enum PlacementSuggester {
     }
 
     /// Mittlere Luminanz je Drittel-Spalte, links nach rechts.
-    private static func columnLuminance(_ image: CIImage) -> [Double] {
-        let extent = image.extent
-        guard extent.width >= 3, extent.height >= 1 else { return [] }
+    ///
+    /// Gerechnet auf demselben Graustufen-Puffer wie die Ersatzkarte. Vorher
+    /// lief das über `CIAreaAverage` und `render(toBitmap:)` in ein vier Byte
+    /// grosses Swift-Array — CoreImage schreibt dabei eine ganze, aufgerundete
+    /// Zeile und damit über das Array hinaus. Der Prozess stirbt daran nicht
+    /// sofort, sondern irgendwann später beim Freigeben von fremdem Speicher.
+    ///
+    /// Auf dem Ausgangsstand fiel das nie auf, weil `analyse` vorher ausstieg:
+    /// der gebündelte Vision-Aufruf warf, und diese Zeile wurde nie erreicht.
+    private static func columnLuminance(_ gray: GrayImage) -> [Double] {
+        guard gray.width >= 3, gray.height >= 1 else { return [] }
+
+        let columnWidth = gray.width / 3
+        guard columnWidth > 0 else { return [] }
 
         var result: [Double] = []
-        let columnWidth = extent.width / 3
         for index in 0..<3 {
-            let area = CGRect(
-                x: extent.minX + CGFloat(index) * columnWidth,
-                y: extent.minY,
-                width: columnWidth,
-                height: extent.height
-            )
-            guard let average = CIFilter(name: "CIAreaAverage") else { return [] }
-            average.setValue(image, forKey: kCIInputImageKey)
-            average.setValue(CIVector(cgRect: area), forKey: kCIInputExtentKey)
-            guard let output = average.outputImage else { return [] }
-
-            var pixel = [UInt8](repeating: 0, count: 4)
-            context.render(
-                output,
-                toBitmap: &pixel,
-                rowBytes: 4,
-                bounds: CGRect(x: 0, y: 0, width: 1, height: 1),
-                format: .RGBA8,
-                colorSpace: CGColorSpaceCreateDeviceRGB()
-            )
-            // Rec. 601 — reicht hier voellig, es geht nur um „heller als".
-            let luma = 0.299 * Double(pixel[0]) + 0.587 * Double(pixel[1]) + 0.114 * Double(pixel[2])
-            result.append(luma / 255)
+            let start = index * columnWidth
+            let end = index == 2 ? gray.width : start + columnWidth
+            var total = 0.0
+            var count = 0
+            for y in 0..<gray.height {
+                let row = y * gray.width
+                for x in start..<end {
+                    total += Double(gray.pixels[row + x])
+                    count += 1
+                }
+            }
+            result.append(count > 0 ? total / Double(count) / 255 : 0)
         }
         return result
     }

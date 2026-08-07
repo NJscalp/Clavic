@@ -57,13 +57,45 @@ Testlauf hat das einen Test mit `signal abrt` abgeschossen und einen
 unbeteiligten Erase-Test von 0,1 s auf **15 Minuten** gebremst. Jetzt gibt es
 genau einen geteilten Kontext.
 
-*Zweitens:* `grayscale` liess CoreGraphics ueber einen rohen Zeiger in ein
-Swift-Array zeichnen (`withUnsafeMutableBytes` + `CGContext(data:…,
-bytesPerRow: width)`). CoreGraphics rundet die Zeilenlaenge intern auf und
-schreibt damit ueber das Array-Ende hinaus. Jetzt bekommt CoreGraphics seinen
-eigenen Puffer (`data: nil`, `bytesPerRow: 0`) und die Zeilen werden dicht
-herauskopiert. Ein latenter Fehler weniger — den Absturz unten hat es aber
-**nicht** behoben.
+*Zweitens — und das war der teuerste:* der Testlauf stuerzte in etwa jedem
+zweiten Durchgang mit `SIGABRT` ab, immer mit demselben Stack und immer einem
+anderen Test zugeschrieben:
+
+```
+___BUG_IN_CLIENT_OF_LIBMALLOC_POINTER_BEING_FREED_WAS_NOT_ALLOCATED
+swift_task_deinitOnExecutorImpl
+TemplateStore.__deallocating_deinit
+destroy for ContentView
+```
+
+Der Stack zeigte auf `ContentView` — die Ursache lag aber woanders. So wurde
+sie eingekreist, jeweils drei bis vier Laeufe je Zeile:
+
+| Was lief | Abstuerze |
+|---|---|
+| Ausgangsstand, 24 Tests | 0 von 4 |
+| unser Stand, dieselben 24 Tests | 3 von 3 |
+| unser Stand, dieselben Tests ohne `PlacementSuggesterTests` | 0 von 3 |
+
+Damit war es eingegrenzt: nicht die Lauflaenge, nicht die App-Oberflaeche,
+sondern `PlacementSuggester.suggest` selbst. Zwei Stellen dort schrieben ueber
+rohe Zeiger in Swift-Arrays, und beide Male rundet das Framework die
+Zeilenlaenge intern auf und schreibt hinter das Array:
+
+- `grayscale`: `CGContext(data: &array, bytesPerRow: width)`
+- `columnLuminance`: `CIAreaAverage` + `render(toBitmap:)` in vier Byte
+
+Der Schaden faellt nie an der Stelle auf, sondern irgendwann spaeter beim
+Freigeben von fremdem Speicher — daher der irrefuehrende Stack.
+
+**Warum es auf dem Ausgangsstand nie auftrat:** dort warf der gebuendelte
+Vision-Aufruf, `analyse` stieg mit `nil` aus, und beide Zeilen wurden nie
+erreicht. Erst das tolerante Ausfuehren aus Aufgabe 1 hat sie erreichbar
+gemacht.
+
+Jetzt gibt es EINEN Graustufen-Durchgang, aus dem beide Messungen rechnen —
+kein `CIAreaAverage`, kein `render(toBitmap:)`, kein roher Zeiger in ein
+Swift-Array. Danach: **drei volle Laeufe, je 42 bestanden, kein Absturz.**
 
 ---
 
@@ -151,43 +183,6 @@ Rangfolge und Schwellen fest.
 ---
 
 ## Was noch offen ist
-
-- [ ] **Der Testlauf stuerzt sporadisch ab. Es liegt an unserem Code —
-      gemessen, nicht vermutet.**
-
-      Immer derselbe Stack, unabhaengig davon, welcher Test gerade laeuft
-      (bisher vier verschiedene getroffen, alle mit Dauer 0,000 s):
-
-      ```
-      ___BUG_IN_CLIENT_OF_LIBMALLOC_POINTER_BEING_FREED_WAS_NOT_ALLOCATED
-      swift_task_deinitOnExecutorImpl
-      TemplateStore.__deallocating_deinit
-      destroy for ContentView
-      ```
-
-      Der Absturz sitzt im Abbau von `ContentView`, wenn der `@MainActor`-
-      `TemplateStore` ueber den Concurrency-Executor freigegeben wird.
-
-      **Der saubere Vergleich — gleiche Testmenge, nur anderer Code:**
-
-      | Stand | Tests | Laeufe | Abstuerze |
-      |---|---|---|---|
-      | Ausgangsstand `894f9b7` | 24 | 4 | **0** |
-      | unser Stand, neue Testklassen uebersprungen | 24 | 3 | **3** |
-
-      Damit ist die Lauflaenge als Ursache ausgeschlossen: bei identischer
-      Testmenge bleibt der Ausgangsstand sauber und unser Stand faellt jedes
-      Mal um. Es ist unser Code.
-
-      **Wo weitersuchen.** Der naechste Schnitt laeuft schon: dieselbe Menge
-      ohne `PlacementSuggesterTests`. Faellt es dann nicht mehr um, liegt es am
-      Vision-Code; faellt es weiter um, liegt es an der App selbst — und dann
-      sind `ContentView` (Environment `EditHandoff`, zwei `onChange`, zwei
-      `fullScreenCover`), `DiscoverView` (Hero + zwoelf Kacheln) und
-      `Templates` (`isHiddenFromDiscover`, `TemplateFilter`) die Kandidaten.
-
-      **Auch fuer die Auslieferung pruefen:** das ist App-Abbau, nicht nur
-      Test-Umgebung.
 
 - [ ] **Auf echter Hardware prüfen.** Im Simulator gibt es keine Kamera: der
       Frame-Strom, die Box im Livebild, der Burst und die 15-%-CPU-Grenze aus
