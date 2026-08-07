@@ -40,6 +40,20 @@ struct PlacementSuggestion: Equatable {
     var confidence: Double
     /// Fertiger Teilsatz für den Bild-Prompt.
     var poseSentence: String
+    /// Neigung des Horizonts in Grad. `nil`, wenn keiner gefunden wurde
+    /// (drinnen der Normalfall).
+    var tiltDegrees: Double?
+
+    /// Steht die Kamera so, dass daraus ein gutes Bild wird?
+    ///
+    /// Zwei Bedingungen, mehr nicht: die Stelle muss sicher erkannt sein, und
+    /// das Bild darf nicht schief hängen. Ohne erkennbaren Horizont zählt nur
+    /// die erste — sonst würde es in Innenräumen nie grünes Licht geben.
+    var isReadyForTheShot: Bool {
+        guard confidence >= 0.5 else { return false }
+        guard let tiltDegrees else { return true }
+        return abs(tiltDegrees) <= 4
+    }
 }
 
 enum PlacementSuggester {
@@ -130,8 +144,11 @@ enum PlacementSuggester {
         }
 
         // Horizont: Vision liefert eine Transformation, aus der sich die Höhe
-        // der Linie in der Bildmitte ableiten lässt.
-        let horizonY = horizonHeight(horizon.results?.first as? VNHorizonObservation)
+        // der Linie in der Bildmitte ableiten lässt — und den Neigungswinkel,
+        // der der Nutzerin sagt, ob sie gerade hält.
+        let horizonLine = horizon.results?.first as? VNHorizonObservation
+        let horizonY = horizonHeight(horizonLine)
+        let tiltDegrees = horizonLine.map { Double($0.angle) * 180 / .pi }
 
         // Personen und Gesichter, umgerechnet auf „Ursprung oben links".
         let blockers = (humans.results ?? []).map { flip($0.boundingBox) }
@@ -233,7 +250,8 @@ enum PlacementSuggester {
             rect: rect,
             pose: pose,
             confidence: confidence,
-            poseSentence: sentence(for: pose)
+            poseSentence: sentence(for: pose),
+            tiltDegrees: tiltDegrees
         )
     }
 

@@ -194,7 +194,6 @@ struct SoloShotView: View {
     @State private var personSelection: PhotosPickerItem?
     @State private var backgroundSelection: PhotosPickerItem?
     @State private var personData: Data?
-    @State private var personOverlay: UIImage?
     @State private var personCardPhase: PersonCardPhase = .showcase
     /// Rausziehen der Side-Card zum Ansehen — beim Loslassen zurück.
     @State private var personCardDrag: CGSize = .zero
@@ -205,17 +204,6 @@ struct SoloShotView: View {
     /// Zuschnitt wäre bereits eingebrannt.
     @State private var rawBackgroundData: Data?
     @State private var guideData: Data?
-    /// Wie in der vorhandenen Pose-Kamera: Das gesamte Referenzbild liegt
-    /// deckungsgleich und halbtransparent über dem Live-Bild.
-    @State private var overlayOpacity: Double = 0.45
-    /// Realistische Startgröße: bei 1 füllt die Figur den Rahmen (wirkt wie ein Schrank).
-    @State private var overlayScale: CGFloat = 0.42
-    @State private var liveScale: CGFloat = 1
-    /// Normalisiert auf die Kamerabreite/-höhe, damit dieselbe Ausrichtung
-    /// auch in der exportierten Placement-Referenz exakt erhalten bleibt.
-    /// Leicht nach unten: Füße näher am Boden statt in der Bildmitte schweben.
-    @State private var overlayOffset: CGSize = CGSize(width: 0, height: 0.12)
-    @State private var liveOffset: CGSize = .zero
     /// Kein Knopf mehr: der Rahmen misst, wie viel Höhe ihm bleibt. Auf kurzen
     /// Geräten würde die volle Breite Auslöser, Regler und Hinweistext aus dem
     /// Bild drängen — dann schrumpft er von selbst.
@@ -285,7 +273,11 @@ struct SoloShotView: View {
 
             // Outfit-Card: erst normal (eigene Größe), dann nach links schweben.
             // Liegt bewusst NICHT als Overlay in der Kamera.
-            if stage != .person, let personData, let image = UIImage(data: personData) {
+            //
+            // Nur im Ausricht-Schritt. Im Review ist das Outfit laengst
+            // festgelegt — dort waere es nur noch ein zweites Bild, das ueber
+            // dem Ortsfoto liegt und die Sicht auf die Platzierung nimmt.
+            if stage == .scene, let personData, let image = UIImage(data: personData) {
                 personFloatingCard(image)
                     .allowsHitTesting(personCardPhase == .docked)
                     .zIndex(40)
@@ -307,8 +299,7 @@ struct SoloShotView: View {
                let sample = UIImage(named: "face_model_1"),
                let data = sample.jpegData(compressionQuality: 0.9) {
                 personData = data
-                preparePersonOverlay(from: data)
-                personCardPhase = .docked
+                        personCardPhase = .docked
                 stage = .scene
 
                 if environment["UITEST_SOLOSHOT_REVIEW"] != nil,
@@ -486,7 +477,6 @@ struct SoloShotView: View {
     /// Nach Selfie/Gallery: kurz normal zeigen, dann zur Side-Card animieren.
     private func presentPersonCard(with data: Data) async {
         personData = data
-        preparePersonOverlay(from: data)
         personCardDrag = .zero
         personCardDragging = false
         personCardPhase = .showcase
@@ -509,7 +499,7 @@ struct SoloShotView: View {
     /// sind, und das Abbrechen liegt jetzt in der Kopfzeile.
     private var personStage: some View {
         VStack(spacing: 12) {
-            cameraFrame(showGhost: false)
+            cameraFrame()
                 .padding(.horizontal, Theme.screenPadding)
                 .frame(maxWidth: cameraIsCompact ? 245 : .infinity)
                 .animation(.spring(response: 0.32, dampingFraction: 0.88), value: cameraIsCompact)
@@ -584,7 +574,7 @@ struct SoloShotView: View {
     private var sceneStage: some View {
         VStack(spacing: 12) {
             // Location-Kamera frei — Outfit sitzt als Card links, nicht darüber.
-            cameraFrame(showGhost: false)
+            cameraFrame()
                 .padding(.horizontal, Theme.screenPadding)
                 .padding(.leading, personCardPhase == .docked ? 36 : 0)
                 .frame(maxWidth: cameraIsCompact ? 245 : .infinity)
@@ -685,18 +675,7 @@ struct SoloShotView: View {
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
             } else {
                 if !isCreating {
-                    HStack(spacing: 12) {
-                        Image(systemName: "person.fill")
-                            .font(.system(size: 11))
-                        Slider(value: $overlayOpacity, in: 0.12...0.82)
-                            .tint(Theme.accent)
-                        Image(systemName: "photo.fill")
-                            .font(.system(size: 11))
-                    }
-                    .foregroundStyle(Theme.textTertiary)
-                    .padding(.horizontal, 28)
-
-                    Text("Drag to place · pinch to size — then describe and create.")
+                    Text("Drag the box if you want to stand somewhere else — then describe and create.")
                         .font(.system(size: 11.5, weight: .medium, design: .rounded))
                         .foregroundStyle(Theme.textSecondary)
                         .multilineTextAlignment(.center)
@@ -910,38 +889,18 @@ struct SoloShotView: View {
                             .frame(width: geo.size.width, height: geo.size.height)
                             .clipped()
 
-                        // Platzierung erst hier auf dem Location-Foto — nicht
-                        // live über der Kamera mit dem Gallery-Bild.
-                        alignedReferenceOverlay(in: geo.size, includeLiveTransform: true)
-                            .frame(width: geo.size.width, height: geo.size.height)
-                            .clipped()
-                            .allowsHitTesting(false)
-
+                        // Hier lag frueher die Outfit-Referenz als halb
+                        // durchsichtige Silhouette ueber dem Ortsfoto. Zwei
+                        // Bilder uebereinander sind aber genau das, was man
+                        // nicht sehen will — und die Box sagt dasselbe, ohne
+                        // das Foto zuzudecken.
                         if !isCreating {
-                            Color.clear
-                                .contentShape(Rectangle())
-                                .gesture(
-                                    SimultaneousGesture(
-                                        DragGesture()
-                                            .onChanged { value in
-                                                liveOffset = CGSize(
-                                                    width: value.translation.width / max(geo.size.width, 1),
-                                                    height: value.translation.height / max(geo.size.height, 1)
-                                                )
-                                            }
-                                            .onEnded { _ in
-                                                overlayOffset.width += liveOffset.width
-                                                overlayOffset.height += liveOffset.height
-                                                liveOffset = .zero
-                                            },
-                                        MagnifyGesture()
-                                            .onChanged { liveScale = $0.magnification }
-                                            .onEnded { _ in
-                                                overlayScale = min(max(overlayScale * liveScale, 0.18), 2.5)
-                                                liveScale = 1
-                                            }
-                                    )
-                                )
+                            PlacementBoxOverlay(
+                                suggestion: effectivePlacement,
+                                manualRect: $manualPlacementRect,
+                                frameSize: geo.size
+                            )
+                            .frame(width: geo.size.width, height: geo.size.height)
                         }
                     }
                     .blur(radius: isCreating ? 30 : 0)
@@ -996,7 +955,7 @@ struct SoloShotView: View {
     // MARK: - Shared camera chrome
 
     @ViewBuilder
-    private func cameraFrame(showGhost: Bool) -> some View {
+    private func cameraFrame() -> some View {
         let shape = RoundedRectangle(cornerRadius: cardCorner, style: .continuous)
         GeometryReader { geo in
             ZStack {
@@ -1023,61 +982,6 @@ struct SoloShotView: View {
                             .font(.system(size: 12.5, weight: .semibold, design: .rounded))
                     }
                     .foregroundStyle(Theme.textSecondary)
-                }
-
-                if showGhost {
-                    alignedReferenceOverlay(in: geo.size, includeLiveTransform: true)
-                        .frame(width: geo.size.width, height: geo.size.height)
-                        .clipped()
-                        .allowsHitTesting(false)
-
-                    Color.clear
-                        .frame(width: geo.size.width, height: geo.size.height)
-                        .contentShape(Rectangle())
-                        .gesture(
-                            SimultaneousGesture(
-                                DragGesture()
-                                    .onChanged { value in
-                                        liveOffset = CGSize(
-                                            width: value.translation.width / max(geo.size.width, 1),
-                                            height: value.translation.height / max(geo.size.height, 1)
-                                        )
-                                    }
-                                    .onEnded { _ in
-                                        overlayOffset.width += liveOffset.width
-                                        overlayOffset.height += liveOffset.height
-                                        liveOffset = .zero
-                                    },
-                                MagnifyGesture()
-                                    .onChanged { liveScale = $0.magnification }
-                                    .onEnded { _ in
-                                        overlayScale = min(max(overlayScale * liveScale, 0.18), 2.5)
-                                        liveScale = 1
-                                    }
-                            )
-                        )
-                }
-
-                // Kein Vergrößern-Knopf mehr: die Rahmengröße ergibt sich aus
-                // dem verfügbaren Platz (siehe `cameraIsCompact`).
-                if showGhost {
-                    VStack {
-                        HStack {
-                            PhotosPicker(selection: $personSelection, matching: .images) {
-                                Image(systemName: "photo.badge.arrow.down")
-                                    .font(.system(size: 13, weight: .bold))
-                                    .foregroundStyle(Theme.textPrimary)
-                                    .frame(width: 34, height: 34)
-                                    .background(.white.opacity(0.9), in: Circle())
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel("Change overlay photo")
-
-                            Spacer()
-                        }
-                        Spacer()
-                    }
-                    .padding(10)
                 }
 
                 // Die Box gehört zum Ausrichten des Ortes und nur dorthin.
@@ -1108,37 +1012,6 @@ struct SoloShotView: View {
         .clipShape(shape)
         .overlay(shape.strokeBorder(Theme.stroke, lineWidth: 1))
         .shadow(color: .black.opacity(0.10), radius: 14, y: 6)
-    }
-
-    @ViewBuilder
-    private func alignedReferenceOverlay(in size: CGSize, includeLiveTransform: Bool) -> some View {
-        // Cutout bevorzugen — klarere Größe als das volle Gallery-Rechteck.
-        let image = personOverlay ?? personData.flatMap(UIImage.init(data:))
-        if let image {
-            let scale = overlayScale * (includeLiveTransform ? liveScale : 1)
-            let offset = CGSize(
-                width: (overlayOffset.width + (includeLiveTransform ? liveOffset.width : 0)) * size.width,
-                height: (overlayOffset.height + (includeLiveTransform ? liveOffset.height : 0)) * size.height
-            )
-            let fitted = overlayFit(image.size, in: size)
-            Image(uiImage: image)
-                .resizable()
-                .frame(width: fitted.width, height: fitted.height)
-                .clipShape(RoundedRectangle(cornerRadius: cardCorner, style: .continuous))
-                .scaleEffect(scale)
-                .offset(offset)
-                .opacity(overlayOpacity)
-                .colorMultiply(Color(red: 0.55, green: 0.68, blue: 1.0))
-        } else {
-            Color.clear
-        }
-    }
-
-    /// Größe, in der die Referenz vollständig in den Rahmen passt.
-    private func overlayFit(_ image: CGSize, in frame: CGSize) -> CGSize {
-        guard image.width > 0, image.height > 0 else { return frame }
-        let factor = min(frame.width / image.width, frame.height / image.height)
-        return CGSize(width: image.width * factor, height: image.height * factor)
     }
 
     private func frameLabel(_ text: String) -> some View {
@@ -1182,6 +1055,27 @@ struct SoloShotView: View {
             }
         }
     }
+
+    /// Die Box, die wirklich gilt: die Hand der Nutzerin schlaegt den
+    /// eingefrorenen Vorschlag, und wenn es beides nicht gibt (Bild aus der
+    /// Mediathek), steht sie mittig auf dem Boden. Eine Markierung muss es
+    /// immer geben — ohne sie weiss das Modell nicht, wie gross die Person
+    /// sein soll, und macht sie so hoch wie einen Schrank.
+    private var effectivePlacement: PlacementSuggestion {
+        let rect = manualPlacementRect ?? capturedPlacement?.rect ?? Self.defaultBox
+        let pose = capturedPlacement?.pose ?? .standing
+        return PlacementSuggestion(
+            rect: rect,
+            pose: pose,
+            confidence: capturedPlacement?.confidence ?? 1,
+            poseSentence: PlacementSuggester.sentence(for: pose),
+            tiltDegrees: capturedPlacement?.tiltDegrees
+        )
+    }
+
+    /// Mittig, Fuesse im unteren Viertel — dieselben Proportionen, die der
+    /// Suggester auch vorschlaegt (Verhaeltnis rund 1 : 2,6).
+    private static let defaultBox = CGRect(x: 0.42, y: 0.34, width: 0.16, height: 0.42)
 
     /// Die Box im Koordinatensystem des AKTUELLEN Zuschnitts. Solange das
     /// Format seit der Aufnahme gleich geblieben ist, ändert sich nichts.
@@ -1268,8 +1162,11 @@ struct SoloShotView: View {
             return
         }
         // Ein Bild aus der Mediathek hat nie unter der Box gelegen — ein
-        // stehengebliebener Vorschlag von vorhin würde hier ins Leere zeigen.
+        // stehengebliebener Vorschlag von vorhin wuerde hier ins Leere zeigen.
+        // Stattdessen die Standardbox, die sich im Review verschieben laesst.
         capturedPlacement = nil
+        manualPlacementRect = nil
+        capturedPlacementAspect = frameAspect
         finishBackground(data)
     }
 
@@ -1307,22 +1204,10 @@ struct SoloShotView: View {
             return false
         }
 
-        // Lag beim Auslösen eine Box auf dem Bild, ist sie die Markierung —
-        // sie sagt Ort UND Größe, ohne die steife Selfie-Pose mitzuliefern.
-        // Ohne Box bleibt es bei der von Hand ausgerichteten Silhouette.
-        let guide: Data?
-        if let capturedPlacement {
-            guide = SoloShotGuide.renderMarker(on: image, rect: markerRect(capturedPlacement.rect))
-        } else if let personOverlay {
-            guide = SoloShotGuide.render(
-                on: image,
-                reference: personOverlay,
-                scale: overlayScale,
-                offset: overlayOffset
-            )
-        } else {
-            guide = nil
-        }
+        // Immer der rosa Marker. Frueher lag hier wahlweise die getoente
+        // Outfit-Silhouette — die deckte das Ortsfoto zu und lieferte dem
+        // Modell nebenbei die steife Selfie-Haltung als Vorlage mit.
+        let guide = SoloShotGuide.renderMarker(on: image, rect: markerRect(effectivePlacement.rect))
 
         guard let guide else {
             flash("Couldn't prepare the placement guide.")
@@ -1334,7 +1219,11 @@ struct SoloShotView: View {
     }
 
     private func create() {
-        guard let personData, let backgroundData, let guideData, !isCreating else { return }
+        guard !isCreating else { return }
+        // Die Box laesst sich im Review noch verschieben — also die Markierung
+        // unmittelbar vor dem Absenden neu zeichnen, nicht die von vorhin.
+        guard rebuildBackground() else { return }
+        guard let personData, let backgroundData, let guideData else { return }
         guard store.canCreate else { showSubscriptionGate = true; return }
         let quality = selectedQuality.apiQuality
         let cost = CreditCosts.imageEditCredits(quality: quality)
@@ -1344,11 +1233,12 @@ struct SoloShotView: View {
         }
 
         let instruction = note.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Licht-Hint aus dem unveränderten Ort; Upload = Guide (Ort+Silhouette) + ich.
+        // Licht-Hint aus dem unveraenderten Ort; hochgeladen werden der Guide
+        // (Ort + rosa Markierung) und ich.
         let prompt = SoloShotPrompt.build(
             userText: instruction,
             sceneImage: backgroundData,
-            placement: capturedPlacement
+            placement: effectivePlacement
         )
         isCreating = true
         workStartedAt = Date()
@@ -1483,11 +1373,6 @@ struct SoloShotView: View {
         project.status = .succeeded
         modelContext.insert(project)
         try? modelContext.save()
-    }
-
-    private func preparePersonOverlay(from data: Data) {
-        guard let image = UIImage(data: data) else { return }
-        personOverlay = SoloShotPersonCutout.make(from: image) ?? image
     }
 
     private func flash(_ text: String) {

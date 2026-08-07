@@ -29,6 +29,16 @@ enum Theme {
     static let accent = Color(red: 0.16, green: 0.50, blue: 1.0)
     static let accentSoft = Color(red: 0.16, green: 0.50, blue: 1.0).opacity(0.12)
 
+    /// Sucherfarben der Location-Kamera. Weiß heißt „noch suchen", Gelb heißt
+    /// „so steht es". Zwei Farben, kein Text: man hält das Telefon hoch und
+    /// dreht, bis es gelb wird — lesen kann man dabei nicht.
+    ///
+    /// Gelb, weil es sich von allem abhebt, was in echten Räumen und
+    /// Außenaufnahmen vorkommt, und weil es auch auf hellem Grund noch
+    /// erkennbar bleibt.
+    static let cameraGuide = Color.white
+    static let cameraGuideReady = Color(red: 1.0, green: 0.84, blue: 0.16)
+
     static let success = Color(red: 0.20, green: 0.72, blue: 0.45)
     static let warning = Color(red: 0.95, green: 0.62, blue: 0.10)
     static let danger = Color(red: 0.95, green: 0.26, blue: 0.30)

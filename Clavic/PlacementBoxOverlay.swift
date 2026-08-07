@@ -7,6 +7,12 @@
 //  erklärt, was passiert — sondern eine Form, die jeder schon kennt: ein
 //  Rahmen mit Eckwinkeln, so wie ihn jede Kamera für „hier" benutzt.
 //
+//  Und deshalb auch KEIN Text wie „Hier stehst du". Wer das Telefon hochhält
+//  und sich dreht, liest nicht. Stattdessen sagt die Farbe alles: der Rahmen
+//  und der Standpunkt darin sind weiß, solange die Kamera noch sucht, und
+//  springen auf Gelb, sobald der Winkel stimmt. Man dreht, bis es gelb wird,
+//  und drückt ab.
+//
 //  Die Box gehört der Nutzerin, nicht dem Algorithmus. Sobald sie sie
 //  anfasst, gewinnt ihre Position — und zwar dauerhaft, bis sie über den
 //  „Auto"-Chip ausdrücklich zurückgibt. Ein Vorschlag, der die eigene
@@ -48,12 +54,16 @@ struct PlacementBoxOverlay: View {
         return (suggestion?.confidence ?? 0) >= 0.35
     }
 
-    private var label: String {
-        switch suggestion?.pose ?? .standing {
-        case .standing: return "You stand here"
-        case .seated:   return "You sit here"
-        case .leaning:  return "You lean here"
-        }
+    /// Sobald die Nutzerin die Box selbst gesetzt hat, gilt ihre Entscheidung
+    /// als die richtige — dann leuchtet es gelb, ohne dass ein Algorithmus
+    /// darüber abstimmt.
+    private var isReady: Bool {
+        if manualRect != nil { return true }
+        return suggestion?.isReadyForTheShot ?? false
+    }
+
+    private var guideColor: Color {
+        isReady ? Theme.cameraGuideReady : Theme.cameraGuide
     }
 
     private var boxInPoints: CGRect? {
@@ -89,36 +99,51 @@ struct PlacementBoxOverlay: View {
         // spürbar hinter dem Finger.
         .animation(isInteracting ? nil : .spring(response: 0.35, dampingFraction: 0.85),
                    value: effectiveRect)
+        .animation(.easeInOut(duration: 0.22), value: isReady)
     }
 
     private func box(in rect: CGRect) -> some View {
         ZStack {
             RoundedRectangle(cornerRadius: Theme.cornerLarge, style: .continuous)
-                .fill(Theme.textPrimary.opacity(0.06))
+                .fill(guideColor.opacity(isReady ? 0.12 : 0.06))
 
             RoundedRectangle(cornerRadius: Theme.cornerLarge, style: .continuous)
-                .strokeBorder(Theme.textPrimary.opacity(0.9), lineWidth: 2)
+                .strokeBorder(guideColor.opacity(0.9), lineWidth: 2)
                 .shadow(color: Color.black.opacity(0.35), radius: 6, x: 0, y: 0)
 
             CornerTicks(cornerRadius: Theme.cornerLarge, length: 18)
-                .stroke(Theme.textPrimary, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                .stroke(guideColor, style: StrokeStyle(lineWidth: 2, lineCap: .round))
 
-            Text(label)
-                .font(.system(size: 11.5, weight: .semibold, design: .rounded))
-                .foregroundStyle(Theme.textPrimary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(
-                    Capsule().fill(Theme.surface.opacity(0.85))
-                )
-                .fixedSize()
-                .offset(y: rect.height / 2 + 16)
+            // Der Standpunkt: unten mittig, dort wo die Füße hinkommen. Er ist
+            // der Punkt, den man auf die Stelle im Raum legt.
+            standingPoint
+                .offset(y: rect.height / 2)
         }
         .frame(width: rect.width, height: rect.height)
-        .offset(x: rect.origin.x, y: rect.origin.y)
         .contentShape(RoundedRectangle(cornerRadius: Theme.cornerLarge, style: .continuous))
         .gesture(dragGesture)
         .simultaneousGesture(magnifyGesture)
+        // `position` statt `offset`: `offset` verschiebt nur das Gezeichnete,
+        // die Box lag fuer die Beruehrung weiterhin in der Ecke — sie war
+        // sichtbar, aber nicht zu fassen. `position` setzt die Lage selbst.
+        .position(x: rect.midX, y: rect.midY)
+    }
+
+    /// Ring mit Kern, gut sichtbar auf hellem wie dunklem Grund. Wenn der
+    /// Winkel stimmt, wächst er kurz auf — die Bewegung sieht man aus dem
+    /// Augenwinkel, die Farbe allein nicht.
+    private var standingPoint: some View {
+        ZStack {
+            Circle()
+                .strokeBorder(guideColor, lineWidth: 2)
+                .frame(width: 22, height: 22)
+            Circle()
+                .fill(guideColor)
+                .frame(width: 7, height: 7)
+        }
+        .shadow(color: Color.black.opacity(0.45), radius: 4)
+        .scaleEffect(isReady ? 1.18 : 1)
+        .animation(.spring(response: 0.28, dampingFraction: 0.7), value: isReady)
     }
 
     private var autoChip: some View {

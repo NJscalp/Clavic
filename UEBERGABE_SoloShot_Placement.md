@@ -170,6 +170,31 @@ Vorschau-Assets (`preview_look_cafe_window` usw.) fehlen noch — die Kacheln
 fallen sauber auf Verlauf + Symbol zurück, sehen aber leer aus.
 **Das ist der nächste sinnvolle Schritt.**
 
+### Nachtrag: Sucher statt Beschriftung, ein Bild statt zwei
+
+Zwei Rueckmeldungen aus dem Betrieb:
+
+**Im Review lagen zwei Bilder uebereinander.** Auf dem Ortsfoto lag die
+Outfit-Referenz als getoente Silhouette, dazu die Outfit-Karte am linken Rand.
+Beides ist weg: die Box zeigt die Platzierung, ohne das Foto zuzudecken, und
+die Outfit-Karte erscheint nur noch im Ausricht-Schritt, wo sie hingehoert.
+Damit ist auch die alte Silhouetten-Maschinerie raus (`alignedReferenceOverlay`,
+`overlayScale`/`overlayOffset`/`overlayOpacity`, der blaue Guide-Pfad) — die
+Markierung ist jetzt immer das rosa Rechteck, auch bei einem Bild aus der
+Mediathek.
+
+**Kein „Hier stehst du" mehr, sondern ein Sucher.** Wer das Telefon hochhaelt
+und sich dreht, liest nicht. Rahmen und Standpunkt sind **weiss**, solange die
+Kamera sucht, und springen auf **gelb**, sobald der Winkel stimmt
+(`PlacementSuggestion.isReadyForTheShot`: Confidence >= 0.5 und Horizont
+hoechstens 4 Grad schief; ohne erkennbaren Horizont zaehlt nur die Confidence,
+sonst gaebe es drinnen nie gruenes Licht). Man dreht, bis es gelb wird.
+
+**Dabei gefunden:** die Box liess sich gar nicht anfassen. Sie lag per
+`offset` an ihrer Stelle — das verschiebt nur das Gezeichnete, fuer die
+Beruehrung blieb sie in der Ecke. Jetzt `position`. Aufgefallen ist das erst
+beim Ziehen im Simulator, nicht beim Lesen des Codes.
+
 ### Aufgabe 6 — Regie
 
 `DirectorCameraView.swift`. Die Vorgabe nannte keinen Einstieg; er sitzt jetzt
