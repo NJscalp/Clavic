@@ -1,275 +1,145 @@
 # Übergabe — SoloShot-Platzierung & Discover-Umbau
 
-Stand: 06.08.2026. Diese Datei ist die vollständige Arbeitsanweisung.
-In einer neuen Sitzung genügt: **„Lies Clavic/UEBERGABE_SoloShot_Placement.md und
-arbeite weiter."**
+Stand: 07.08.2026. Alle sechs Aufgaben sind gebaut, die App baut durch und
+**alle 36 Tests sind grün** (vorher 24, davon 4 rot).
 
----
+Das Projekt ist jetzt ein Git-Repository. Vier Commits, je einer pro Abschnitt:
 
-## Wo es steht
-
-| Aufgabe | Stand |
-|---|---|
-| 1 — `PlacementSuggester.swift` | **Code fertig, Tests ROT** → hier weitermachen |
-| 2 — `PlacementBoxOverlay.swift` | offen |
-| 3 — SoloShotView verdrahten | offen |
-| 4 — Weiterbearbeiten (Chat/Studio) | offen |
-| 5 — Templates/Discover aufräumen | offen |
-| 6 — `DirectorCameraView.swift` | offen, eigener Durchgang |
-
-### Aufgabe 1 — was zu tun ist
-
-`Clavic/PlacementSuggester.swift` ist vollständig nach Spezifikation gebaut und
-die App **baut durch**. Aber alle vier Tests in
-`ClavicTests/PlacementSuggesterTests.swift` schlagen fehl — **ohne** Assertion-
-Meldung, auch ohne `XCTUnwrap`-Fehler. Das deutet auf einen Absturz in
-`PlacementSuggester.analyse` hin, nicht auf ein falsches Ergebnis.
-
-Hauptverdächtige, in dieser Reihenfolge:
-1. `saliencyMatrix(_:)` — liest `VNSaliencyImageObservation.pixelBuffer` direkt
-   über `assumingMemoryBound(to: Float.self)`. Format/Stride prüfen.
-2. `columnLuminance(_:)` — `CIAreaAverage` mit `workingColorSpace: NSNull()`.
-3. `horizonHeight(_:)` — `observation.transform` auf einem Punkt.
-
-Vorgehen: die drei Hilfsfunktionen einzeln stubben und den Test erneut laufen
-lassen, bis klar ist, welche abstürzt.
-
-**Aufgabe 1 gilt erst als fertig, wenn die vier Tests grün sind.**
+```
+3bc7b8e Aufgaben 5+6: Discover auf die Zielgruppe, Regie-Modus
+79b3ff8 Aufgaben 2-4: Platzierungs-Box, Verdrahtung, Uebergabe an Chat/Studio
+3257c7f Aufgabe 1: Platzierungs-Vorschlag ueberlebt fehlende Vision-Modelle
+894f9b7 Ausgangsstand vor SoloShot-Platzierung
+```
 
 ### Testlauf
-
-Tests laufen NICHT gegen `generic/platform=iOS Simulator`, es braucht ein
-konkretes Gerät:
 
 ```
 xcodebuild test -project Clavic.xcodeproj -scheme Clavic \
   -destination 'id=B26AFEE4-163E-4417-8423-9DAE81DAC94C' \
-  -only-testing:ClavicTests/PlacementSuggesterTests
+  -only-testing:ClavicTests
 ```
 
-### Wichtig vorab
+---
 
-Das Projekt ist **kein Git-Repository**. „Nach jeder Aufgabe committen" geht so
-nicht. Als Erstes `git init` + ersten Commit anlegen — sonst gibt es bei einem
-Fehlschlag keinen Weg zurück.
+## Was aus jeder Aufgabe wurde
+
+| Aufgabe | Stand |
+|---|---|
+| 1 — `PlacementSuggester.swift` | fertig, vier Tests grün |
+| 2 — `PlacementBoxOverlay.swift` | fertig |
+| 3 — SoloShotView verdrahtet | fertig |
+| 4 — Weiterbearbeiten (Chat/Studio) | fertig, mit einer Einschränkung |
+| 5 — Templates/Discover | fertig, mit zwei Abweichungen |
+| 6 — `DirectorCameraView.swift` | fertig, acht Tests grün |
+
+### Aufgabe 1 — warum die Tests rot waren
+
+Es war **kein Absturz**. Alle fünf Vision-Requests liefen in *einem*
+`handler.perform([...])`. Im Simulator scheitern die drei modellgestützten
+(Saliency, Personen, Gesichter) mit `Failed to create espresso context` — und
+ein einziger Fehlschlag riss die ganze Gruppe mit, `analyse` gab `nil` zurück.
+
+Zwei Änderungen, beide auch auf echten Geräten relevant:
+
+- Jeder Request läuft einzeln. Ein fehlendes Modell kostet nur seine eigene
+  Messung, nicht den ganzen Vorschlag.
+- Fällt die Saliency aus, misst `structureMatrix` die Unruhe des Bildes selbst
+  (Textur je Zelle plus Abweichung vom Median-Ton). Ohne ML, deshalb sinkt die
+  Confidence um 15 %.
+
+**Der teuerste Fund lag daneben:** `columnLuminance` legte pro Bild einen
+eigenen `CIContext` an, meine erste Fassung von `grayscale` einen zweiten. Bei
+acht Analysen je Sekunde wären das sechzehn Metal-Kontexte pro Sekunde. Im
+Testlauf hat das einen Test mit `signal abrt` abgeschossen und einen
+unbeteiligten Erase-Test von 0,1 s auf **15 Minuten** gebremst. Jetzt gibt es
+genau einen geteilten Kontext.
+
+### Aufgabe 3 — drei Stellen, an denen die Vorgabe nicht aufging
+
+1. **Zuschnitt.** Der Sensor liefert 4:3, die Vorschau zeigt 4:5. Ohne
+   denselben mittigen Zuschnitt läge die Box im Livebild woanders als im
+   gespeicherten Foto. `PlacementSuggester.suggest` hat dafür einen optionalen
+   `aspect`-Parameter bekommen.
+2. **Kein Frame-Callback vorhanden.** `PoseCameraModel` hatte nur einen
+   Photo-Output. Es gibt jetzt einen `AVCaptureVideoDataOutput`, der nur
+   angehängt wird, solange jemand zuhört, und schon auf der Kamera-Queue auf
+   8/s drosselt.
+3. **Der Prompt widersprach dem Bild.** Der bestehende Prompt beschreibt eine
+   *blaue Silhouette*. Mit Box liegt aber ein *rosa Rechteck* im Bild. Die
+   Markierung wird jetzt an einer Stelle benannt und überall eingesetzt —
+   sonst sucht das Modell eine Markierung, die es nicht gibt, und lässt die
+   echte stehen.
+
+Zwei bewusste Abweichungen vom Wortlaut:
+
+- Die zwei vorgegebenen Sätze stehen in der **Ich-Form** („Place me…"), nicht
+  in der dritten Person. Der gesamte übrige Prompt spricht von „me"; ein
+  Wechsel mitten im Text ist der schnellste Weg zu zwei Personen im Ergebnis.
+- Die **Identitäts-Klausel fehlte in diesem Prompt komplett**. Sie ist ergänzt
+  (Wortlaut aus `EditPromptBooster`), die Platzierungs-Sätze stehen direkt
+  dahinter.
+
+### Aufgabe 4 — eine Vorgabe ließ sich nicht erfüllen
+
+`EditHandoff` steht, ist im `ClavicApp`-Environment registriert, und beide
+Wege aus dem Ergebnis funktionieren.
+
+**Aber:** „Studio öffnet den Reiter mit den lokalen Reglern (kostenlos)" geht
+nicht — diesen Reiter gibt es nicht mehr. `StudioView.Section` kennt nur noch
+`.remove` und `.chat`; Licht, Farbe, Haut und Körper sind laut Kommentar im
+Kopf der Datei ausgebaut worden („sie versprachen mehr, als sie hielten").
+Das Bild wird geladen, die Ansicht bleibt auf der Voreinstellung. Wenn die
+kostenlosen Regler zurückkommen sollen, ist das eine eigene Aufgabe.
+
+### Aufgabe 5 — zwei Abweichungen
+
+- **Der Trends-Chip ist geblieben**, die Reihenfolge ist Looks · Tools ·
+  Trends · Fun. Nach dem Umhängen liegen acht Vorlagen in `.trends`; mit nur
+  drei Chips wäre keine einzige davon noch erreichbar gewesen.
+- **Der Hero zeigt kein Video, sondern den Vorher/Nachher-Wischer** über
+  `sc_garage_before`/`sc_garage_after`. Ein Solo-Shot-Beispielvideo liegt nicht
+  im Bundle. Sobald es eines gibt, gehört an diese Stelle ein
+  `LoopingVideoView` — die Stelle ist im Code markiert.
+
+Zusätzlich: die 7 neuen Looks haben **eigene Kacheln** bekommen. Ohne sie wäre
+`ViralLooks.all.count == 12` erfüllt, aber sieben Prompts unerreichbar. Die
+Vorschau-Assets (`preview_look_cafe_window` usw.) fehlen noch — die Kacheln
+fallen sauber auf Verlauf + Symbol zurück, sehen aber leer aus.
+**Das ist der nächste sinnvolle Schritt.**
+
+### Aufgabe 6 — Regie
+
+`DirectorCameraView.swift`. Die Vorgabe nannte keinen Einstieg; er sitzt jetzt
+als „Regie"-Pille unten rechts im Solo-Shot-Hero in Discover.
+
+Die Geometrie-Regeln liegen getrennt in `DirectorCoach` (`DirectorFrame` rein,
+höchstens ein `DirectorHint` raus) — nur so lassen sich die Schwellen prüfen,
+ohne mit dem Telefon in der Hand vor der Kamera zu stehen. Acht Tests halten
+Rangfolge und Schwellen fest.
 
 ---
 
-## Harte Regeln (gelten für alle Aufgaben)
+## Was noch offen ist
 
-- Vor jeder Änderung die betroffene Datei **ganz** lesen. Keine Typen erfinden,
-  die es schon gibt.
-- Keine neuen Third-Party-Abhängigkeiten. Nur Vision, CoreImage, AVFoundation,
-  CoreGraphics, SwiftUI.
-- Kein Hardcoding von Farben oder Abständen — immer `Theme.*`.
-- Jede neue Datei bekommt einen deutschen Header-Kommentar im Stil der
-  bestehenden Dateien: **warum** es die Datei gibt und welche Entscheidung
-  dahintersteckt, nicht was der Code tut.
-- Bestehende Wege nicht umgehen: Generierungen laufen weiter über den
-  vorhandenen Chat-/Credits-Pfad. `ContentPolicy`, `SubjectDetector` und
-  `EditPromptBooster` bleiben eingebunden.
-- **Identitäts-Klausel bleibt in jedem Prompt**: „Keep the exact same person …
-  Do NOT beautify, slim, smooth, retouch or redraw".
-- Nichts blockiert den Main-Thread. Vision auf
-  `DispatchQueue.global(qos: .userInitiated)` bzw. `Task.detached`.
-- Bestehende Tests bleiben grün; für Neues kommen Tests dazu.
+- [ ] **Auf echter Hardware prüfen.** Im Simulator gibt es keine Kamera: der
+      Frame-Strom, die Box im Livebild, der Burst und die 15-%-CPU-Grenze aus
+      den Abnahmekriterien sind **nicht** gemessen.
+- [ ] Vorschau-Assets für die 7 neuen Looks
+- [ ] Beispielvideo für den Solo-Shot-Hero
+- [ ] Entscheiden, ob die kostenlosen Studio-Regler zurückkommen (siehe
+      Aufgabe 4)
+- [ ] Die deutschen Texte („Hier stehst du", „Auto", „Wir zeigen dir, wo du am
+      besten stehst", die Regie-Texte) stehen laut Vorgabe auf Deutsch, der
+      Rest der Oberfläche ist Englisch. Das ist so gebaut, aber es fällt auf.
 
-### Ausdrücklich nicht tun
+## Harte Regeln (galten und gelten weiter)
 
-- Keine `.fun`-Templates löschen, kein Asset entfernen
-- Credits-Fluss, RevenueCatManager und Paywall nicht anfassen
-- Kein ARKit — Vision reicht und läuft auf allen Geräten
-- Die Box nie erzwingen: der Vorschlag darf die manuelle Position nie überschreiben
-- Keine Beauty-, Slimming- oder Retusche-Voreinstellung neu einführen
-
----
-
-## Aufgabe 2 — `PlacementBoxOverlay.swift`
-
-Die Box muss auf dem Livebild ohne Erklärtext verständlich und anfassbar sein.
-
-```swift
-struct PlacementBoxOverlay: View {
-    let suggestion: PlacementSuggestion?
-    /// Vom Nutzer überschriebene Box. Ist sie gesetzt, gewinnt sie immer.
-    @Binding var manualRect: CGRect?
-    /// Bildgröße des angezeigten Kameraframes in Punkten.
-    let frameSize: CGSize
-}
-```
-
-Darstellung:
-- Abgerundetes Rechteck, `cornerRadius: 22, style: .continuous`
-- Rand 2 pt, `Theme.textPrimary.opacity(0.9)`, darunter 6 pt weicher Schatten
-- Innenfläche `Theme.textPrimary.opacity(0.06)`
-- Vier kurze Eckwinkel (je 18 pt) in Vollton
-- Label mittig unter der Box, `.system(size: 11.5, weight: .semibold, design: .rounded)`:
-  standing → „Hier stehst du" · seated → „Hier sitzt du" · leaning → „Hier lehnst du"
-- Ein-/Ausblenden mit `.animation(.spring(response: 0.35, dampingFraction: 0.85))`
-- Bei `confidence < 0.35` **und** `manualRect == nil`: gar nicht anzeigen
-
-Interaktion:
-- `DragGesture` verschiebt → setzt `manualRect`
-- `MagnificationGesture` skaliert um den Mittelpunkt, Seitenverhältnis fest → setzt `manualRect`
-- Box bleibt immer vollständig im Frame (klemmen)
-- Sobald `manualRect != nil`: Chip „Auto" rechts oben; Tap setzt `manualRect = nil`
-
----
-
-## Aufgabe 3 — `SoloShotView.swift` verdrahten
-
-Neuer State:
-```swift
-@State private var placement: PlacementSuggestion?
-@State private var manualPlacementRect: CGRect?
-@State private var placementIsAnalyzing = false
-@State private var capturedPlacement: PlacementSuggestion?   // beim Auslösen eingefroren
-```
-
-**Live-Analyse:** Frame-Callback dort anzapfen, wo der Preview-Layer gespeist
-wird. Höchstens 8 Analysen/Sekunde, nie eine neue starten solange die vorige
-läuft (`placementIsAnalyzing` als Gate). Ergebnis in `placement`,
-`previousRect: placement?.rect` übergeben. **Nur in `Stage.scene` analysieren** —
-in `.person` und `.review` stoppen (Akku).
-
-**Overlay** in `cameraFrame(showGhost:)`, nur bei `stage == .scene`:
-```swift
-.overlay {
-    if stage == .scene {
-        PlacementBoxOverlay(
-            suggestion: placement,
-            manualRect: $manualPlacementRect,
-            frameSize: frameSize
-        )
-    }
-}
-```
-
-**Beim Auslösen** (`captureBackground()`): effektive Box
-(`manualPlacementRect ?? placement?.rect`) samt Pose in `capturedPlacement`
-einfrieren, **bevor** das Foto gespeichert wird. Danach Live-Analyse stoppen.
-
-**Marker-Referenz** aus `capturedPlacement` bauen (ersetzt die bisherige
-manuelle Markierung an genau der Stelle, wo sie heute erzeugt wird):
-- Kopie des aufgenommenen Location-Fotos
-- Darauf gefülltes, abgerundetes Rechteck an der Box-Position,
-  `UIColor.systemPink.withAlphaComponent(0.45)`, cornerRadius = Box-Breite × 0.18
-- JPEG, Qualität 0.9
-
-**`SoloShotPrompt.build` erweitern:**
-```swift
-static func build(
-    userText: String,
-    sceneImage: Data? = nil,
-    placement: PlacementSuggestion? = nil
-) -> String
-```
-Ist `placement` gesetzt, diese zwei Sätze **nach der Identitäts-Klausel, vor der
-Licht-/Realismus-Passage** einfügen:
-
-> Place her exactly inside the pink marked region of the reference image: that
-> rectangle is where her body belongs, her feet at its bottom edge, her head at
-> its top edge. Remove the pink marker itself completely — it must not appear in
-> the output. She is \<poseSentence\>, in a position built for this location and
-> not carried over from the outfit reference. Match her lighting, shadow
-> direction and colour temperature to the location photo, and ground her with a
-> real contact shadow where she meets the floor.
-
-`create()` übergibt `capturedPlacement`.
-
-**Hinweistext in `sceneStage`** ersetzen durch:
-„Wir zeigen dir, wo du am besten stehst. Box verschieben, wenn du woanders hin willst."
-
----
-
-## Aufgabe 4 — Weiterbearbeiten nach der Generierung
-
-Neue Datei `EditHandoff.swift`, im `ClavicApp`-Environment registriert:
-```swift
-@Observable final class EditHandoff {
-    var pendingChatImage: Data?
-    var pendingStudioImage: Data?
-}
-```
-
-Im `reviewStage` bzw. am Ergebnis zwei Buttons:
-- „Im Chat weiterbearbeiten" → `handoff.pendingChatImage = resultData`, Tab `.chatEdit`
-- „Im Studio öffnen" → `handoff.pendingStudioImage = resultData`, Tab `.studio`
-
-`ChatEditView` beobachtet `pendingChatImage`: lädt es als aktuelles Arbeitsbild,
-schreibt eine Systemblase „Dein Bild ist geladen. Sag, was du ändern willst."
-und setzt den Wert auf `nil`.
-
-`StudioView` beobachtet `pendingStudioImage` analog und öffnet direkt den Reiter
-mit den lokalen Reglern (kostenlos), nicht die Server-Werkzeuge.
-
-In `ContentView` den Tab-Wechsel über `EditHandoff` ermöglichen, **ohne** den
-bestehenden `createRequest`-Mechanismus zu verändern.
-
----
-
-## Aufgabe 5 — `Templates.swift` und `DiscoverView.swift`
-
-Discover zeigt heute 42 Templates, davon ~25 aus Meme-/Sport-/Brainrot-
-Kategorien. Zielgruppe sind Frauen 18–35; die ersten 1,5 Sekunden entscheiden.
-
-- `TemplateCategory` um `case fun` ergänzen
-- Alle Templates aus `.worldcup`, `.fancam`, `.backrooms`, `.dance`, `.memes`
-  auf `category: .fun` umhängen — **nicht löschen**
-- Neues Feld `let isHiddenFromDiscover: Bool` (Default `false`) auf dem
-  Template-Typ; alle `.fun`-Templates bekommen `true`
-- `DiscoverView`: Chips in der Reihenfolge **Looks · Tools · Fun**, „Looks" ist
-  vorausgewählt statt `.all`. Templates mit `isHiddenFromDiscover == true`
-  erscheinen ausschließlich unter „Fun"
-- `DiscoverView` bekommt oben einen **SoloShot-Hero** (halbe Bildschirmhöhe, ein
-  laufendes Beispielvideo), darunter erst `clavicToolsSection`
-
-**`ViralLooks.all` von 5 auf 12 erweitern.** Jeder neue Look folgt exakt der
-bestehenden Prompt-DNA in dieser Reihenfolge:
-Identitäts-Klausel → konkrete Pose für die neue Szene → Outfit → Lichtrezept mit
-Kelvin-Angabe → Farbstimmung → echte Hauttextur → Aufnahmeart (Handy, leicht
-außermittig) → „Photorealistic" → Format → „No text, no logos, no watermark".
-Keine Marken, kein Text im Bild.
-
-Themen der 7 neuen: Café-Fenster · Autositz bei Nacht · Spiegel-Selfie im Aufzug ·
-Blumenmarkt · Rooftop bei Dämmerung · Bett am Morgen · Regen mit Straßenlicht.
-
----
-
-## Aufgabe 6 (eigener Durchgang, erst nach 1–5) — `DirectorCameraView.swift`
-
-Zwei verschiedene Situationen: „Ort" = niemand ist da, ich füge mich ein (das
-ist SoloShot). **„Regie"** = jemand fotografiert mich, kann es aber nicht.
-In diesem Modus wird **nichts generiert** — es entstehen echte Fotos.
-
-- Rückkamera, die Nutzerin steht vor der Linse, eine andere Person hält das Telefon
-- Live per `VNDetectHumanRectanglesRequest` + `VNDetectHumanBodyPoseRequest`:
-  - Person zu klein → „Zwei Schritte näher"
-  - Kamera zu hoch (Blickachse über Brusthöhe) → „Handy tiefer halten"
-  - Füße angeschnitten → „Weiter runter"
-  - Horizont schief > 4° (`VNDetectHorizonRequest`) → „Gerade halten"
-- Nur **ein** Hinweis gleichzeitig, groß, mittig unten, Wechsel frühestens alle 1,2 s
-- Stimmt alles 0,6 s durchgehend: automatisch Burst von 6 Aufnahmen über 1,5 s,
-  ohne Tastendruck
-- Danach Auswahlraster der 6 Bilder, Mehrfachauswahl, „Speichern" legt die
-  gewählten in die Library
-- Kein Credit-Verbrauch, keine Server-Runde
-
----
-
-## Abnahmekriterien
-
-- [ ] Die Location-Kamera zeigt eine ruhig stehende, abgerundete Box, die sich
-      beim Schwenken flüssig mitbewegt und nicht zappelt
-- [ ] Die Box weicht erkannten Personen sichtbar aus
-- [ ] Die Box ist verschiebbar und skalierbar; der „Auto"-Chip stellt den
-      Vorschlag wieder her
-- [ ] Das erzeugte Bild platziert die Person innerhalb der markierten Region,
-      und der rosa Marker ist im Ergebnis nicht mehr zu sehen
-- [ ] Aus dem Ergebnis führen zwei Wege weiter: Chat und Studio, beide mit
-      vorgeladenem Bild
-- [ ] Discover öffnet auf „Looks"; kein Fan-Cam-, Backrooms- oder
-      Tung-Tung-Template ist ohne den Fun-Chip erreichbar
-- [ ] `ViralLooks.all.count == 12`, jeder Prompt enthält die Identitäts-Klausel
-- [ ] `PlacementSuggesterTests` grün, bestehende Tests unverändert grün
-- [ ] Instruments: Live-Analyse unter 15 % zusätzlicher CPU auf einem iPhone 13
+- Vor jeder Änderung die betroffene Datei ganz lesen
+- Keine neuen Third-Party-Abhängigkeiten
+- Kein Hardcoding von Farben/Abständen — immer `Theme.*`
+- Deutscher Header-Kommentar in jeder neuen Datei: **warum**, nicht was
+- Identitäts-Klausel in jedem Prompt
+- Nichts blockiert den Main-Thread
+- Kein ARKit; `.fun`-Templates und Assets bleiben; Credits, RevenueCat und
+  Paywall bleiben unangetastet; die Box überschreibt nie die manuelle Position
