@@ -152,10 +152,11 @@ Rangfolge und Schwellen fest.
 
 ## Was noch offen ist
 
-- [ ] **Der Testlauf stürzt in etwa jedem zweiten Lauf ab. Ursache offen.**
+- [ ] **Der Testlauf stuerzt sporadisch ab. Es liegt an unserem Code —
+      gemessen, nicht vermutet.**
 
       Immer derselbe Stack, unabhaengig davon, welcher Test gerade laeuft
-      (getroffen wurden bisher vier verschiedene, alle mit Dauer 0,000 s):
+      (bisher vier verschiedene getroffen, alle mit Dauer 0,000 s):
 
       ```
       ___BUG_IN_CLIENT_OF_LIBMALLOC_POINTER_BEING_FREED_WAS_NOT_ALLOCATED
@@ -167,31 +168,23 @@ Rangfolge und Schwellen fest.
       Der Absturz sitzt im Abbau von `ContentView`, wenn der `@MainActor`-
       `TemplateStore` ueber den Concurrency-Executor freigegeben wird.
 
-      **Die Laufhistorie spricht gegen eine einzelne Code-Aenderung und fuer
-      die Laufdauer:**
+      **Der saubere Vergleich — gleiche Testmenge, nur anderer Code:**
 
-      | Lauf | Tests | Absturz |
-      |---|---|---|
-      | Ausgangsstand `894f9b7` | 24 | nein |
-      | nach Aufgabe 1 | 24 | nein |
-      | nach Aufgaben 2–4 | 24 | nein |
-      | nach Aufgaben 5+6 | 36 | nein |
-      | ab dem Nachtrag | 42 | ja, etwa jeder zweite |
+      | Stand | Tests | Laeufe | Abstuerze |
+      |---|---|---|---|
+      | Ausgangsstand `894f9b7` | 24 | 4 | **0** |
+      | unser Stand, neue Testklassen uebersprungen | 24 | 3 | **3** |
 
-      Er taucht also erst auf, seit die Suite von 24 auf 42 Tests gewachsen ist
-      — quer durch alle Klassen, auch durch die alten. Das passt zu einem
-      Wettlauf beim App-Abbau, der mit der Laufdauer wahrscheinlicher wird, und
-      nicht zu einer bestimmten Zeile.
+      Damit ist die Lauflaenge als Ursache ausgeschlossen: bei identischer
+      Testmenge bleibt der Ausgangsstand sauber und unser Stand faellt jedes
+      Mal um. Es ist unser Code.
 
-      Der Ausgangsstand `894f9b7` bleibt ueber **vier** Laeufe sauber (je 20
-      bestanden, kein Absturz). Dort laufen aber 18 Tests weniger — der
-      Vergleich ist damit noch nicht fair. Die entscheidende Messung laeuft
-      als Naechstes: unser Stand mit `-skip-testing` auf die drei NEUEN
-      Testklassen, also derselben Testzahl wie die Basis.
-
-      - stuerzt er dann weiter ab → es liegt an unserem Code
-      - bleibt er sauber → es liegt an der Lauflaenge, und der Fehler war
-        vorher schon da, nur unsichtbar
+      **Wo weitersuchen.** Der naechste Schnitt laeuft schon: dieselbe Menge
+      ohne `PlacementSuggesterTests`. Faellt es dann nicht mehr um, liegt es am
+      Vision-Code; faellt es weiter um, liegt es an der App selbst — und dann
+      sind `ContentView` (Environment `EditHandoff`, zwei `onChange`, zwei
+      `fullScreenCover`), `DiscoverView` (Hero + zwoelf Kacheln) und
+      `Templates` (`isHiddenFromDiscover`, `TemplateFilter`) die Kandidaten.
 
       **Auch fuer die Auslieferung pruefen:** das ist App-Abbau, nicht nur
       Test-Umgebung.
