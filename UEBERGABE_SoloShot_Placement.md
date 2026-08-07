@@ -48,12 +48,24 @@ Zwei Änderungen, beide auch auf echten Geräten relevant:
   (Textur je Zelle plus Abweichung vom Median-Ton). Ohne ML, deshalb sinkt die
   Confidence um 15 %.
 
-**Der teuerste Fund lag daneben:** `columnLuminance` legte pro Bild einen
+**Zwei Funde lagen daneben, beide teuer.**
+
+*Erstens:* `columnLuminance` legte pro Bild einen
 eigenen `CIContext` an, meine erste Fassung von `grayscale` einen zweiten. Bei
 acht Analysen je Sekunde wären das sechzehn Metal-Kontexte pro Sekunde. Im
 Testlauf hat das einen Test mit `signal abrt` abgeschossen und einen
 unbeteiligten Erase-Test von 0,1 s auf **15 Minuten** gebremst. Jetzt gibt es
 genau einen geteilten Kontext.
+
+*Zweitens:* `grayscale` liess CoreGraphics ueber einen rohen Zeiger in ein
+Swift-Array zeichnen (`withUnsafeMutableBytes` + `CGContext(data:…,
+bytesPerRow: width)`). CoreGraphics rundet die Zeilenlaenge intern auf und
+schreibt damit ueber das Array-Ende hinaus. Jetzt bekommt CoreGraphics seinen
+eigenen Puffer (`data: nil`, `bytesPerRow: 0`) und die Zeilen werden dicht
+herauskopiert. Ein latenter Fehler weniger — den Absturz unten hat es aber
+**nicht** behoben.
+
+---
 
 ### Aufgabe 3 — drei Stellen, an denen die Vorgabe nicht aufging
 
@@ -140,12 +152,14 @@ Rangfolge und Schwellen fest.
 
 ## Was noch offen ist
 
-- [ ] **Der Testlauf stürzt sporadisch ab — nicht im neuen Code.** In 2 von 6
-      Läufen bricht der Host-Prozess mit `SIGABRT` ab, XCTest schreibt es dem
-      Test zu, der gerade läuft (einmal `testBoxDoesNotOverlapDetectedPerson`,
-      einmal `testBoxAvoidsClutteredHalf`, beide mit Dauer 0,000 s). Der Stack
-      ist beide Male identisch und enthält **keinen** Frame aus dem
-      Platzierungs-Code:
+- [ ] **Der Testlauf stürzt in etwa jedem zweiten Lauf ab — Ursache offen, und
+      sie liegt bei uns, nicht im Altbestand.**
+
+      Immer derselbe Stack, unabhaengig davon, welcher Test gerade laeuft
+      (getroffen wurden bisher `testBoxAvoidsClutteredHalf`,
+      `testBoxDoesNotOverlapDetectedPerson`,
+      `testCreateVisualReferenceRendersWhenRequested`,
+      `testPerformanceExample` — alle mit Dauer 0,000 s):
 
       ```
       ___BUG_IN_CLIENT_OF_LIBMALLOC_POINTER_BEING_FREED_WAS_NOT_ALLOCATED
@@ -154,11 +168,25 @@ Rangfolge und Schwellen fest.
       destroy for ContentView
       ```
 
-      Reports: `~/Library/Logs/DiagnosticReports/Clavic-2026-08-07-1624*.ips`
-      und `-1935*.ips`. Der erste stammt aus einer Zeit, in der `ContentView`
-      noch unverändert war — das spricht für einen Altbestand: ein
-      `@MainActor`-`TemplateStore`, der über den Concurrency-Executor
-      abgeräumt wird, während `load()` noch läuft. **Eigene Aufgabe.**
+      **Gemessen, nicht vermutet:** ein Lauf auf dem Ausgangsstand `894f9b7`
+      (eigener Worktree, eigener DerivedData) zeigt den Absturz NICHT — dort
+      scheitern nur die vier Platzierungs-Tests sauber mit `XCTUnwrap`, 20
+      bestanden, kein `abrt`. Auf unserem Stand: 42 bestanden, in etwa jedem
+      zweiten Lauf ein Absturz.
+
+      Der Zeiger-Fehler in `grayscale` war es nicht — nach dessen Behebung lief
+      ein Durchgang sauber durch, der naechste stuerzte wieder ab, mit
+      identischem Stack.
+
+      Der Absturz sitzt im Abbau von `ContentView`, wenn der `@MainActor`-
+      `TemplateStore` ueber den Concurrency-Executor freigegeben wird. Was an
+      unseren Aenderungen ihn ausloest, ist noch offen. Naechster Schritt:
+      `@Environment(EditHandoff.self)` in `ContentView` versuchsweise entfernen
+      und mehrfach laufen lassen — das ist die einzige Aenderung, die die
+      Lebensdauer des View-Baums beruehrt.
+
+      **Auch fuer die Auslieferung pruefen:** das ist App-Abbau, nicht nur
+      Test-Umgebung.
 
 - [ ] **Auf echter Hardware prüfen.** Im Simulator gibt es keine Kamera: der
       Frame-Strom, die Box im Livebild, der Burst und die 15-%-CPU-Grenze aus

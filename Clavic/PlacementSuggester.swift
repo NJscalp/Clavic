@@ -396,21 +396,41 @@ enum PlacementSuggester {
 
         guard let cgImage = context.createCGImage(image, from: extent) else { return nil }
 
+        // CoreGraphics bekommt seinen EIGENEN Puffer (`data: nil`) und bestimmt
+        // die Zeilenlänge selbst.
+        //
+        // Vorher lag hier ein Swift-Array, in das der Kontext über einen rohen
+        // Zeiger hineinzeichnete. Genau bei dieser Konstruktion schreibt eine
+        // von CoreGraphics aufgerundete Zeilenlänge über das Array-Ende hinaus —
+        // und der Schaden fällt nicht hier auf, sondern irgendwann später beim
+        // Freigeben von völlig unbeteiligtem Speicher. So ist der Testlauf
+        // abgestürzt: mit `abrt` im Abbau von `ContentView`.
+        guard let bitmap = CGContext(
+            data: nil,
+            width: width,
+            height: height,
+            bitsPerComponent: 8,
+            bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceGray(),
+            bitmapInfo: CGImageAlphaInfo.none.rawValue
+        ) else { return nil }
+
+        bitmap.draw(cgImage, in: CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
+        guard let base = bitmap.data else { return nil }
+
+        // Dicht zusammenkopieren, damit die Auswertung mit `width` rechnen kann
+        // statt mit der Zeilenlänge des Kontexts.
+        let stride = bitmap.bytesPerRow
+        let source = base.assumingMemoryBound(to: UInt8.self)
         var pixels = [UInt8](repeating: 0, count: width * height)
-        let drawn: Bool = pixels.withUnsafeMutableBytes { raw in
-            guard let bitmap = CGContext(
-                data: raw.baseAddress,
-                width: width,
-                height: height,
-                bitsPerComponent: 8,
-                bytesPerRow: width,
-                space: CGColorSpaceCreateDeviceGray(),
-                bitmapInfo: CGImageAlphaInfo.none.rawValue
-            ) else { return false }
-            bitmap.draw(cgImage, in: CGRect(x: 0, y: 0, width: CGFloat(width), height: CGFloat(height)))
-            return true
+        pixels.withUnsafeMutableBufferPointer { destination in
+            guard let target = destination.baseAddress else { return }
+            for row in 0..<height {
+                target.advanced(by: row * width)
+                    .update(from: source.advanced(by: row * stride), count: width)
+            }
         }
-        return drawn ? (pixels, width, height) : nil
+        return (pixels, width, height)
     }
 
     /// Mittlere Auffälligkeit innerhalb einer normalisierten Box (Ursprung oben links).
