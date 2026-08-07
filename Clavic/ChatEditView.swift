@@ -1177,7 +1177,14 @@ struct ChatEditView: View {
             let outgoing = EditPromptBooster.wantsPersonInsert(rawPrompt) && !pendingImages.isEmpty
                 ? 1 + pendingImages.count
                 : max(1, pendingImages.count)
-            prompt = EditPromptBooster.build(rawPrompt, hasPerson: hasPerson, referenceCount: outgoing)
+            // `data` ist das Bild, in das eingesetzt wird — daraus misst der
+            // Booster das Licht der Szene.
+            prompt = EditPromptBooster.build(
+                rawPrompt,
+                hasPerson: hasPerson,
+                referenceCount: outgoing,
+                sceneImage: data
+            )
         } else {
             prompt = rawPrompt
         }

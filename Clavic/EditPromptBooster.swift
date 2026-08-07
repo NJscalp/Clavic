@@ -105,7 +105,16 @@ enum EditPromptBooster {
     /// der Prompt sagen, WELCHES was ist — ohne Nummerierung mischt das Modell
     /// bei zwei Referenzen Szene und Person (dieselbe Erfahrung wie in
     /// `PosePrompt.imageOrderNote`).
-    static func build(_ user: String, hasPerson: Bool? = nil, referenceCount: Int = 1) -> String {
+    /// `sceneImage` ist das Bild, IN das eingesetzt wird. Daraus wird das Licht
+    /// GEMESSEN und als konkrete Vorgabe in den Prompt geschrieben. Modelle
+    /// folgen „dim / low-key; warm / golden cast; stronger light from the left"
+    /// verlaesslich — einem allgemeinen „match the lighting" nicht.
+    static func build(
+        _ user: String,
+        hasPerson: Bool? = nil,
+        referenceCount: Int = 1,
+        sceneImage: Data? = nil
+    ) -> String {
         let lower = user.lowercased()
 
         // Nur Hintergrund ändern → strengste Erhalt-Regel.
@@ -127,6 +136,11 @@ enum EditPromptBooster {
         // PERSON EINSETZEN — noch vor der Pose. Wer „add me in the image"
         // schreibt, will beides: hineinkommen UND dabei natuerlich dastehen.
         if wantsPersonInsert(user) {
+            // Gemessen statt geraten: Helligkeit, Farbtemperatur und aus welcher
+            // Richtung das Licht kommt.
+            let measured = sceneImage
+                .flatMap { SceneLightingHints.describe($0) }
+                .map { "\n\nMeasured look of THIS scene — match them to this: \($0)" } ?? ""
             let order = referenceCount >= 2
                 ? """
                 You are given exactly two reference images. IMAGE 1 is the SCENE — the photograph \
@@ -161,11 +175,36 @@ enum EditPromptBooster {
             stand on the same ground plane as everything else: never floating, never sliding up a \
             wall, never a small distant cut-out.
 
-            \(sceneLightRule)
+            RELIGHT THEM COMPLETELY — THIS IS WHAT MAKES THE RESULT REAL OR FAKE. The pose can be \
+            perfect and it still reads as pasted in if they keep the light they were photographed \
+            under.\(measured)
 
-            No halo, no hard cut-out edge, no sticker look, no plastic skin, no beauty filter. If \
-            any edge of them still looks composited, redo the lighting until a stranger would \
-            believe one camera took one photograph.
+            EVERY PIXEL OF THEIR SKIN, HAIR AND CLOTHES must be re-rendered under the light of THIS \
+            scene:
+            - Discard the light they came with entirely: phone flash, ring light, flat indoor \
+            ceiling, warm restaurant light, window selfie light, its white balance, its contrast — \
+            none of it may remain anywhere on them.
+            - Key light from the same side, the same height and the same hardness as on everything \
+            already in the frame. The highlights on their nose, forehead, cheeks, lips, hair and \
+            fabric come from that same direction. Hard sun outside means a bright lit side, a \
+            clearly darker shadow side and crisp shadow edges — not soft even light.
+            - Colour: whatever cast the scene carries — warm, cool, neon, mixed — their skin and \
+            their clothes pick it up, including the coloured bounce off the walls, floor and \
+            surfaces nearest to them.
+            - Exposure: the same brightness, contrast, highlight roll-off and black level as the \
+            scene. They must not be brighter, cleaner or sharper than their surroundings.
+            - ATMOSPHERE: the same time of day and the same mood. Same grain and sensor noise, same \
+            depth-of-field falloff, same lens character and softness, same haze, dust or air in the \
+            room. If the photograph is a quick snapshot, they are in that snapshot — never a studio \
+            portrait dropped into it.
+            - Shadows: contact shadow and ambient occlusion where they touch floor, wall or props, \
+            plus a cast shadow running in the same direction, with the same length, softness and \
+            colour as every other shadow already in the frame.
+
+            No halo, no hard cut-out edge, no sticker look, no plastic skin, no beauty filter. \
+            Ask at the end: could someone tell this person was added later? If yes, the lighting \
+            is not done — redo it until a stranger would believe one camera took one photograph \
+            in one moment.
 
             Instruction: \(user)
             """

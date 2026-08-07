@@ -14,6 +14,7 @@
 //  Einfuegen scheitert: Identitaet, neue Haltung, Licht der Szene.
 //
 
+import UIKit
 import XCTest
 @testable import Clavic
 
@@ -50,10 +51,42 @@ final class EditPromptBoosterTests: XCTestCase {
         XCTAssertTrue(prompt.contains("Do NOT copy the pose"),
                       "Ohne dieses Verbot wird die Haltung aus dem Referenzfoto uebernommen")
         XCTAssertTrue(prompt.contains("BUILD A NEW POSE FOR THIS PLACE"))
-        XCTAssertTrue(prompt.contains("LIGHT AND SHADOW MUST MATCH THE SCENE"))
+        XCTAssertTrue(prompt.contains("RELIGHT THEM COMPLETELY"),
+                      "Ohne Umbeleuchtung klebt das Licht des Referenzfotos auf der Person")
+        XCTAssertTrue(prompt.contains("ATMOSPHERE"),
+                      "Stimmung, Korn und Schaerfe muessen zur Szene passen, nicht nur der Schatten")
+        XCTAssertTrue(prompt.contains("Discard the light they came with"))
         XCTAssertTrue(prompt.contains("no sticker look"))
         XCTAssertTrue(prompt.contains("add me in the image"),
                       "Der Wunsch der Nutzerin muss im Prompt stehen bleiben")
+    }
+
+    /// Aus dem Szenenbild wird das Licht GEMESSEN und als konkrete Vorgabe in
+    /// den Prompt geschrieben. Ohne diese Zeile stand dort nur „match the
+    /// lighting" — und genau daran ist es gescheitert.
+    func testMeasuredSceneLightGoesIntoThePrompt() throws {
+        let scene = try XCTUnwrap(UIImage(named: "sc_garage_after", in: .main, with: nil)
+            ?? UIImage(named: "sc_garage_after"))
+        let data = try XCTUnwrap(scene.jpegData(compressionQuality: 0.9))
+
+        let withScene = EditPromptBooster.build("add me in the image", hasPerson: true,
+                                                referenceCount: 2, sceneImage: data)
+        XCTAssertTrue(withScene.contains("Measured look of THIS scene"))
+
+        let withoutScene = EditPromptBooster.build("add me in the image", hasPerson: true,
+                                                   referenceCount: 2)
+        XCTAssertFalse(withoutScene.contains("Measured look of THIS scene"),
+                       "Ohne Szenenbild darf nichts erfunden werden")
+    }
+
+    /// Bei zwei Bildern muss der Prompt sagen, welches die Szene ist.
+    func testTwoReferencesAreNumbered() {
+        let two = EditPromptBooster.build("add me in the image", hasPerson: true, referenceCount: 2)
+        XCTAssertTrue(two.contains("IMAGE 1 is the SCENE"))
+        XCTAssertTrue(two.contains("IMAGE 2 is the PERSON"))
+
+        let one = EditPromptBooster.build("add me in the image", hasPerson: true, referenceCount: 1)
+        XCTAssertFalse(one.contains("IMAGE 1 is the SCENE"))
     }
 
     /// Haltung umbauen kann GPT Image 2 messbar nicht — beide Faelle muessen
