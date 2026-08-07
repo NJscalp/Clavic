@@ -152,14 +152,10 @@ Rangfolge und Schwellen fest.
 
 ## Was noch offen ist
 
-- [ ] **Der Testlauf stürzt in etwa jedem zweiten Lauf ab — Ursache offen, und
-      sie liegt bei uns, nicht im Altbestand.**
+- [ ] **Der Testlauf stürzt in etwa jedem zweiten Lauf ab. Ursache offen.**
 
       Immer derselbe Stack, unabhaengig davon, welcher Test gerade laeuft
-      (getroffen wurden bisher `testBoxAvoidsClutteredHalf`,
-      `testBoxDoesNotOverlapDetectedPerson`,
-      `testCreateVisualReferenceRendersWhenRequested`,
-      `testPerformanceExample` — alle mit Dauer 0,000 s):
+      (getroffen wurden bisher vier verschiedene, alle mit Dauer 0,000 s):
 
       ```
       ___BUG_IN_CLIENT_OF_LIBMALLOC_POINTER_BEING_FREED_WAS_NOT_ALLOCATED
@@ -168,22 +164,34 @@ Rangfolge und Schwellen fest.
       destroy for ContentView
       ```
 
-      **Gemessen, nicht vermutet:** ein Lauf auf dem Ausgangsstand `894f9b7`
-      (eigener Worktree, eigener DerivedData) zeigt den Absturz NICHT — dort
-      scheitern nur die vier Platzierungs-Tests sauber mit `XCTUnwrap`, 20
-      bestanden, kein `abrt`. Auf unserem Stand: 42 bestanden, in etwa jedem
-      zweiten Lauf ein Absturz.
-
-      Der Zeiger-Fehler in `grayscale` war es nicht — nach dessen Behebung lief
-      ein Durchgang sauber durch, der naechste stuerzte wieder ab, mit
-      identischem Stack.
-
       Der Absturz sitzt im Abbau von `ContentView`, wenn der `@MainActor`-
-      `TemplateStore` ueber den Concurrency-Executor freigegeben wird. Was an
-      unseren Aenderungen ihn ausloest, ist noch offen. Naechster Schritt:
-      `@Environment(EditHandoff.self)` in `ContentView` versuchsweise entfernen
-      und mehrfach laufen lassen — das ist die einzige Aenderung, die die
-      Lebensdauer des View-Baums beruehrt.
+      `TemplateStore` ueber den Concurrency-Executor freigegeben wird.
+
+      **Die Laufhistorie spricht gegen eine einzelne Code-Aenderung und fuer
+      die Laufdauer:**
+
+      | Lauf | Tests | Absturz |
+      |---|---|---|
+      | Ausgangsstand `894f9b7` | 24 | nein |
+      | nach Aufgabe 1 | 24 | nein |
+      | nach Aufgaben 2–4 | 24 | nein |
+      | nach Aufgaben 5+6 | 36 | nein |
+      | ab dem Nachtrag | 42 | ja, etwa jeder zweite |
+
+      Er taucht also erst auf, seit die Suite von 24 auf 42 Tests gewachsen ist
+      — quer durch alle Klassen, auch durch die alten. Das passt zu einem
+      Wettlauf beim App-Abbau, der mit der Laufdauer wahrscheinlicher wird, und
+      nicht zu einer bestimmten Zeile.
+
+      Der Ausgangsstand `894f9b7` bleibt ueber **vier** Laeufe sauber (je 20
+      bestanden, kein Absturz). Dort laufen aber 18 Tests weniger — der
+      Vergleich ist damit noch nicht fair. Die entscheidende Messung laeuft
+      als Naechstes: unser Stand mit `-skip-testing` auf die drei NEUEN
+      Testklassen, also derselben Testzahl wie die Basis.
+
+      - stuerzt er dann weiter ab → es liegt an unserem Code
+      - bleibt er sauber → es liegt an der Lauflaenge, und der Fehler war
+        vorher schon da, nur unsichtbar
 
       **Auch fuer die Auslieferung pruefen:** das ist App-Abbau, nicht nur
       Test-Umgebung.
