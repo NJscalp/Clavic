@@ -12,6 +12,8 @@ struct ClavicApp: App {
     @Environment(\.scenePhase) private var scenePhase
     @State private var generationManager = GenerationManager()
     @State private var store = Store()
+    /// Übergabe eines fertigen Bildes zwischen den Tabs (Solo Shot → Chat/Studio).
+    @State private var editHandoff = EditHandoff()
     @State private var showIntro = true
 
     init() {
@@ -39,6 +41,7 @@ struct ClavicApp: App {
                 ContentView()
                     .environment(generationManager)
                     .environment(store)
+                    .environment(editHandoff)
 
                 if showIntro {
                     IntroView { showIntro = false }

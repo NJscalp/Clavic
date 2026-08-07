@@ -13,6 +13,7 @@ struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(GenerationManager.self) private var generationManager
     @Environment(Store.self) private var store
+    @Environment(EditHandoff.self) private var editHandoff
     @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding = false
     @AppStorage("hasSeenLarpFunnel") private var hasSeenLarpFunnel = false
     @AppStorage("hasSignedIn") private var hasSignedIn = false
@@ -148,6 +149,16 @@ struct ContentView: View {
             if !store.isPro { pendingCreateTemplate = nil }
         }) {
             PaywallView()
+        }
+        // Ein übergebenes Bild bringt den Tab mit, in dem es gebraucht wird.
+        // Der Erstellen-Weg über `createRequest` bleibt davon unberührt.
+        .onChange(of: editHandoff.pendingChatImage) { _, data in
+            guard data != nil else { return }
+            withAnimation(.spring(duration: 0.3)) { tab = .chatEdit }
+        }
+        .onChange(of: editHandoff.pendingStudioImage) { _, data in
+            guard data != nil else { return }
+            withAnimation(.spring(duration: 0.3)) { tab = .studio }
         }
         .onChange(of: hasSignedIn) { _, signedIn in
             if signedIn { completeSignInFlow() }
@@ -338,4 +349,5 @@ struct ContentView: View {
         .modelContainer(for: VideoProject.self, inMemory: true)
         .environment(GenerationManager())
         .environment(Store())
+        .environment(EditHandoff())
 }

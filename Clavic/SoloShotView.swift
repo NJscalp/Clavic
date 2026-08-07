@@ -50,9 +50,20 @@ enum SoloShotPrompt {
     /// Drei Fullsize-Referenzen + langer Prompt haben den Upload an die
     /// Gateway-Grenze gedrückt („That didn't work"). Die Guide-Datei enthält
     /// den Ort schon — ein separates Background-Bild ist überflüssig.
-    static func build(userText: String, sceneImage: Data? = nil) -> String {
+    static func build(
+        userText: String,
+        sceneImage: Data? = nil,
+        placement: PlacementSuggestion? = nil
+    ) -> String {
         let extra = userText.trimmingCharacters(in: .whitespacesAndNewlines)
-        var parts = [core]
+        var parts = [core(placement: placement), identityRule]
+
+        // Nach der Identitäts-Klausel, vor dem Licht: erst wer, dann wo, dann wie
+        // beleuchtet. Das Modell gewichtet spätere Absätze stärker — die
+        // Platzierung darf die Identität nicht verdrängen.
+        if let placement {
+            parts.append(placementRule(placement))
+        }
 
         if let hint = sceneImage.flatMap({ SceneLightingHints.describe($0) }) {
             parts.append("""
@@ -82,12 +93,46 @@ enum SoloShotPrompt {
         return parts.joined(separator: "\n\n")
     }
 
-    private static let core = """
+    /// Die Klausel, die in JEDEM Bild-Prompt der App steht. Sie hat hier
+    /// gefehlt — der Prompt umschrieb Identität zwar, benannte sie aber nie so
+    /// hart, wie es der Rest der App tut.
+    private static let identityRule = """
+    Keep the exact same person: same face and every feature of it, same hair, same skin tone \
+    and real skin texture, same build and body proportions, same age, same outfit. Do NOT \
+    beautify, slim, smooth, retouch or redraw them, and do not replace them with a look-alike.
+    """
+
+    /// Die zwei Sätze zur markierten Region.
+    ///
+    /// Bewusst in der ICH-Form: der gesamte übrige Prompt spricht von „me".
+    /// Ein Wechsel in die dritte Person mitten im Text ist der schnellste Weg
+    /// zu zwei Personen im Ergebnis.
+    private static func placementRule(_ placement: PlacementSuggestion) -> String {
+        """
+        Place me exactly inside the pink marked region of the reference image: that rectangle \
+        is where my body belongs, my feet at its bottom edge, my head at its top edge. Remove \
+        the pink marker itself completely — it must not appear in the output. I am \
+        \(placement.poseSentence), in a position built for this location and not carried over \
+        from the outfit reference. Match my lighting, shadow direction and colour temperature \
+        to the location photo, and ground me with a real contact shadow where I meet the floor.
+        """
+    }
+
+    /// Ohne Box bleibt es bei der von Hand ausgerichteten blauen Silhouette,
+    /// mit Box ist die Markierung ein rosa Rechteck. Der Prompt muss dasselbe
+    /// benennen, was wirklich im Bild liegt — sonst sucht das Modell eine
+    /// Markierung, die es nicht gibt, und lässt die echte stehen.
+    private static func core(placement: PlacementSuggestion?) -> String {
+        let markerIntro = placement != nil
+            ? "a pink semi-transparent rectangle marking WHERE I should stand and HOW LARGE I should be"
+            : "a blue semi-transparent placement silhouette showing WHERE I should stand and HOW LARGE I should be"
+        let marker = placement != nil ? "pink rectangle" : "blue silhouette"
+
+        return """
     You are given exactly two reference images.
-    IMAGE 1 = the real background location with a blue semi-transparent placement \
-    silhouette showing WHERE I should stand and HOW LARGE I should be. The real \
+    IMAGE 1 = the real background location with \(markerIntro). The real \
     background is sacred: do not change, regenerate, crop or restyle it. Remove \
-    the blue silhouette completely from the result — it is only a placement guide, \
+    the \(marker) completely from the result — it is only a placement guide, \
     not a pose guide and not part of the photo.
     IMAGE 2 = a photo of ME. Use it ONLY for identity and wardrobe: my exact face, \
     natural skin with every mole and freckle, body shape, hair, and the outfit \
@@ -95,11 +140,11 @@ enum SoloShotPrompt {
     Do NOT copy IMAGE 2's lighting onto the result.
 
     Create ONE photorealistic photograph: me, alone, naturally present in IMAGE 1's \
-    location at the spot and size of the blue silhouette — as if a real photographer \
+    location at the spot and size of the \(marker) — as if a real photographer \
     took this shot of me on location with the same camera. No other people.
 
     SCALE & PERSPECTIVE LOCK (critical — most failures happen here):
-    - My height in the result MUST match the blue silhouette height exactly. Do NOT \
+    - My height in the result MUST match the \(marker) height exactly. Do NOT \
     enlarge me to fill the frame.
     - Compare me to furniture and architecture in IMAGE 1 (doors, chairs, cabinets, \
     tables, windows). A real adult is roughly door-handle to top-of-door tall, never \
@@ -107,8 +152,8 @@ enum SoloShotPrompt {
     - Match IMAGE 1's camera height, lens foreshortening and vanishing lines. If the \
     floor recedes, my feet sit on that same ground plane with correct perspective — \
     not floating, not sliding up walls.
-    - If the silhouette looks slightly large vs nearby objects, prefer the smaller, \
-    physically believable size that still follows the silhouette's position.
+    - If the \(marker) looks slightly large vs nearby objects, prefer the smaller, \
+    physically believable size that still follows its position.
 
     GROUNDING & COMPOSITING:
     - Both feet (or seated contact) must touch a real surface in IMAGE 1 with soft \
@@ -118,7 +163,7 @@ enum SoloShotPrompt {
     - I must look photographed in that room, not cut out and stuck on. No halo, no \
     hard cut-out edge, no plastic skin, no beauty filter.
 
-    POSE: Do NOT copy the pose from IMAGE 2 or from the silhouette. Invent a new, \
+    POSE: Do NOT copy the pose from IMAGE 2 or from the \(marker). Invent a new, \
     natural, aesthetic body pose that fits this exact location: correct weight on \
     the ground, believable balance, relaxed limbs, a head angle and gaze that belong \
     in the scene.
@@ -126,8 +171,9 @@ enum SoloShotPrompt {
     Re-render my full body in that new pose as one continuous person — head, neck, \
     torso, arms, hands, legs and feet in my own build, with no seam at the neck or \
     wrists. Drape the outfit from IMAGE 2 naturally over that pose with real fabric \
-    folds. No watermark, no leftover silhouette or outline.
+    folds. No watermark, no leftover marker or outline.
     """
+    }
 }
 
 struct SoloShotView: View {
@@ -136,6 +182,7 @@ struct SoloShotView: View {
     let onCancel: () -> Void
 
     @Environment(Store.self) private var store
+    @Environment(EditHandoff.self) private var editHandoff
     @Environment(\.modelContext) private var modelContext
 
     private enum Stage { case person, scene, review }
@@ -186,7 +233,18 @@ struct SoloShotView: View {
     @State private var isCreating = false
     @State private var workStartedAt: Date?
     @State private var resultImage: UIImage?
+    /// Dieselben Bytes, die vom Server kamen — die Übergabe an Chat und Studio
+    /// soll das Ergebnis nicht über ein erneutes Kodieren schicken.
+    @State private var resultData: Data?
     @State private var showSubscriptionGate = false
+    /// Vorschlag aus dem Livebild, verschobene Fassung der Nutzerin und die
+    /// beim Auslösen eingefrorene Position. Der eingefrorene Stand ist der
+    /// wichtige: nach dem Auslösen läuft keine Analyse mehr, die Marker-Referenz
+    /// und der Prompt müssen sich aber noch auf genau diese Box beziehen.
+    @State private var placement: PlacementSuggestion?
+    @State private var manualPlacementRect: CGRect?
+    @State private var placementIsAnalyzing = false
+    @State private var capturedPlacement: PlacementSuggestion?
     @FocusState private var noteFocused: Bool
 
     private var frameAspect: CGFloat { selectedFormat.aspect }
@@ -264,7 +322,17 @@ struct SoloShotView: View {
             }
             #endif
         }
-        .onDisappear { camera.stop() }
+        .onDisappear {
+            camera.stopFrameStream()
+            camera.stop()
+        }
+        .onChange(of: stage) { _, newStage in
+            if newStage == .scene {
+                startPlacementAnalysis()
+            } else {
+                camera.stopFrameStream()
+            }
+        }
         .onChange(of: personSelection) { _, item in
             guard let item else { return }
             Task { await loadPerson(from: item) }
@@ -525,7 +593,7 @@ struct SoloShotView: View {
                 captureSettings
                     .padding(.horizontal, 34)
 
-                Text("Pull your photo on the left to preview — release to shrink. Then shoot the place.")
+                Text("Wir zeigen dir, wo du am besten stehst. Box verschieben, wenn du woanders hin willst.")
                     .font(.system(size: 11.5, weight: .medium, design: .rounded))
                     .foregroundStyle(Theme.textSecondary)
                     .multilineTextAlignment(.center)
@@ -665,33 +733,49 @@ struct SoloShotView: View {
                 .font(.system(size: 12.5, weight: .semibold, design: .rounded))
                 .foregroundStyle(Theme.accent)
 
+            // Zwei Wege aus dem Ergebnis heraus, beide mit dem Bild schon
+            // geladen: reden (Chat) oder selbst Hand anlegen (Studio).
             HStack(spacing: 10) {
                 Button {
-                    stage = .scene
-                    resultImage = nil
-                    Task { await switchToSceneCamera() }
+                    editHandoff.pendingChatImage = resultData
+                    onCancel()
                 } label: {
-                    Text("New shot")
-                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                    Text("Im Chat weiterbearbeiten")
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
                         .foregroundStyle(Theme.textPrimary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 13)
                         .glassEffect(.regular.interactive(), in: Capsule())
                 }
                 .buttonStyle(.plain)
+                .disabled(resultData == nil)
 
                 Button {
-                    if let resultImage { onFinish(resultImage) }
+                    editHandoff.pendingStudioImage = resultData
+                    onCancel()
                 } label: {
-                    Text("Edit in Studio")
-                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                    Text("Im Studio öffnen")
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 13)
                         .glassEffect(.regular.tint(Theme.accent).interactive(), in: Capsule())
                 }
                 .buttonStyle(.plain)
+                .disabled(resultData == nil)
             }
+
+            Button {
+                stage = .scene
+                resultImage = nil
+                resultData = nil
+                Task { await switchToSceneCamera() }
+            } label: {
+                Text("New shot")
+                    .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Theme.textSecondary)
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -992,6 +1076,16 @@ struct SoloShotView: View {
                     .padding(10)
                 }
 
+                // Die Box gehört zum Ausrichten des Ortes und nur dorthin.
+                if stage == .scene {
+                    PlacementBoxOverlay(
+                        suggestion: placement,
+                        manualRect: $manualPlacementRect,
+                        frameSize: geo.size
+                    )
+                    .frame(width: geo.size.width, height: geo.size.height)
+                }
+
                 if let countdown {
                     Text("\(countdown)")
                         .font(.system(size: 76, weight: .black, design: .rounded))
@@ -1052,6 +1146,56 @@ struct SoloShotView: View {
             .background(Theme.accent.opacity(0.82), in: Capsule())
     }
 
+    // MARK: - Live placement
+
+    /// Höchstens acht Analysen je Sekunde, und nie zwei gleichzeitig. Die
+    /// Kamera-Queue drosselt schon auf acht; das Gate hier fängt den Fall ab,
+    /// dass eine Auswertung länger als 125 ms braucht — sonst stauen sich die
+    /// Aufträge und die Box hinkt dem Bild sichtbar hinterher.
+    private func startPlacementAnalysis() {
+        camera.startFrameStream(minimumInterval: 0.125) { buffer, orientation in
+            Task { @MainActor in
+                analysePlacement(buffer, orientation: orientation)
+            }
+        }
+    }
+
+    private func analysePlacement(_ buffer: CVPixelBuffer, orientation: CGImagePropertyOrientation) {
+        guard stage == .scene, !placementIsAnalyzing else { return }
+        placementIsAnalyzing = true
+        let previous = placement?.rect
+        let aspect = frameAspect
+        Task {
+            let result = await PlacementSuggester.suggest(
+                pixelBuffer: buffer,
+                orientation: orientation,
+                previousRect: previous,
+                aspect: aspect
+            )
+            await MainActor.run {
+                if stage == .scene { placement = result }
+                placementIsAnalyzing = false
+            }
+        }
+    }
+
+    /// Beim Auslösen zählt, was in diesem Moment auf dem Bild lag — danach
+    /// bewegt sich die Kamera weiter, der Vorschlag aber nicht mehr.
+    private func freezePlacement() {
+        if let rect = manualPlacementRect ?? placement?.rect {
+            let pose = placement?.pose ?? .standing
+            capturedPlacement = PlacementSuggestion(
+                rect: rect,
+                pose: pose,
+                confidence: placement?.confidence ?? 1,
+                poseSentence: PlacementSuggester.sentence(for: pose)
+            )
+        } else {
+            capturedPlacement = nil
+        }
+        camera.stopFrameStream()
+    }
+
     // MARK: - Capture and generation hand-off
 
     private func captureOutfitAfterCountdown() async {
@@ -1076,6 +1220,10 @@ struct SoloShotView: View {
         guard personCardPhase == .docked else { return }
         isCapturing = true
         defer { isCapturing = false }
+        // Vor dem Foto einfrieren, nicht danach: zwischen Auslösen und
+        // Speichern läuft die Analyse sonst noch einmal durch und die Box
+        // wandert weg von dem, was die Nutzerin gesehen hat.
+        freezePlacement()
         guard let data = await camera.capture() else {
             flash("Couldn't take that background shot.")
             return
@@ -1100,6 +1248,9 @@ struct SoloShotView: View {
             flash("Couldn't read that background photo.")
             return
         }
+        // Ein Bild aus der Mediathek hat nie unter der Box gelegen — ein
+        // stehengebliebener Vorschlag von vorhin würde hier ins Leere zeigen.
+        capturedPlacement = nil
         finishBackground(data)
     }
 
@@ -1132,14 +1283,29 @@ struct SoloShotView: View {
     private func rebuildBackground() -> Bool {
         guard let raw = rawBackgroundData else { return false }
         let cropped = ImageCrop.centerCrop(raw, toAspect: frameAspect) ?? raw
-        guard let image = UIImage(data: cropped),
-              let personOverlay,
-              let guide = SoloShotGuide.render(
+        guard let image = UIImage(data: cropped) else {
+            flash("Couldn't prepare the placement guide.")
+            return false
+        }
+
+        // Lag beim Auslösen eine Box auf dem Bild, ist sie die Markierung —
+        // sie sagt Ort UND Größe, ohne die steife Selfie-Pose mitzuliefern.
+        // Ohne Box bleibt es bei der von Hand ausgerichteten Silhouette.
+        let guide: Data?
+        if let capturedPlacement {
+            guide = SoloShotGuide.renderMarker(on: image, rect: capturedPlacement.rect)
+        } else if let personOverlay {
+            guide = SoloShotGuide.render(
                 on: image,
                 reference: personOverlay,
                 scale: overlayScale,
                 offset: overlayOffset
-              ) else {
+            )
+        } else {
+            guide = nil
+        }
+
+        guard let guide else {
             flash("Couldn't prepare the placement guide.")
             return false
         }
@@ -1160,7 +1326,11 @@ struct SoloShotView: View {
 
         let instruction = note.trimmingCharacters(in: .whitespacesAndNewlines)
         // Licht-Hint aus dem unveränderten Ort; Upload = Guide (Ort+Silhouette) + ich.
-        let prompt = SoloShotPrompt.build(userText: instruction, sceneImage: backgroundData)
+        let prompt = SoloShotPrompt.build(
+            userText: instruction,
+            sceneImage: backgroundData,
+            placement: capturedPlacement
+        )
         isCreating = true
         workStartedAt = Date()
 
@@ -1193,6 +1363,7 @@ struct SoloShotView: View {
                         cost: cost,
                         quality: quality
                     )
+                    resultData = data
                     if let ui = UIImage(data: data) {
                         resultImage = PhotoEditEngine.normalizedForEditing(ui)
                     }
@@ -1392,6 +1563,35 @@ private enum SoloShotPersonCutout {
 }
 
 private enum SoloShotGuide {
+
+    /// Die Box als gefülltes Rechteck auf einer Kopie des Ortsfotos.
+    ///
+    /// Rosa, weil die Farbe in echten Innen- und Außenaufnahmen praktisch nie
+    /// vorkommt: das Modell kann sie nicht mit etwas Vorhandenem verwechseln
+    /// und entfernt sie deshalb zuverlässiger wieder.
+    static func renderMarker(on source: UIImage, rect: CGRect) -> Data? {
+        let normalized = PhotoEditEngine.normalizedForEditing(source)
+        guard let cg = normalized.cgImage else { return nil }
+        let size = CGSize(width: cg.width, height: cg.height)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        format.opaque = true
+        let image = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            normalized.draw(in: CGRect(origin: .zero, size: size))
+
+            let marker = CGRect(
+                x: rect.minX * size.width,
+                y: rect.minY * size.height,
+                width: rect.width * size.width,
+                height: rect.height * size.height
+            )
+            guard marker.width > 0, marker.height > 0 else { return }
+            UIColor.systemPink.withAlphaComponent(0.45).setFill()
+            UIBezierPath(roundedRect: marker, cornerRadius: marker.width * 0.18).fill()
+        }
+        return image.jpegData(compressionQuality: 0.9)
+    }
+
     static func render(
         on source: UIImage,
         reference: UIImage,

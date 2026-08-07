@@ -18,6 +18,7 @@ import AVKit
 
 struct ChatEditView: View {
     @Environment(Store.self) private var store
+    @Environment(EditHandoff.self) private var editHandoff
     @Environment(\.modelContext) private var modelContext
 
     @State private var messages: [ChatMessage] = []
@@ -229,7 +230,11 @@ struct ChatEditView: View {
                 onCancel: { showPoseCamera = false }
             )
         }
-        .onAppear { restoreSessionIfNeeded() }
+        .onAppear {
+            restoreSessionIfNeeded()
+            adoptHandoffImage()
+        }
+        .onChange(of: editHandoff.pendingChatImage) { _, _ in adoptHandoffImage() }
         #if DEBUG
         .onAppear {
             // UI-Review: Ladezustand simulieren (Blur + Clavic-Anim) bzw. ein
@@ -1018,6 +1023,23 @@ struct ChatEditView: View {
         messages = snapshot.messages
         currentImage = snapshot.currentImage
         for msg in snapshot.messages { revealedResults.insert(msg.id) }
+    }
+
+    /// Nimmt ein aus einem anderen Tab übergebenes Bild an.
+    ///
+    /// Es kommt als normales Arbeitsbild in den Verlauf — genau so, wie ein
+    /// selbst hochgeladenes Foto. Damit gelten für den nächsten Zug Credits,
+    /// Fehlerbehandlung und Library-Ablage unverändert.
+    private func adoptHandoffImage() {
+        guard let data = editHandoff.pendingChatImage else { return }
+        editHandoff.pendingChatImage = nil
+        currentImage = data
+        messages.append(ChatMessage(role: .assistant, text: nil, image: data,
+                                    isLoading: false, isOriginal: true))
+        messages.append(ChatMessage(role: .assistant,
+                                    text: "Dein Bild ist geladen. Sag, was du ändern willst.",
+                                    image: nil, isLoading: false))
+        ChatSessionStore.save(messages: messages, currentImage: currentImage)
     }
 
     /// Leert den Verlauf und die gespeicherte Session (Ergebnisse bleiben

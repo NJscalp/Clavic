@@ -44,14 +44,26 @@ struct PlacementSuggestion: Equatable {
 
 enum PlacementSuggester {
 
+    /// EIN Kontext für alle Messungen, nicht einer je Bild.
+    ///
+    /// Ein `CIContext` hält Metal-Ressourcen. Bei acht Analysen je Sekunde
+    /// entstünden sonst sechzehn davon pro Sekunde — das kostet Speicher und
+    /// Akku, und unter Last bricht der Prozess irgendwann ab.
+    private static let context = CIContext(options: [.workingColorSpace: NSNull()])
+
     // MARK: - Öffentliche API
 
     /// Analysiert genau einen Kameraframe. Gibt `nil` zurück, wenn keine
     /// brauchbare Stelle gefunden wurde.
+    ///
+    /// `aspect` ist das Seitenverhältnis des angezeigten Rahmens. Der Sensor
+    /// liefert 4:3, die Vorschau zeigt aber z. B. 4:5 — ohne denselben Zuschnitt
+    /// läge die Box im Livebild woanders als später im gespeicherten Foto.
     static func suggest(
         pixelBuffer: CVPixelBuffer,
         orientation: CGImagePropertyOrientation,
-        previousRect: CGRect?
+        previousRect: CGRect?,
+        aspect: CGFloat? = nil
     ) async -> PlacementSuggestion? {
         await withCheckedContinuation { continuation in
             // Vision und die Luminanz-Messung sind rechenintensiv genug, um
@@ -61,7 +73,8 @@ enum PlacementSuggester {
                     returning: analyse(
                         pixelBuffer: pixelBuffer,
                         orientation: orientation,
-                        previousRect: previousRect
+                        previousRect: previousRect,
+                        aspect: aspect
                     )
                 )
             }
@@ -73,10 +86,16 @@ enum PlacementSuggester {
     private static func analyse(
         pixelBuffer: CVPixelBuffer,
         orientation: CGImagePropertyOrientation,
-        previousRect: CGRect?
+        previousRect: CGRect?,
+        aspect: CGFloat?
     ) -> PlacementSuggestion? {
-        // --- Schritt 1: verkleinern. Alles Weitere rechnet auf dieser Fassung.
-        guard let small = downscaled(pixelBuffer: pixelBuffer, orientation: orientation) else {
+        // --- Schritt 1: zuschneiden und verkleinern. Alles Weitere rechnet auf
+        // dieser Fassung.
+        guard let small = downscaled(
+            pixelBuffer: pixelBuffer,
+            orientation: orientation,
+            aspect: aspect
+        ) else {
             return nil
         }
 
@@ -217,7 +236,7 @@ enum PlacementSuggester {
 
     // MARK: - Prompt-Bausteine
 
-    private static func sentence(for pose: PlacementSuggestion.Pose) -> String {
+    static func sentence(for pose: PlacementSuggestion.Pose) -> String {
         switch pose {
         case .standing:
             return "standing upright at ease, weight settled on one hip, both feet flat on the ground, shoulders relaxed"
@@ -232,9 +251,13 @@ enum PlacementSuggester {
 
     private static func downscaled(
         pixelBuffer: CVPixelBuffer,
-        orientation: CGImagePropertyOrientation
+        orientation: CGImagePropertyOrientation,
+        aspect: CGFloat?
     ) -> CIImage? {
-        let image = CIImage(cvPixelBuffer: pixelBuffer).oriented(orientation)
+        var image = CIImage(cvPixelBuffer: pixelBuffer).oriented(orientation)
+        if let aspect, aspect > 0 {
+            image = centerCropped(image, toAspect: aspect)
+        }
         let longEdge = max(image.extent.width, image.extent.height)
         guard longEdge > 0 else { return nil }
         let scale = min(1, 256 / longEdge)
@@ -245,6 +268,27 @@ enum PlacementSuggester {
         filter.setValue(scale, forKey: kCIInputScaleKey)
         filter.setValue(1.0, forKey: kCIInputAspectRatioKey)
         return filter.outputImage ?? image
+    }
+
+    /// Derselbe mittige Zuschnitt, den die Vorschau und der spätere Export
+    /// benutzen. Der Ursprung wird auf (0,0) zurückgeschoben, damit alle
+    /// folgenden Schritte wieder von einem Bild ab null ausgehen.
+    private static func centerCropped(_ image: CIImage, toAspect aspect: CGFloat) -> CIImage {
+        let extent = image.extent
+        guard extent.width > 0, extent.height > 0 else { return image }
+        let current = extent.width / extent.height
+        var crop = extent
+        if current > aspect {
+            let width = extent.height * aspect
+            crop = CGRect(x: extent.midX - width / 2, y: extent.minY,
+                          width: width, height: extent.height)
+        } else if current < aspect {
+            let height = extent.width / aspect
+            crop = CGRect(x: extent.minX, y: extent.midY - height / 2,
+                          width: extent.width, height: height)
+        }
+        return image.cropped(to: crop)
+            .transformed(by: CGAffineTransform(translationX: -crop.minX, y: -crop.minY))
     }
 
     // MARK: - Saliency
@@ -350,7 +394,6 @@ enum PlacementSuggester {
         let height = Int(extent.height.rounded())
         guard width > 0, height > 0, !extent.isInfinite else { return nil }
 
-        let context = CIContext(options: [.workingColorSpace: NSNull()])
         guard let cgImage = context.createCGImage(image, from: extent) else { return nil }
 
         var pixels = [UInt8](repeating: 0, count: width * height)
@@ -408,7 +451,6 @@ enum PlacementSuggester {
 
     /// Mittlere Luminanz je Drittel-Spalte, links nach rechts.
     private static func columnLuminance(_ image: CIImage) -> [Double] {
-        let context = CIContext(options: [.workingColorSpace: NSNull()])
         let extent = image.extent
         guard extent.width >= 3, extent.height >= 1 else { return [] }
 

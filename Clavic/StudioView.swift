@@ -32,6 +32,7 @@ struct StudioView: View {
     var onSubmitted: (VideoProject) -> Void = { _ in }
 
     @Environment(Store.self) private var store
+    @Environment(EditHandoff.self) private var editHandoff
 
     // Quelle & Vorschau
     @State private var original: UIImage?          // volle Auflösung (fürs Sichern)
@@ -141,7 +142,9 @@ struct StudioView: View {
             Task { await load(item) }
         }
         .onChange(of: edits) { _, _ in rerender() }
+        .onChange(of: editHandoff.pendingStudioImage) { _, _ in adoptHandoffImage() }
         .onAppear {
+            adoptHandoffImage()
             #if DEBUG
             // Reproduzierbare Simulator-QA ohne Photo-Picker. Dieser Hook ist
             // nicht Teil des Release-Builds und nutzt nur ein bestehendes Asset.
@@ -997,6 +1000,20 @@ struct StudioView: View {
             return
         }
         await load(ui)
+    }
+
+    /// Nimmt ein aus einem anderen Tab übergebenes Bild an.
+    ///
+    /// Die Vorgabe war, dabei den Reiter mit den kostenlosen lokalen Reglern zu
+    /// öffnen. Den gibt es hier nicht mehr: Licht, Farbe, Haut und Körper sind
+    /// aus dem Studio geflogen, geblieben sind „Remove" und „Chat" (siehe
+    /// `Section`). Deshalb bleibt es bei der voreingestellten Ansicht, statt
+    /// eine Auswahl zu erzwingen, die niemandem etwas spart.
+    private func adoptHandoffImage() {
+        guard let data = editHandoff.pendingStudioImage,
+              let image = UIImage(data: data) else { return }
+        editHandoff.pendingStudioImage = nil
+        Task { await load(image) }
     }
 
     private func load(_ ui: UIImage) async {

@@ -601,6 +601,13 @@ final class PoseCameraModel: NSObject {
     private var input: AVCaptureDeviceInput?
     private var captureContinuation: CheckedContinuation<Data?, Never>?
 
+    /// Live-Bilder für die Platzierungs-Analyse. Der Ausgang hängt nur an der
+    /// Sitzung, solange jemand zuhört: eine Kamera, die dauerhaft Frames
+    /// durchreicht, kostet Akku, auch wenn niemand sie auswertet.
+    private let videoOutput = AVCaptureVideoDataOutput()
+    private let frameRelay = CameraFrameRelay()
+    private let frameQueue = DispatchQueue(label: "clavic.camera.frames", qos: .userInitiated)
+
     var isFront = true
     var isAvailable = false
     var permissionDenied = false
@@ -682,6 +689,8 @@ final class PoseCameraModel: NSObject {
 
         isAvailable = input != nil
         setupFinished = true
+        // Nach einem Kamerawechsel liegen die Frames anders herum im Speicher.
+        frameRelay.orientation = isFront ? .leftMirrored : .right
         guard isAvailable, wantsRunning else { return }
 
         let s = session
@@ -691,6 +700,36 @@ final class PoseCameraModel: NSObject {
                 cont.resume()
             }
         }
+    }
+
+    /// Beginnt, Live-Bilder durchzureichen — höchstens eines alle
+    /// `minimumInterval` Sekunden. Gedrosselt wird schon auf der Kamera-Queue:
+    /// so entstehen gar nicht erst dreißig Sprünge pro Sekunde in die
+    /// Auswertung, die diese ohnehin wieder verwerfen müsste.
+    ///
+    /// Der Aufruf kommt NICHT vom Hauptthread zurück.
+    func startFrameStream(
+        minimumInterval: Double,
+        handler: @escaping @Sendable (CVPixelBuffer, CGImagePropertyOrientation) -> Void
+    ) {
+        frameRelay.minimumInterval = minimumInterval
+        frameRelay.handler = handler
+        frameRelay.orientation = isFront ? .leftMirrored : .right
+
+        guard !session.outputs.contains(videoOutput) else { return }
+        videoOutput.alwaysDiscardsLateVideoFrames = true
+        videoOutput.setSampleBufferDelegate(frameRelay, queue: frameQueue)
+        session.beginConfiguration()
+        if session.canAddOutput(videoOutput) { session.addOutput(videoOutput) }
+        session.commitConfiguration()
+    }
+
+    func stopFrameStream() {
+        frameRelay.handler = nil
+        guard session.outputs.contains(videoOutput) else { return }
+        session.beginConfiguration()
+        session.removeOutput(videoOutput)
+        session.commitConfiguration()
     }
 
     /// Löst aus und liefert JPEG-Daten. Bei der Frontkamera wird gespiegelt,
@@ -720,6 +759,31 @@ extension PoseCameraModel: AVCapturePhotoCaptureDelegate {
             captureContinuation?.resume(returning: error == nil ? data : nil)
             captureContinuation = nil
         }
+    }
+}
+
+/// Nimmt die Kamerabilder entgegen und gibt sie gedrosselt weiter.
+///
+/// Eigene Klasse, weil der Rückruf von AVFoundation auf einer eigenen Queue
+/// ankommt: das Kameramodell ist an den Hauptthread gebunden und dürfte diesen
+/// Rückruf gar nicht selbst annehmen.
+private final class CameraFrameRelay: NSObject, AVCaptureVideoDataOutputSampleBufferDelegate, @unchecked Sendable {
+    var handler: (@Sendable (CVPixelBuffer, CGImagePropertyOrientation) -> Void)?
+    var orientation: CGImagePropertyOrientation = .right
+    var minimumInterval: Double = 0.125
+
+    private var lastDelivery: CFTimeInterval = 0
+
+    func captureOutput(
+        _ output: AVCaptureOutput,
+        didOutput sampleBuffer: CMSampleBuffer,
+        from connection: AVCaptureConnection
+    ) {
+        guard let handler, let buffer = CMSampleBufferGetImageBuffer(sampleBuffer) else { return }
+        let now = CACurrentMediaTime()
+        guard now - lastDelivery >= minimumInterval else { return }
+        lastDelivery = now
+        handler(buffer, orientation)
     }
 }
 
