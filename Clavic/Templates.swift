@@ -26,6 +26,11 @@ enum TemplateCategory: String, CaseIterable, Identifiable {
     case fancam = "Fan Cam"
     case worldcup = "World Cup"
     case backrooms = "Backrooms"
+    /// Sammelbecken fuer alles Verspielte (Memes, Sport, Tanz, Backrooms).
+    /// Diese Vorlagen bleiben vollstaendig erhalten, sie stehen nur nicht mehr
+    /// im Weg: die Zielgruppe entscheidet in den ersten Sekunden, und dafuer
+    /// zaehlen Looks und Werkzeuge, nicht Fan-Cams.
+    case fun = "Fun"
 
     var id: String { rawValue }
 
@@ -41,6 +46,21 @@ enum TemplateCategory: String, CaseIterable, Identifiable {
         case .fancam: return "sportscourt.fill"
         case .worldcup: return "soccerball"
         case .backrooms: return "door.left.hand.open"
+        case .fun: return "gamecontroller.fill"
+        }
+    }
+}
+
+/// Eine Regel, zwei Aufrufer: die eingebauten Vorlagen und die vom Server.
+/// Lagen die Bedingungen doppelt vor, wich das Verhalten frueher oder spaeter
+/// auseinander — und ein ausgeblendetes Template taucht dann doch wieder auf.
+enum TemplateFilter {
+    static func apply(_ category: TemplateCategory, to templates: [VideoTemplate]) -> [VideoTemplate] {
+        guard category != .fun else { return templates.filter(\.isHiddenFromDiscover) }
+        return templates.filter { template in
+            guard !template.isHiddenFromDiscover else { return false }
+            guard category != .all else { return true }
+            return template.category == category || template.extraCategories.contains(category)
         }
     }
 }
@@ -50,6 +70,8 @@ struct VideoTemplate: Identifiable {
     let title: String
     let subtitle: String
     let category: TemplateCategory
+    /// Erscheint ausschliesslich unter dem Fun-Chip, nirgends sonst.
+    var isHiddenFromDiscover: Bool = false
     /// Zusätzliche Kategorien, in denen das Template ebenfalls erscheint
     /// (z. B. ein „New"-Template, das auch unter „Dance" auftauchen soll).
     var extraCategories: [TemplateCategory] = []
@@ -382,7 +404,8 @@ enum TemplateLibrary {
         VideoTemplate(
             title: "Just the way we were wired",
             subtitle: "Drop the cursed pirate into your photo",
-            category: .memes,
+            category: .fun,
+            isHiddenFromDiscover: true,
             extraCategories: [.backrooms],
             hashtag: "#JustTheWayWeWereWired",
             preview: "preview_captain_pirate",
@@ -506,9 +529,122 @@ enum TemplateLibrary {
             fixedEditPrompt: ViralLooks.prompt(id: "tropic-glow")
         ),
         VideoTemplate(
+            title: "Café Window",
+            subtitle: "Morning light through the glass",
+            category: .looks,
+            extraCategories: [.trends],
+            hashtag: "#CafeWindow",
+            preview: "preview_look_cafe_window",
+            prompt: ViralLooks.prompt(id: "cafe-window"),
+            icon: "cup.and.saucer.fill",
+            colors: [Color(red: 0.78, green: 0.63, blue: 0.42), Color(red: 0.30, green: 0.21, blue: 0.14)],
+            ratio: .portrait,
+            duration: 0,
+            needsPhoto: true,
+            isImageEdit: true,
+            fixedEditPrompt: ViralLooks.prompt(id: "cafe-window")
+        ),
+        VideoTemplate(
+            title: "Car Seat at Night",
+            subtitle: "Passenger seat, streetlights sliding past",
+            category: .looks,
+            extraCategories: [.trends],
+            hashtag: "#CarSeatNight",
+            preview: "preview_look_car_seat_night",
+            prompt: ViralLooks.prompt(id: "car-seat-night"),
+            icon: "car.fill",
+            colors: [Color(red: 0.16, green: 0.20, blue: 0.34), Color(red: 0.05, green: 0.06, blue: 0.10)],
+            ratio: .portrait,
+            duration: 0,
+            needsPhoto: true,
+            isImageEdit: true,
+            fixedEditPrompt: ViralLooks.prompt(id: "car-seat-night")
+        ),
+        VideoTemplate(
+            title: "Elevator Mirror",
+            subtitle: "Mirror selfie in a lift",
+            category: .looks,
+            extraCategories: [.trends],
+            hashtag: "#ElevatorMirror",
+            preview: "preview_look_elevator_mirror",
+            prompt: ViralLooks.prompt(id: "elevator-mirror"),
+            icon: "rectangle.portrait.on.rectangle.portrait",
+            colors: [Color(red: 0.55, green: 0.57, blue: 0.62), Color(red: 0.20, green: 0.21, blue: 0.24)],
+            ratio: .portrait,
+            duration: 0,
+            needsPhoto: true,
+            isImageEdit: true,
+            fixedEditPrompt: ViralLooks.prompt(id: "elevator-mirror")
+        ),
+        VideoTemplate(
+            title: "Flower Market",
+            subtitle: "Buckets of blooms on a bright morning",
+            category: .looks,
+            extraCategories: [.trends],
+            hashtag: "#FlowerMarket",
+            preview: "preview_look_flower_market",
+            prompt: ViralLooks.prompt(id: "flower-market"),
+            icon: "camera.macro",
+            colors: [Color(red: 0.90, green: 0.52, blue: 0.60), Color(red: 0.34, green: 0.45, blue: 0.32)],
+            ratio: .portrait,
+            duration: 0,
+            needsPhoto: true,
+            isImageEdit: true,
+            fixedEditPrompt: ViralLooks.prompt(id: "flower-market")
+        ),
+        VideoTemplate(
+            title: "Rooftop at Dusk",
+            subtitle: "City skyline, last blue light",
+            category: .looks,
+            extraCategories: [.trends],
+            hashtag: "#RooftopDusk",
+            preview: "preview_look_rooftop_dusk",
+            prompt: ViralLooks.prompt(id: "rooftop-dusk"),
+            icon: "building.2.fill",
+            colors: [Color(red: 0.22, green: 0.30, blue: 0.60), Color(red: 0.86, green: 0.44, blue: 0.22)],
+            ratio: .portrait,
+            duration: 0,
+            needsPhoto: true,
+            isImageEdit: true,
+            fixedEditPrompt: ViralLooks.prompt(id: "rooftop-dusk")
+        ),
+        VideoTemplate(
+            title: "Morning in Bed",
+            subtitle: "First light, rumpled sheets",
+            category: .looks,
+            extraCategories: [.trends],
+            hashtag: "#MorningInBed",
+            preview: "preview_look_morning_bed",
+            prompt: ViralLooks.prompt(id: "morning-bed"),
+            icon: "bed.double.fill",
+            colors: [Color(red: 0.94, green: 0.84, blue: 0.72), Color(red: 0.52, green: 0.40, blue: 0.34)],
+            ratio: .portrait,
+            duration: 0,
+            needsPhoto: true,
+            isImageEdit: true,
+            fixedEditPrompt: ViralLooks.prompt(id: "morning-bed")
+        ),
+        VideoTemplate(
+            title: "Rain & Streetlight",
+            subtitle: "Wet pavement, amber glow",
+            category: .looks,
+            extraCategories: [.trends],
+            hashtag: "#RainStreetlight",
+            preview: "preview_look_rain_streetlight",
+            prompt: ViralLooks.prompt(id: "rain-streetlight"),
+            icon: "cloud.rain.fill",
+            colors: [Color(red: 0.92, green: 0.60, blue: 0.20), Color(red: 0.08, green: 0.12, blue: 0.24)],
+            ratio: .portrait,
+            duration: 0,
+            needsPhoto: true,
+            isImageEdit: true,
+            fixedEditPrompt: ViralLooks.prompt(id: "rain-streetlight")
+        ),
+        VideoTemplate(
             title: "Brainrot Character",
             subtitle: "Pick a character, drop a line, go viral",
-            category: .memes,
+            category: .fun,
+            isHiddenFromDiscover: true,
             extraCategories: [.trends],
             hashtag: "#brainrot",
             preview: "preview_brainrot_character",
@@ -540,7 +676,8 @@ enum TemplateLibrary {
         VideoTemplate(
             title: "If you grab me imma bite you",
             subtitle: "Make your photo do the viral dance",
-            category: .memes,
+            category: .fun,
+            isHiddenFromDiscover: true,
             extraCategories: [.dance],
             hashtag: "#ImmaBiteYou",
             preview: "preview_dog",
@@ -596,7 +733,8 @@ enum TemplateLibrary {
         VideoTemplate(
             title: "Du bist gut Genug",
             subtitle: "Star in a cinematic music video",
-            category: .dance,
+            category: .fun,
+            isHiddenFromDiscover: true,
             extraCategories: [.trends],
             hashtag: "#MusicVideo",
             preview: "preview_music_video",
@@ -615,7 +753,8 @@ enum TemplateLibrary {
         VideoTemplate(
             title: "Nervy Backrooms",
             subtitle: "Dance in the backrooms",
-            category: .backrooms,
+            category: .fun,
+            isHiddenFromDiscover: true,
             extraCategories: [.dance],
             hashtag: "#NervyBackrooms",
             preview: "preview_nerv_backrooms",
@@ -633,7 +772,8 @@ enum TemplateLibrary {
         VideoTemplate(
             title: "Backrooms Dance",
             subtitle: "Do the viral backrooms dance",
-            category: .dance,
+            category: .fun,
+            isHiddenFromDiscover: true,
             extraCategories: [.backrooms],
             hashtag: "#BackroomsDance",
             preview: "preview_pdance",
@@ -652,7 +792,8 @@ enum TemplateLibrary {
         VideoTemplate(
             title: "Tung Tung Sahur Dance",
             subtitle: "Dance in sync with Tung Tung Tung Sahur",
-            category: .dance,
+            category: .fun,
+            isHiddenFromDiscover: true,
             extraCategories: [.trends, .memes],
             hashtag: "#TungTungTungSahur",
             preview: "preview_tung_dance",
@@ -689,7 +830,8 @@ enum TemplateLibrary {
         VideoTemplate(
             title: "Tung Tung Builds a House",
             subtitle: "Triple T builds inside a giant fruit",
-            category: .memes,
+            category: .fun,
+            isHiddenFromDiscover: true,
             extraCategories: [.trends],
             hashtag: "#TungTungBuild",
             preview: "preview_tung_build",
@@ -726,7 +868,8 @@ enum TemplateLibrary {
         VideoTemplate(
             title: "Tung Tung Builds in Your Head",
             subtitle: "Triple T builds a house inside YOU",
-            category: .memes,
+            category: .fun,
+            isHiddenFromDiscover: true,
             extraCategories: [.trends],
             hashtag: "#TungTungBuild",
             preview: "preview_tung_build_you",
@@ -746,7 +889,8 @@ enum TemplateLibrary {
         VideoTemplate(
             title: "Still Life",
             subtitle: "The backrooms' creepy memory of you",
-            category: .backrooms,
+            category: .fun,
+            isHiddenFromDiscover: true,
             extraCategories: [.memes],
             hashtag: "#StillLife",
             preview: "preview_still_life",
@@ -765,7 +909,8 @@ enum TemplateLibrary {
         VideoTemplate(
             title: "Baseball Fan Cam",
             subtitle: "Caught on the stadium cam",
-            category: .fancam,
+            category: .fun,
+            isHiddenFromDiscover: true,
             extraCategories: [.trends],
             hashtag: "#FanCam",
             preview: "preview_baseball_fancam",
@@ -783,7 +928,8 @@ enum TemplateLibrary {
         VideoTemplate(
             title: "Basketball Fan Cam",
             subtitle: "Caught on the arena cam",
-            category: .fancam,
+            category: .fun,
+            isHiddenFromDiscover: true,
             extraCategories: [.trends],
             hashtag: "#FanCam",
             preview: "preview_basketball_fancam",
@@ -799,7 +945,8 @@ enum TemplateLibrary {
         VideoTemplate(
             title: "Football Fan Cam",
             subtitle: "Caught on the stadium cam",
-            category: .fancam,
+            category: .fun,
+            isHiddenFromDiscover: true,
             extraCategories: [.trends],
             hashtag: "#FanCam",
             preview: "preview_football_fancam",
@@ -818,7 +965,8 @@ enum TemplateLibrary {
         VideoTemplate(
             title: "Brazil Fan Cam",
             subtitle: "World Cup fan cam",
-            category: .worldcup,
+            category: .fun,
+            isHiddenFromDiscover: true,
             extraCategories: [.fancam],
             hashtag: "#WorldCup",
             preview: "preview_wc_brazil",
@@ -830,7 +978,8 @@ enum TemplateLibrary {
         VideoTemplate(
             title: "Argentina Fan Cam",
             subtitle: "World Cup fan cam",
-            category: .worldcup,
+            category: .fun,
+            isHiddenFromDiscover: true,
             extraCategories: [.fancam],
             hashtag: "#WorldCup",
             preview: "preview_wc_argentina",
@@ -842,7 +991,8 @@ enum TemplateLibrary {
         VideoTemplate(
             title: "France Fan Cam",
             subtitle: "World Cup fan cam",
-            category: .worldcup,
+            category: .fun,
+            isHiddenFromDiscover: true,
             extraCategories: [.fancam],
             hashtag: "#WorldCup",
             preview: "preview_wc_france",
@@ -854,7 +1004,8 @@ enum TemplateLibrary {
         VideoTemplate(
             title: "England Fan Cam",
             subtitle: "World Cup fan cam",
-            category: .worldcup,
+            category: .fun,
+            isHiddenFromDiscover: true,
             extraCategories: [.fancam],
             hashtag: "#WorldCup",
             preview: "preview_wc_england",
@@ -866,7 +1017,8 @@ enum TemplateLibrary {
         VideoTemplate(
             title: "Spain Fan Cam",
             subtitle: "World Cup fan cam",
-            category: .worldcup,
+            category: .fun,
+            isHiddenFromDiscover: true,
             extraCategories: [.fancam],
             hashtag: "#WorldCup",
             preview: "preview_wc_spain",
@@ -878,7 +1030,8 @@ enum TemplateLibrary {
         VideoTemplate(
             title: "Germany Fan Cam",
             subtitle: "World Cup fan cam",
-            category: .worldcup,
+            category: .fun,
+            isHiddenFromDiscover: true,
             extraCategories: [.fancam],
             hashtag: "#WorldCup",
             preview: "preview_wc_germany",
@@ -890,7 +1043,8 @@ enum TemplateLibrary {
         VideoTemplate(
             title: "Portugal Fan Cam",
             subtitle: "World Cup fan cam",
-            category: .worldcup,
+            category: .fun,
+            isHiddenFromDiscover: true,
             extraCategories: [.fancam],
             hashtag: "#WorldCup",
             preview: "preview_wc_portugal",
@@ -1042,8 +1196,7 @@ enum TemplateLibrary {
     }
 
     static func filtered(by category: TemplateCategory) -> [VideoTemplate] {
-        let base = visible
-        return category == .all ? base : base.filter { $0.category == category || $0.extraCategories.contains(category) }
+        TemplateFilter.apply(category, to: visible)
     }
 
     static var trending: [VideoTemplate] {
@@ -1096,13 +1249,20 @@ struct RemoteTemplate: Codable {
     var isMotion: Bool = false
 
     func toTemplate() -> VideoTemplate {
-        let cat = TemplateCategory(rawValue: category) ?? .trends
+        // Server-Vorlagen aus den verspielten Nischen landen unter demselben
+        // Fun-Chip wie die eingebauten. Ohne das haetten sie eine Kategorie,
+        // fuer die es in Discover gar keinen Chip mehr gibt — sie waeren
+        // ausgeliefert, aber unerreichbar.
+        let raw = TemplateCategory(rawValue: category) ?? .trends
+        let playful: Set<TemplateCategory> = [.memes, .dance, .fancam, .worldcup, .backrooms, .fun]
+        let cat = playful.contains(raw) ? .fun : raw
         let extras = extraCategories.compactMap { TemplateCategory(rawValue: $0) }
         let cols = colors.isEmpty
             ? [Color(red: 0.40, green: 0.28, blue: 0.92), Color(red: 0.20, green: 0.55, blue: 1.0)]
             : colors.map { Color(hex: $0) }
         return VideoTemplate(
-            title: title, subtitle: subtitle, category: cat, extraCategories: extras,
+            title: title, subtitle: subtitle, category: cat,
+            isHiddenFromDiscover: cat == .fun, extraCategories: extras,
             hashtag: hashtag, preview: "", prompt: prompt, icon: icon, colors: cols,
             ratio: AspectRatio(rawValue: ratio) ?? .portrait, duration: duration,
             needsPhoto: needsPhoto, referenceVideoURL: referenceVideoURL, isFixed: isFixed,
@@ -1124,9 +1284,7 @@ final class TemplateStore {
     var templates: [VideoTemplate] = TemplateLibrary.visible.filter { !ContentPolicy.containsIntimateContent($0) }
 
     func filtered(by category: TemplateCategory) -> [VideoTemplate] {
-        category == .all
-            ? templates
-            : templates.filter { $0.category == category || $0.extraCategories.contains(category) }
+        TemplateFilter.apply(category, to: templates)
     }
 
     var trending: [VideoTemplate] { Array(templates.prefix(5)) }

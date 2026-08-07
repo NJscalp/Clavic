@@ -9,9 +9,28 @@ import SwiftUI
 
 struct DiscoverView: View {
     let onSelect: (VideoTemplate) -> Void
+    /// Der Solo Shot ist kein Template — er hat keinen Prompt und keine
+    /// Kachel-Vorschau, sondern eine eigene Kamera. Deshalb ein eigener Weg
+    /// hinaus statt eines erfundenen Eintrags in der Vorlagen-Liste.
+    var onSoloShot: () -> Void = {}
+    /// Der zweite Kamera-Modus: jemand fotografiert mich und kann es nicht.
+    /// Er hängt am Solo-Shot-Bild, weil beide dieselbe Frage beantworten —
+    /// „wie komme ich auf ein gutes Bild von mir" — nur mit und ohne Begleitung.
+    var onDirector: () -> Void = {}
 
     @Environment(TemplateStore.self) private var store
-    @State private var category: TemplateCategory = .all
+    /// „Looks" statt „Alles": die ersten anderthalb Sekunden entscheiden, und
+    /// sie sollen zeigen, wofür die App gedacht ist — nicht das komplette Lager.
+    @State private var category: TemplateCategory = .looks
+
+    /// Nur drei Ziele, in dieser Reihenfolge. `TemplateCategory.allCases`
+    /// stünde hier nicht: die alten Nischen-Fälle leben weiter, damit
+    /// Server-Vorlagen sie noch benennen können, sie sind nur kein Ziel mehr.
+    ///
+    /// „Trends" steht mit dabei, obwohl die Vorgabe nur Looks · Tools · Fun
+    /// nannte: es gibt Vorlagen, die weder Look noch Werkzeug noch Fun sind,
+    /// und ohne diesen Chip wäre keine einzige davon erreichbar.
+    private let chips: [TemplateCategory] = [.looks, .tools, .trends, .fun]
 
     private let columns = [
         GridItem(.flexible(), spacing: 12),
@@ -25,6 +44,7 @@ struct DiscoverView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 24) {
+                soloShotHero
                 clavicToolsSection
                 categorySection
                 gridSection
@@ -32,6 +52,71 @@ struct DiscoverView: View {
             .padding(.top, 8)
             .padding(.bottom, 16)   // Tab-Bar-Freiraum wird via safeAreaInset gesichert
         }
+    }
+
+    // MARK: - Solo Shot ganz oben
+
+    /// Halbe Bildschirmhöhe, laufendes Beispiel: das Erste, was man sieht, ist
+    /// das, was die App von anderen unterscheidet — sich selbst an einen Ort
+    /// stellen, an dem niemand mitgekommen ist.
+    ///
+    /// Als Beispiel läuft der Vorher/Nachher-Wischer über echte Aufnahmen. Ein
+    /// eigenes Beispiel-VIDEO liegt nicht im Bundle; sobald es eines gibt,
+    /// gehört an diese Stelle ein `LoopingVideoView`.
+    @ViewBuilder
+    private var soloShotHero: some View {
+        Button(action: onSoloShot) {
+            ZStack(alignment: .bottomLeading) {
+                if let before = UIImage(named: "sc_garage_before"),
+                   let after = UIImage(named: "sc_garage_after") {
+                    BeforeAfterSlider(before: before, after: after, sweepDuration: 3.4, showLabels: false)
+                } else {
+                    Theme.brandGradient
+                }
+
+                LinearGradient(
+                    colors: [.clear, .black.opacity(0.6)],
+                    startPoint: .center,
+                    endPoint: .bottom
+                )
+
+                VStack(alignment: .leading, spacing: 5) {
+                    Text("SOLO SHOT")
+                        .font(.system(size: 11.5, weight: .black, design: .rounded))
+                        .kerning(1.1)
+                        .foregroundStyle(.white.opacity(0.85))
+                    Text("Fotos von dir — ganz allein unterwegs")
+                        .font(.system(size: 23, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(18)
+            }
+            .frame(maxWidth: .infinity)
+            .containerRelativeFrame(.vertical) { height, _ in height * 0.5 }
+            .clipShape(RoundedRectangle(cornerRadius: Theme.cornerLarge, style: .continuous))
+            .shadow(color: .black.opacity(0.14), radius: 16, y: 7)
+            .padding(.horizontal, Theme.screenPadding)
+        }
+        .buttonStyle(.plain)
+        .overlay(alignment: .bottomTrailing) { directorPill }
+    }
+
+    /// Eigener Knopf ÜBER der Hero-Fläche, nicht in ihr: ein Knopf im Label
+    /// eines anderen Knopfes bekommt in SwiftUI keine eigenen Tipps ab.
+    private var directorPill: some View {
+        Button(action: onDirector) {
+            Label("Regie", systemImage: "person.2.wave.2.fill")
+                .font(.system(size: 12.5, weight: .bold, design: .rounded))
+                .foregroundStyle(Theme.textPrimary)
+                .padding(.horizontal, 13)
+                .padding(.vertical, 8)
+                .glassEffect(.regular.interactive(), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .padding(.trailing, Theme.screenPadding + 14)
+        .padding(.bottom, 18)
     }
 
     // MARK: - Clavic Tools (App-eigene Pro-Werkzeuge ganz oben)
@@ -65,7 +150,7 @@ struct DiscoverView: View {
     private var categorySection: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
-                ForEach(TemplateCategory.allCases) { item in
+                ForEach(chips) { item in
                     CategoryChip(title: item.rawValue, isSelected: category == item) {
                         withAnimation(.spring(duration: 0.3)) { category = item }
                     }

@@ -26,6 +26,11 @@ struct ContentView: View {
     @State private var showSubscriptionOffer = false
     /// Abo-Gate beim Template-Tipp (schließbares Sheet, kein App-Block).
     @State private var showSubscriptionGate = false
+    /// Solo Shot direkt aus Discover — der Weg über das Studio bleibt daneben
+    /// bestehen, beide öffnen dieselbe Ansicht.
+    @State private var showSoloShot = false
+    /// Regie-Modus: echte Fotos, kein Credit, keine Server-Runde.
+    @State private var showDirector = false
     @State private var pendingCreateTemplate: VideoTemplate?
     @State private var keyboardVisible = false
     /// Navigations-Pfad: nach „Generate" direkt ins Detail/Generierung pushen.
@@ -62,9 +67,11 @@ struct ContentView: View {
                     Theme.background.ignoresSafeArea()
 
                     ZStack {
-                        DiscoverView { template in
-                            openCreate(with: template)
-                        }
+                        DiscoverView(
+                            onSelect: { template in openCreate(with: template) },
+                            onSoloShot: { showSoloShot = true },
+                            onDirector: { showDirector = true }
+                        )
                         .opacity(tab == .discover ? 1 : 0)
                         .allowsHitTesting(tab == .discover)
                         .environment(\.previewsActive, previewsActive)
@@ -168,6 +175,21 @@ struct ContentView: View {
             pendingCreateTemplate = nil
             showSubscriptionGate = false
             createRequest = CreateRequest(template: template)
+        }
+        .fullScreenCover(isPresented: $showSoloShot) {
+            SoloShotView(
+                // Das Ergebnis liegt schon in der Bibliothek. Wer hier
+                // weitermachen will, geht denselben Weg wie aus dem Studio:
+                // über die Übergabe, damit nur EINE Regel gilt.
+                onFinish: { image in
+                    showSoloShot = false
+                    editHandoff.pendingStudioImage = image.jpegData(compressionQuality: 0.95)
+                },
+                onCancel: { showSoloShot = false }
+            )
+        }
+        .fullScreenCover(isPresented: $showDirector) {
+            DirectorCameraView(onCancel: { showDirector = false })
         }
         .fullScreenCover(item: $createRequest) { request in
             CreateView(template: request.template) { project in
