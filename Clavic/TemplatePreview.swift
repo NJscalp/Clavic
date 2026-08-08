@@ -37,7 +37,8 @@ struct TemplatePreviewOverlay: View {
             // Senkrecht: die Kacheln sind hochkant, eine waagerechte Trennlinie
             // legt damit immer das ganze Motiv frei statt einer schmalen Spalte.
             BeforeAfterSlider(before: before, after: after, axis: .vertical,
-                              showLabels: false, isAnimating: previewsActive)
+                              showLabels: false, showDivider: false,
+                              isAnimating: previewsActive)
                 .allowsHitTesting(false)
         } else if let url = template.previewVideoURL {
             LoopingVideoView(url: url, isActive: previewsActive)

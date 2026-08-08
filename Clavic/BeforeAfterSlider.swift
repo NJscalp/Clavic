@@ -22,6 +22,11 @@ struct BeforeAfterSlider: View {
     /// Laufrichtung der Trennlinie. Senkrecht heißt: von oben nach unten.
     var axis: Axis = .horizontal
     var showLabels: Bool = true
+    /// Weiße Trennlinie samt Griff. Auf den Kacheln aus: dort ist sie reine
+    /// Zierde, wandert bei jedem Durchlauf quer durchs Motiv und macht das
+    /// Raster unruhig. Wo man die Linie ziehen KANN (Vollbild-Vergleich),
+    /// bleibt sie — sonst wüsste niemand, dass es geht.
+    var showDivider: Bool = true
     /// Steuert, ob der Slider animiert. Bei `false` steht er still (spart CPU,
     /// z. B. wenn die Kachel nicht sichtbar ist oder ein Sheet offen ist).
     var isAnimating: Bool = true
@@ -72,6 +77,7 @@ struct BeforeAfterSlider: View {
                     }
 
                 // Trennlinie + Griff
+                if showDivider {
                 ZStack {
                     Rectangle()
                         .fill(.white)
@@ -93,6 +99,7 @@ struct BeforeAfterSlider: View {
                        height: axis == .horizontal ? h : 26)
                 .offset(x: axis == .horizontal ? w * fraction - 13 : 0,
                         y: axis == .horizontal ? 0 : h * fraction - 13)
+                }
 
                 if showLabels {
                     labels(width: w, height: h)
