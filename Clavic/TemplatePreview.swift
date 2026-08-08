@@ -34,7 +34,10 @@ struct TemplatePreviewOverlay: View {
     var body: some View {
         if let before = template.previewBeforeImage,
            let after = template.previewAfterImage {
-            BeforeAfterSlider(before: before, after: after, showLabels: false, isAnimating: previewsActive)
+            // Senkrecht: die Kacheln sind hochkant, eine waagerechte Trennlinie
+            // legt damit immer das ganze Motiv frei statt einer schmalen Spalte.
+            BeforeAfterSlider(before: before, after: after, axis: .vertical,
+                              showLabels: false, isAnimating: previewsActive)
                 .allowsHitTesting(false)
         } else if let url = template.previewVideoURL {
             LoopingVideoView(url: url, isActive: previewsActive)
