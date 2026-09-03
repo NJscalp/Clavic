@@ -1,5 +1,16 @@
 # Übergabe — SoloShot-Platzierung & Discover-Umbau
 
+> **HISTORISCH — Stand 07.08.2026. Zwei Aussagen darin gelten nicht mehr:**
+>
+> 1. Weiter unten steht „Der Absturz ist damit seltener, aber **NICHT weg**."
+>    Er ist inzwischen weg — behoben in `56a52b8` (grayscale schrieb über ein
+>    Swift-Array hinaus) und `66241df` (keine rohen Zeiger mehr in Swift-Arrays).
+> 2. „Aufgabe 6 — Regie" beschreibt `DirectorCameraView`. Diese Ansicht ist
+>    fertig, aber **nirgends in der App eingebunden** — sie lebt nur noch über
+>    `DirectorCoachTests`.
+>
+> Alles andere ist als Protokoll weiterhin gültig.
+
 Stand: 07.08.2026. Alle sechs Aufgaben sind gebaut, die App baut durch und
 **alle 36 Tests sind grün** (vorher 24, davon 4 rot).
 
@@ -255,3 +266,41 @@ bleiben deutsch, so wie es die harten Regeln verlangen.
 - Nichts blockiert den Main-Thread
 - Kein ARKit; `.fun`-Templates und Assets bleiben; Credits, RevenueCat und
   Paywall bleiben unangetastet; die Box überschreibt nie die manuelle Position
+
+---
+
+## Nachtrag 03.09.2026 — Prüf-Loop des Maskottchens eingehängt
+
+Die vorherige Sitzung brach am Sitzungslimit ab, kurz nachdem die beiden neuen
+Clips erzeugt, auf `Theme.background` gemattet und in `MascotStage` verdrahtet
+waren. Build und Tests waren grün, **aber `scanURL` wurde nirgends benutzt** —
+der Prüf-Loop lag fertig im Bundle und lief nie.
+
+Das ist jetzt eingehängt:
+
+- `MascotPlayerUIView.setScanning(_:)` blendet zwischen Prüf-Loop und Ruhe um,
+  über dieselbe Überblendung wie der Idle-Wechsel. Ohne sie spränge die Figur
+  hart von der Lupe in den Leerlauf.
+- `scheduleScanRepeat` hängt den Clip kurz vor seinem Ende wieder an sich
+  selbst. Bewusst **ein einzelner Loop**, nicht die Idle-Rotation: er zeigt
+  genau eine Handlung, und ein Wechsel mittendrin wäre ein Bruch. Der gemessene
+  Schnittsprung von 4,0 von 255 hält die Wiederholung unsichtbar.
+- `MascotStage` reicht `isScanning: act == .working` durch. `mascotAct` steht
+  über `onChange(of: isWorking)` bereits auf `.working`, sobald der Director
+  liest — es war nur nichts daran angeschlossen.
+- `setScanning` läuft in `updateUIView` **nach** `startThrow`, sonst
+  überschriebe ein laufender Wurf den Prüf-Loop sofort.
+
+Ein `scanning`-Flag verhindert doppeltes Überblenden: SwiftUI ruft
+`updateUIView` bei jeder Neuzeichnung auf, nicht nur bei einer Änderung.
+
+**Was nicht geprüft ist:** wie es aussieht. Der Simulator hat keine Kamera, und
+der Director-Ablauf hängt hinter der Anmeldung. Build und Testlauf sind grün,
+die Bewegung selbst hat niemand gesehen.
+
+### Zur Entwarnung, falls die Frage wieder aufkommt
+
+Die Clips stehen **nicht** in `project.pbxproj` — das ist korrekt so. Das
+Projekt nutzt Dateisystem-Synchronisation (`PBXFileSystemSynchronizedRootGroup`,
+5 Vorkommen); Dateien im Ordner landen automatisch im Bundle. Nachgeprüft:
+`mascot_scan.mp4` liegt in beiden gebauten `Clavic.app` (Gerät und Simulator).
