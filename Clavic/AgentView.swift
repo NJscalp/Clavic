@@ -12,11 +12,15 @@
 //
 
 import SwiftUI
+import QuartzCore
 import SwiftData
 import PhotosUI
 import Photos
 
 struct AgentView: View {
+    /// Erst wenn das Start-Overlay weg ist, darf der Wurf laufen.
+    var introFinished: Bool = true
+
     @Environment(Store.self) private var store
     @Environment(\.modelContext) private var modelContext
 
@@ -32,74 +36,82 @@ struct AgentView: View {
     @State private var pendingItems: [PhotosPickerItem] = []
     @State private var previewItem: ChatImagePreviewItem?
     @State private var animatedUserMsgs: Set<UUID> = []   // Pop-in + Larper-Reaktion nur einmal je Bild-Nachricht
+    @State private var showingOriginalResults: Set<UUID> = []
     @State private var toast: String?
     @State private var showSubscriptionGate = false
     @FocusState private var inputFocused: Bool
     /// Kamera-Modus („Recreate“), derselbe wie im Chat-Tab.
     @State private var showPoseCamera = false
 
+    // MARK: - Maskottchen-Bühne
+    /// Was die Figur oben gerade tut. Sie beginnt mit dem Standbild und wirft,
+    /// sobald das Intro weg ist — wer die App öffnet, soll die Animation sehen.
+    /// Danach fällt sie wieder auf `.idle`: das Standbild ist derselbe Frame,
+    /// mit dem das Video endet, deshalb entsteht dabei kein sichtbarer Schnitt.
+    @State private var mascotAct: MascotAct = .idle
+    /// Der Begrüßungswurf läuft einmal pro Start, nicht bei jedem Tab-Wechsel.
+    @State private var didPlayWelcomeThrow = false
+    /// Zählt jeden angeforderten Wurf. Ein Zähler, kein Schalter: geworfen wird
+    /// zur Begrüßung UND bei jedem neuen Vorschlagssatz.
+    @State private var throwToken = 0
+    /// false, solange die geworfenen Karten noch im Video unterwegs sind.
+    /// Wird bei 2,95 s des Wurfs auf true gesetzt (siehe `MascotStage`).
+    /// Startet auf false: unter der Figur soll erst NICHTS liegen, die Karten
+    /// kommen im Moment des Wurfs herein.
+    @State private var optionsRevealed = false
+    /// Die Eingabezeile ist normalerweise NICHT da.
+    ///
+    /// Sie ist das Element, das eine Seite nach Chat aussehen lässt, und sie
+    /// deckt die Auswahl zu. Sie erscheint nur, wenn jemand ausdrücklich etwas
+    /// Eigenes sagen will — über „Something else? Just say it." — und
+    /// verschwindet nach dem Absenden wieder.
+    @State private var showComposer = false
+
     var body: some View {
         VStack(spacing: 0) {
             if messages.isEmpty {
+                // KEINE Eingabezeile im Auftakt. Vor der Analyse hat niemand
+                // etwas zu tippen — der Director hat das Foto ja noch nicht
+                // gesehen. Und die Eingabezeile ist genau das Element, das
+                // eine Seite nach Chat aussehen lässt. Sie kommt mit der
+                // ersten Antwort.
                 emptyState
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .contentShape(Rectangle())
-                    .simultaneousGesture(TapGesture().onEnded { if inputFocused { inputFocused = false } })
-                    .safeAreaInset(edge: .bottom, spacing: 0) { inputBar }
             } else {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        // Luftigere Züge (18 → 24), wie im Chat-Tab, und jeder Zug
-                        // blendet weich ein statt hart zu erscheinen.
-                        LazyVStack(spacing: 24) {
-                            ForEach(messages) { msg in
-                                messageRow(msg).id(msg.id)
-                                    .transition(.asymmetric(
-                                        insertion: .opacity.combined(with: .offset(y: 14)),
-                                        removal: .opacity
-                                    ))
-                            }
-                            Color.clear.frame(height: 6).id("bottom")
-                        }
-                        .padding(.horizontal, Theme.screenPadding)
-                        // Platz für den schwebenden „New chat"-Knopf oben rechts —
-                        // sonst liegt er auf dem ersten, rechtsbündigen Foto.
-                        .padding(.top, 46)
-                        .padding(.bottom, 10)
-                        .animation(.spring(response: 0.42, dampingFraction: 0.86), value: messages.count)
-                    }
-                    .scrollDismissesKeyboard(.immediately)
-                    .simultaneousGesture(TapGesture().onEnded { if inputFocused { inputFocused = false } })
-                    .safeAreaInset(edge: .bottom, spacing: 0) { inputBar }
-                    .overlay(alignment: .topTrailing) {
-                        if !isWorking {
-                            Button { startNewChat() } label: {
-                                Label("New chat", systemImage: "square.and.pencil")
-                                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                                    .foregroundStyle(Theme.accent)
-                                    .padding(.horizontal, 12).padding(.vertical, 7)
-                                    .background(.ultraThinMaterial, in: Capsule())
-                            }
-                            .buttonStyle(.plain)
-                            .padding(.trailing, Theme.screenPadding).padding(.top, 6)
-                        }
-                    }
-                    .onChange(of: messages.count) { _, _ in
-                        withAnimation(.easeOut(duration: 0.2)) { proxy.scrollTo("bottom", anchor: .bottom) }
-                    }
-                }
+                conversation
             }
         }
         .background(Theme.background.ignoresSafeArea())
-        .toolbar {
-            if inputFocused {
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button("Done") { inputFocused = false }
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
-                        .foregroundStyle(Theme.accent)
-                }
+        // Der Arbeitszustand spiegelt sich in der Bühne — aber nur, wenn nicht
+        // gerade der Wurf läuft; der darf nicht unterbrochen werden.
+        .task {
+            // NICHT einfach in `onAppear` werfen. `onAppear` läuft, bevor der
+            // erste Frame auf dem Schirm ist — beim Kaltstart liegt davor noch
+            // der Startbildschirm, und der ganze Wurf lief unsichtbar dahinter
+            // ab: sichtbar wurde die App erst, als die Karten längst lagen.
+            //
+            // Deshalb erst einen tatsächlich fertig gezeichneten Frame abwarten.
+            // Der Abschlussblock einer CATransaction feuert genau dann.
+            await withCheckedContinuation { (c: CheckedContinuation<Void, Never>) in
+                CATransaction.begin()
+                CATransaction.setCompletionBlock { c.resume() }
+                CATransaction.commit()
             }
+            startWelcomeThrowIfNeeded()
+        }
+        .onChange(of: introFinished) { _, done in
+            guard done else { return }
+            startWelcomeThrowIfNeeded()
+        }
+        // `initial: true` ist wichtig: ohne das wird der Zustand NUR bei einem
+        // Wechsel gesetzt. Erscheint die Ansicht, waehrend schon gearbeitet
+        // wird — wiederhergestellte Sitzung, Tab-Rueckkehr, UI-Review-Hook —
+        // bleibt die Figur sonst im Leerlauf stehen, obwohl unten „Reading
+        // your photo…" steht.
+        .onChange(of: isWorking, initial: true) { _, working in
+            guard mascotAct != .throwing else { return }
+            mascotAct = working ? .working : .idle
         }
         .onChange(of: photoSelections) { _, items in
             guard !items.isEmpty else { return }
@@ -146,42 +158,213 @@ struct AgentView: View {
                 onCancel: { showPoseCamera = false }
             )
         }
+        #if DEBUG
+        .onAppear {
+            let environment = ProcessInfo.processInfo.environment
+            // Nur zum Prüfen der Karte im Simulator: legt ein Foto ein, ohne
+            // dass jemand die Fotoauswahl bedienen muss.
+            if let name = environment["UITEST_DIRECTOR_PHOTO"],
+               messages.isEmpty, attachments.isEmpty,
+               let ui = UIImage(named: name),
+               let data = ui.jpegData(compressionQuality: 0.9) {
+                attachments = [data]
+            }
+
+            if environment["UITEST_DIRECTOR_LOOKS"] != nil,
+               messages.isEmpty,
+               let source = UIImage(named: "preview_look_vintage_beach")?.jpegData(compressionQuality: 0.9) {
+                lastImages = [source]
+                var result = AgentMessage(
+                    role: .assistant,
+                    text: "Flat ceiling light and a cool cast — here's what I'd do."
+                )
+                func option(_ style: DigiCamStyles.Style, _ mode: DirectorAPI.Mode) -> DirectorAPI.Option {
+                    DirectorAPI.Option(
+                        id: style.id, label: style.title, caption: style.subtitle,
+                        mode: mode, prompt: style.prompt, preview: style.previewAfter
+                    )
+                }
+                // Zwei Picks, dazu ein paar Trends — wie im echten Zug.
+                result.picks = Array(DigiCamStyles.all.prefix(2)).map { option($0, .grade) }
+                result.trends = Array(DigiCamStyles.all.dropFirst(2).prefix(3)).map { option($0, .grade) }
+                messages = [result]
+                revealPicksAnyway()
+            } else if environment["UITEST_DIRECTOR_ANALYZING"] != nil,
+               messages.isEmpty,
+               let first = UIImage(named: "director_real_party")?.jpegData(compressionQuality: 0.9),
+               let second = UIImage(named: "director_real_beach")?.jpegData(compressionQuality: 0.9) {
+                lastImages = [first, second]
+                messages = [AgentMessage(
+                    role: .assistant,
+                    text: "Reading your photo…",
+                    isLoading: true,
+                    isAnalyzing: true
+                )]
+                // `isWorking` ist ein EIGENER Zustand, nicht aus `messages`
+                // abgeleitet. Ohne diese Zeile stellte der Hook das Lesen nur
+                // halb her: die Karte lud, die Figur blieb im Leerlauf — und
+                // der Pruef-Loop war im UI-Review nie zu sehen, obwohl er
+                // richtig verdrahtet war.
+                isWorking = true
+            }
+        }
+        #endif
     }
 
-    // MARK: - Leerer Zustand (animierte Pixel-Szene)
+    /// Die Figur ist ein Element im Fluss, keine feste Ebene — sie scrollt
+    /// einfach weg. Im Leerzustand darf sie groß sein, im Verlauf reicht
+    /// weniger, weil sie ohnehin nach dem ersten Wischen oben raus ist.
+    /// 172 im Leerzustand: darunter müssen vier Polaroids samt Beschriftung
+    /// Platz haben, ohne hinter der Eingabeleiste zu verschwinden.
+    private var mascotHeight: CGFloat { messages.isEmpty ? 158 : 124 }
 
-    // EIN Agent, der selbst entscheidet, was er aus dem Foto macht (LARP-Flex,
-    // Fashion-Look oder Feed-Fix) — die Vorschläge decken bewusst alle drei
-    // Richtungen ab, damit klar ist, wie breit er einsetzbar ist.
+    /// Ein Aufruf für beide Scroll-Inhalte, damit sie nicht auseinanderlaufen.
+    /// Einmal pro App-Start, und nur im Leerzustand — mitten in einem Verlauf
+    /// wäre ein Begrüßungswurf sinnlos.
+    private func startWelcomeThrowIfNeeded() {
+        guard !didPlayWelcomeThrow, messages.isEmpty, !isWorking else { return }
+        didPlayWelcomeThrow = true
+        // Karten sicher verstecken, BEVOR geworfen wird — sonst liegen sie da,
+        // während die Figur noch ausholt.
+        optionsRevealed = false
+        mascotAct = .throwing
+        throwToken += 1
+    }
+
+    private var mascotBlock: some View {
+        MascotStage(
+            act: mascotAct,
+            throwToken: throwToken,
+            expectsThrow: !didPlayWelcomeThrow && messages.isEmpty,
+            height: mascotHeight,
+            isActive: true,
+            showsHabitat: messages.isEmpty,
+            // In der Werkbank erzählt die Zeile darunter den Stand — die
+            // Sprechblase wäre dieselbe Aussage ein zweites Mal.
+            showsActivityPill: messages.isEmpty,
+            onHandoff: {
+                // Die Video-Karten sind an der Unterkante — jetzt kommen die
+                // echten hinterher, damit kein toter Takt entsteht.
+                withAnimation(.spring(response: 0.5, dampingFraction: 0.78)) {
+                    optionsRevealed = true
+                }
+            },
+            onThrowFinished: { mascotAct = isWorking ? .working : .idle }
+        )
+    }
+
+    /// Der letzte Stand des Directors — das ist alles, was gezeigt wird.
+    private var letzter: AgentMessage? {
+        messages.last(where: { $0.role == .assistant })
+    }
+
+    /// KEIN Gesprächsverlauf mehr.
+    ///
+    /// Hier stand ein Chat: Nachrichtenblasen, „Thinking…", ein Scrollback aus
+    /// vorherigen Zügen. Ein Creative Director schickt aber keine Nachrichten —
+    /// er sieht sich das Bild an und legt etwas hin. Gezeigt wird deshalb immer
+    /// nur der aktuelle Stand, in immer demselben Aufbau.
+    ///
+    /// Die Züge bleiben in `messages` erhalten; sie sind der Kontext für den
+    /// Director. Nur DARGESTELLT wird der Verlauf nicht mehr.
+    private var conversation: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 14) {
+                DirectorWorkspace(
+                    mascot: {
+                        mascotBlock.padding(.horizontal, -Theme.screenPadding)
+                    },
+                    photo: letzter?.resultImage ?? lastImages.first,
+                    before: letzter?.resultImage != nil ? lastImages.first : nil,
+                    isWorking: letzter?.isLoading ?? false,
+                    note: letzter?.loadingNote,
+                    verdict: letzter?.text,
+                    picks: letzter?.picks ?? [],
+                    trends: letzter?.trends ?? [],
+                    landed: optionsRevealed,
+                    throwToken: throwToken,
+                    onPick: { chooseOption($0) },
+                    onOwnIdea: { showComposer = true; inputFocused = true },
+                    onCompare: {}
+                )
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, Theme.screenPadding)
+            .padding(.top, 6)
+            // Ohne Eingabezeile braucht es nur Luft über der Tableiste.
+            .padding(.bottom, showComposer ? 230 : 110)
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .simultaneousGesture(TapGesture().onEnded { if inputFocused { inputFocused = false } })
+        .overlay(alignment: .bottom) {
+            if showComposer { inputBar.transition(.move(edge: .bottom).combined(with: .opacity)) }
+        }
+        .animation(.spring(response: 0.4, dampingFraction: 0.88), value: showComposer)
+        .overlay(alignment: .topTrailing) {
+            if !isWorking {
+                Button { startNewChat() } label: {
+                    Label("Start over", systemImage: "arrow.counterclockwise")
+                        .font(.system(size: 13, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Theme.accent)
+                        .padding(.horizontal, 12).padding(.vertical, 7)
+                        .background(.ultraThinMaterial, in: Capsule())
+                }
+                .buttonStyle(.plain)
+                .padding(.trailing, Theme.screenPadding).padding(.top, 6)
+            }
+        }
+    }
+
+    // MARK: - Photo Director start
+
+    // Offene Einstiege statt starrer Templates: jedes Beispiel kann verwendet,
+    // gemischt oder komplett ignoriert werden. Die freie Eingabe bleibt direkt
+    // darunter immer erreichbar.
     private static let suggestions = [
-        "Add a supercar to my garage — keep the garage & location the same",
-        "Give me a look that actually fits this photo",
-        "Make this insta-worthy — keep the same shot",
-        "I have no idea — just tell me what to make of this",
+        "Keep everything — just make the light feel better",
+        "Show me a few directions without changing who I am",
+        "Give it a real G7X direct-flash look",
+        "I have my own idea…",
     ]
 
     private var emptyState: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(spacing: 16) {
-                WebsiteAgentScene(height: 270)
-                    .padding(.top, 12)
+        GeometryReader { geometry in
+            let contentWidth = max(0, geometry.size.width - (Theme.screenPadding * 2))
 
-                VStack(spacing: 5) {
-                    Text("Trend Agent")
-                        .font(.system(size: 27, weight: .bold, design: .rounded))
-                        .foregroundStyle(Theme.textPrimary)
-                    Text("Drop a photo — I know what’s trending and I’ll build it with you in it.")
-                        .font(.system(size: 14.5, weight: .medium, design: .rounded))
-                        .foregroundStyle(Theme.textSecondary)
-                        .multilineTextAlignment(.center)
-                }
+            ScrollView(showsIndicators: false) {
+                // Mittig statt oben angeschlagen: mit drei flachen Karten
+                // bliebe sonst unten eine große leere Fläche stehen.
+                VStack(alignment: .leading, spacing: 16) {
+                    Spacer(minLength: 0)
+                // Erstes Element IM Scroll-Inhalt: beim Wischen geht die Figur
+                // mit dem Hintergrund nach oben weg, der Rest rückt nach.
+                // Über den Seitenrand hinaus, damit das Blattwerk vom
+                // Bildrand hereinwächst und nicht im Textspiegel klebt.
+                mascotBlock
+                    .padding(.horizontal, -Theme.screenPadding)
 
-                VStack(spacing: 10) {
-                    ForEach(Self.suggestions, id: \.self) { suggestionChip($0) }
+                // Kein Wurf mehr im Auftakt: geworfen wird, was ein Bild
+                // trägt. Hier gibt es noch keins.
+                DirectorStart(
+                    photo: attachments.first,
+                    photoSelections: $photoSelections,
+                    onCamera: { showPoseCamera = true },
+                    onSend: { Task { await send() } },
+                    onClear: { attachments = [] }
+                )
+
+                    Spacer(minLength: 0)
                 }
+                .frame(width: contentWidth, alignment: .leading)
+                .frame(minHeight: geometry.size.height - 200)
+                .padding(.horizontal, Theme.screenPadding)
+                // The floating composer overlays the scroll view; reserve enough
+                // scrollable space so the final suggestion never hides beneath it.
+                .padding(.bottom, 158)
             }
-            .padding(.horizontal, Theme.screenPadding)
-            .padding(.bottom, 18)
+            .scrollDismissesKeyboard(.interactively)
+            .frame(width: geometry.size.width)
+            .clipped()
         }
     }
 
@@ -204,6 +387,35 @@ struct AgentView: View {
             .overlay(RoundedRectangle(cornerRadius: 14).strokeBorder(Theme.stroke, lineWidth: 1))
         }
         .buttonStyle(.plain)
+    }
+
+    private func directorReferenceTile(_ image: String, _ title: String, _ subtitle: String) -> some View {
+        ZStack(alignment: .bottomLeading) {
+            Image(image)
+                .resizable()
+                .scaledToFill()
+                .frame(width: 150, height: 205)
+                .clipped()
+            LinearGradient(colors: [.clear, .black.opacity(0.68)], startPoint: .center, endPoint: .bottom)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                Text(subtitle)
+                    .font(.system(size: 10.5, weight: .medium, design: .rounded))
+                    .foregroundStyle(.white.opacity(0.75))
+            }
+            .foregroundStyle(.white)
+            .padding(11)
+            Image(systemName: "plus")
+                .font(.system(size: 10, weight: .black))
+                .foregroundStyle(Theme.textPrimary)
+                .frame(width: 28, height: 28)
+                .background(.white, in: Circle())
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topTrailing)
+                .padding(9)
+        }
+        .frame(width: 150, height: 205)
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
     }
 
     // MARK: - Nachrichten
@@ -250,9 +462,13 @@ struct AgentView: View {
                             } else {
                                 ClavicLoadingCard(caption: msg.loadingNote ?? "Clavic is building your image")
                             }
-                        } else if msg.isAnalyzing, let src = lastImages.first, let ui = UIImage(data: src) {
-                            // Foto wird gelesen → Scan über genau dieses Foto.
-                            AgentAnalyzingCard(image: ui, note: msg.loadingNote ?? "Reading your photo")
+                        } else if msg.isAnalyzing {
+                            let analysisImages = lastImages.compactMap { UIImage(data: $0) }
+                            if !analysisImages.isEmpty {
+                                AgentAnalyzingCard(images: analysisImages, note: msg.loadingNote ?? "Reading your photo")
+                            } else {
+                                AgentThinkingRow(note: msg.loadingNote ?? "Reading your photo")
+                            }
                         } else {
                             // Reine Text-Antwort → schlanke Denk-Zeile, keine Figur.
                             AgentThinkingRow(note: msg.loadingNote ?? loadingLabel(msg.text))
@@ -267,35 +483,65 @@ struct AgentView: View {
                                 .textSelection(.enabled)
                         }
                         if let result = msg.resultImage, let ui = UIImage(data: result) {
-                            Button {
-                                previewItem = ChatImagePreviewItem(imageData: result, beforeData: msg.beforeImage, caption: nil)
-                            } label: {
-                                Image(uiImage: ui).resizable().scaledToFit()
-                                    .frame(maxWidth: 300)
-                                    .clipShape(RoundedRectangle(cornerRadius: 16))
-                                    .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.stroke, lineWidth: 1))
+                            ZStack(alignment: .topLeading) {
+                                Image(uiImage: ui)
+                                    .resizable()
+                                    .scaledToFit()
+                                    .opacity(showingOriginalResults.contains(msg.id) ? 0 : 1)
+
+                                if let beforeData = msg.beforeImage,
+                                   let before = UIImage(data: beforeData) {
+                                    Image(uiImage: before)
+                                        .resizable()
+                                        .scaledToFit()
+                                        .opacity(showingOriginalResults.contains(msg.id) ? 1 : 0)
+
+                                    Text(showingOriginalResults.contains(msg.id) ? "ORIGINAL" : "RESULT")
+                                        .font(.system(size: 10, weight: .black, design: .rounded))
+                                        .tracking(0.6)
+                                        .foregroundStyle(.white)
+                                        .padding(.horizontal, 9).padding(.vertical, 5)
+                                        .background(.black.opacity(0.48), in: Capsule())
+                                        .padding(12)
+                                        .contentTransition(.opacity)
+                                }
                             }
-                            .buttonStyle(.plain)
+                            .frame(maxWidth: 300)
+                            .clipShape(RoundedRectangle(cornerRadius: 16))
+                            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.stroke, lineWidth: 1))
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                guard msg.beforeImage != nil else {
+                                    previewItem = ChatImagePreviewItem(imageData: result, beforeData: nil, caption: nil)
+                                    return
+                                }
+                                withAnimation(.easeInOut(duration: 0.28)) {
+                                    if showingOriginalResults.contains(msg.id) {
+                                        showingOriginalResults.remove(msg.id)
+                                    } else {
+                                        showingOriginalResults.insert(msg.id)
+                                    }
+                                }
+                            }
+
+                            if msg.beforeImage != nil {
+                                Label(
+                                    showingOriginalResults.contains(msg.id) ? "Original · tap for result" : "Result · tap for original",
+                                    systemImage: "hand.tap"
+                                )
+                                .font(.system(size: 11, weight: .medium, design: .rounded))
+                                .foregroundStyle(Theme.textTertiary)
+                                .contentTransition(.opacity)
+                            }
                             HStack(spacing: 10) {
                                 agentActionButton(icon: "square.and.arrow.down", text: "Save") { saveImage(result) }
                                 agentActionButton(icon: "arrow.uturn.up", text: "Edit again") { useAsInput(result) }
                             }
                         }
-                        if !msg.options.isEmpty {
-                            VStack(alignment: .leading, spacing: 7) {
-                                ForEach(Array(msg.options.enumerated()), id: \.offset) { _, opt in
-                                    PixelOptionButton(label: opt.label) { chooseOption(opt) }
-                                }
-                                // Schickt den Agenten zurück ans Foto: er liest es
-                                // erneut und denkt sich KOMPLETT andere LARP-Wege aus
-                                // (andere Autos, Uhren, Fits, Locations, Money-Props).
-                                PixelOptionButton(label: "Analyze deeper — more ideas") { moreIdeas() }
-                            }
-                            .padding(.top, 2)
-                        }
+                        directionsBlock(msg)
                     }
                 }
-                Spacer(minLength: 40)
+                Spacer(minLength: msg.picks.isEmpty ? 40 : 0)
             }
         }
     }
@@ -304,7 +550,7 @@ struct AgentView: View {
     /// echte Statustexte (z. B. „Creating your image…") bleiben stehen.
     private func loadingLabel(_ text: String?) -> String {
         guard let t = text?.trimmingCharacters(in: .whitespacesAndNewlines), !t.isEmpty, t != "Thinking…" else {
-            return "Cooking up the flex…"
+            return "Reading your photo…"
         }
         return t
     }
@@ -322,11 +568,76 @@ struct AgentView: View {
         .buttonStyle(.plain)
     }
 
+    /// Was der Director vorschlägt. Ausgelagert, weil der Swift-Typprüfer bei
+    /// diesem Ausdruck im Nachrichtenkörper aufgab („unable to type-check this
+    /// expression in reasonable time") — verschachtelte Views summieren sich.
+    @ViewBuilder
+    private func directionsBlock(_ msg: AgentMessage) -> some View {
+        if !msg.picks.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 6) {
+                    Image(systemName: "sparkles")
+                        .font(.system(size: 11, weight: .black))
+                        .foregroundStyle(Theme.accent)
+                    Text("MY TWO BEST IDEAS")
+                        .font(.system(size: 10, weight: .black, design: .rounded))
+                        .tracking(0.9)
+                        .foregroundStyle(Theme.accent)
+                    Spacer()
+                    Text("Same face, always")
+                        .font(.system(size: 9.5, weight: .bold, design: .rounded))
+                        .foregroundStyle(Theme.textTertiary)
+                        .padding(.horizontal, 7).padding(.vertical, 3)
+                        .background(Theme.surfaceHigh, in: Capsule())
+                }
+
+                DirectorPicks(
+                    picks: msg.picks,
+                    trends: msg.trends,
+                    landed: optionsRevealed,
+                    throwToken: throwToken,
+                    sourcePhoto: lastImages.first,
+                    onPick: { chooseOption($0) },
+                    onOwnIdea: { input = ""; inputFocused = true }
+                )
+            }
+            .padding(.top, 2)
+        }
+    }
+
+    /// SICHERHEITSNETZ: zeigt die Vorschläge auch dann, wenn der Wurf sie
+    /// nicht freigibt.
+    ///
+    /// Die Karten hängen an `optionsRevealed`, und das setzt normalerweise die
+    /// Übergabe bei 2,95 s des Wurfvideos. Bleibt sie aus — fehlender Clip,
+    /// abgebrochene Animation, ein Zustand den wir noch nicht kennen —, stünde
+    /// die Überschrift „meine zwei besten Ideen" über einer leeren Fläche, und
+    /// der Nutzer käme nicht weiter. Im Simulator genau so gesehen.
+    ///
+    /// Nach 4 Sekunden ist der Wurf in jedem Fall vorbei. Was dann noch
+    /// verborgen ist, war es nicht mit Absicht.
+    private func revealPicksAnyway() {
+        Task {
+            try? await Task.sleep(for: .seconds(4))
+            await MainActor.run {
+                guard !optionsRevealed,
+                      messages.contains(where: { !$0.picks.isEmpty })
+                else { return }
+                withAnimation(.spring(response: 0.5, dampingFraction: 0.9)) {
+                    optionsRevealed = true
+                }
+            }
+        }
+    }
+
     // MARK: - Eingabeleiste
 
     private var inputBar: some View {
         VStack(alignment: .leading, spacing: 8) {
-            if !attachments.isEmpty {
+            // Im Auftakt liegt das Foto bereits IN der Karte. Hier noch einmal
+            // als Anhangzeile wäre es doppelt — und genau die Anhangzeile ist
+            // das, was einen Chat ausmacht.
+            if !attachments.isEmpty && !messages.isEmpty {
                 // Angehängte Fotos GROSS über dem Textfeld — genau wie im
                 // Chat-Tab: man sieht, woran man schreibt, bevor etwas im Chat
                 // landet. Vorher waren es beschnittene 54-pt-Quadrate, in denen
@@ -370,10 +681,15 @@ struct AgentView: View {
             // mit anderem Aussehen — zwei Chats in derselben App sollen sich
             // nicht unterschiedlich anfühlen.
             VStack(spacing: 10) {
-                TextField("Tell me the flex…", text: $input, axis: .vertical)
+                TextField("Describe anything you want…", text: $input, axis: .vertical)
                     .font(.system(size: 16.5, weight: .medium, design: .rounded))
                     .lineLimit(1...5)
                     .focused($inputFocused)
+                    .submitLabel(.send)
+                    .onSubmit {
+                        inputFocused = false
+                        if canSend { Task { await send() } }
+                    }
                     .foregroundStyle(Theme.textPrimary)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
@@ -423,10 +739,19 @@ struct AgentView: View {
             .padding(.vertical, 12)
             .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
             .shadow(color: .black.opacity(0.10), radius: 18, y: 8)
+            // The glass is visually solid but otherwise has transparent gaps.
+            // Claim its complete shape so buttons/templates behind it cannot
+            // receive the tap intended for +, camera or send.
+            .contentShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
         }
         .padding(.horizontal, Theme.screenPadding)
         .padding(.top, 8)
-        .padding(.bottom, 10)
+        // Above the shared tab bar when idle; directly above the keyboard when
+        // focused. The scroll content remains visible through the gap.
+        .padding(.bottom, inputFocused ? 2 : 82)
+        .animation(.easeInOut(duration: 0.2), value: inputFocused)
+        .contentShape(Rectangle())
+        .zIndex(100)
     }
 
     private var canSend: Bool {
@@ -470,6 +795,15 @@ struct AgentView: View {
         // Options-Tap hängt keine neuen Fotos an (nutzt den bestehenden Kontext).
         let attached = override == nil ? attachments : []
         let bubbleText = display ?? (rawText.isEmpty ? nil : rawText)
+        // Ein Zug nur mit Foto heißt „schau dir das an“. Was daraus folgt,
+        // entscheidet der Director — nicht die App.
+        //
+        // Hier stand früher ein erzwungener Prompt, der GENAU DREI Looks aus
+        // einer festen Sieben-Namen-Liste verlangte und jede Retusche, jeden
+        // Orts-, Posen- und Kleidungswechsel ausdrücklich verbot. Damit war
+        // das Modell auf einen Bruchteil dessen festgenagelt, was es kann, und
+        // sein Urteil wurde anschließend ohnehin überschrieben.
+        let requestText = rawText
         // Kontext für Agent + Edit: neue Anhänge > letztes Ergebnis (Folge-Edit)
         // > zuletzt angehängte Originale (z. B. Options-Tap nach reiner Analyse).
         let contextImages: [Data]
@@ -478,9 +812,9 @@ struct AgentView: View {
         else { contextImages = lastImages }
         if !attached.isEmpty { lastImages = attached }
         // Verlauf: nur echte Text-Turns, Fehlermeldungen raus (verwässern sonst den Kontext).
-        let history: [AgentAPI.HistoryTurn] = messages.compactMap { m in
+        let history: [DirectorAPI.HistoryTurn] = messages.compactMap { m in
             guard let t = m.text, !t.isEmpty, !t.hasPrefix("Error:") else { return nil }
-            return AgentAPI.HistoryTurn(role: m.role == .user ? "user" : "assistant", text: t)
+            return DirectorAPI.HistoryTurn(role: m.role == .user ? "user" : "assistant", text: t)
         }
 
         let hasImageContext = !contextImages.isEmpty
@@ -491,22 +825,48 @@ struct AgentView: View {
             messages.append(loadingMsg)
             input = ""
             attachments = []
+            showComposer = false
             isWorking = true
             inputFocused = false
         }
 
         do {
-            let reply = try await AgentAPI.chat(history: history, message: rawText, images: contextImages)
+            let reply = try await DirectorAPI.chat(
+                history: history,
+                message: requestText,
+                images: contextImages
+                // Keine Lesung von hier: analysiert wird erst beim Absenden,
+                // und zwar serverseitig in einem Zug. Wer ein Foto anhängt und
+                // es wieder wegnimmt, zahlt nichts.
+            )
 
             // Text-Antwort einsetzen (ersetzt den „Thinking…"-Platzhalter). Bei einem
             // Bild-Auftrag bleibt die Blase im Lade-Zustand, bis das Bild fertig ist.
             await MainActor.run {
                 if let last = messages.indices.last {
-                    var m = AgentMessage(role: .assistant, text: reply.text, isLoading: reply.action != nil)
-                    m.options = reply.action == nil ? reply.options : []
+                    var m = AgentMessage(
+                        role: .assistant,
+                        text: reply.message,
+                        isLoading: reply.action != nil
+                    )
+                    // Was der Director vorschlägt, wird gezeigt — unverändert.
+                    if reply.action == nil {
+                        m.picks = reply.picks
+                        m.trends = reply.trends
+                    }
                     // Bei einem Bild-Auftrag Lupen-Ansicht halten, bis das Rendern startet.
                     m.isAnalyzing = (reply.action != nil) && hasImageContext
                     messages[last] = m
+
+                    // Vorschläge sind da → das Chamäleon wirft sie herunter.
+                    // Die Karten bleiben verborgen, bis der Wurf bei 3,50 s
+                    // die Übergabe meldet.
+                    if !m.picks.isEmpty {
+                        revealPicksAnyway()
+                        optionsRevealed = false
+                        mascotAct = .throwing
+                        throwToken += 1
+                    }
                 }
             }
 
@@ -537,7 +897,53 @@ struct AgentView: View {
         }
     }
 
-    private func runEdit(action: AgentAPI.Action, sourceImages: [Data]) async {
+    /// Default contract for Photo Director edits. Generative edit models tend to
+    /// "improve" unrequested areas unless the invariants are repeated directly
+    /// in the final render prompt. Explicit user changes still win; everything
+    /// else is immutable.
+    private func compositionLockedPrompt(_ requestedEdit: String) -> String {
+        """
+        EDIT CONTRACT — NON-NEGOTIABLE:
+        Use the first reference as the exact base image. Preserve its exact canvas size, aspect ratio, crop, camera position, perspective and composition. Preserve every existing background pixel semantically: the same room/location, walls, furniture, objects, signs, reflections, sky, ground and empty spaces in the same positions. Do not add, remove, replace, move, redesign, clean up or hallucinate any object.
+
+        Preserve the person exactly: same identity, face geometry, expression, gaze, head angle, hair shape and color, body proportions, pose, hand and finger positions, clothing, accessories and position in frame. Do not beautify, reshape, re-pose or restyle them.
+
+        Only change an item above when the user's requested edit explicitly asks for that exact change. For a camera look, filter, lighting or color direction, change ONLY pixel-level color grading, exposure, contrast, white balance, saturation, highlight rolloff, shadows, noise and grain. A photographic filter is not permission to regenerate the scene.
+
+        REQUESTED EDIT:
+        \(requestedEdit)
+        """
+    }
+
+    /// Each path promises a different amount of change. Applying the strict
+    /// "same pixels" contract to all three made the creative path impossible.
+    private func guidedDirectionPrompt(_ option: DirectorAPI.Option, index: Int) -> String {
+        let label = option.label.lowercased()
+        let isCreative = label.contains("new moment") || label.contains("reimagine") || (index == 2 && !label.contains("keep it real"))
+        let isSocial = label.contains("post-ready") || label.contains("post ready") || (index == 1 && !isCreative)
+
+        if isSocial {
+            return """
+            SOCIAL EDIT CONTRACT:
+            Keep the exact same person and identity: face geometry, skin tone, hair, body proportions, clothing and natural texture. Preserve the source photo as the base. You may improve light, color, detail, subject separation and perform only the crop or minor distraction cleanup explicitly required by the requested direction. Do not invent a new setting, pose, outfit or object. No beautification, body reshaping or plastic skin.
+
+            REQUESTED DIRECTION:
+            \(option.prompt)
+            """
+        }
+        if !isCreative {
+            return compositionLockedPrompt(option.prompt)
+        }
+        return """
+        CREATIVE PHOTO CONTRACT:
+        Use the source person as the exact identity reference: preserve recognizable face geometry, skin tone, hair characteristics and body proportions. This direction intentionally permits a new natural pose, crop, lighting and environment. Rebuild all perspective, contact shadows, reflections, anatomy and camera grain coherently so it looks like one real photograph captured in that moment—not a pasted subject or a filter. Do not beautify or change the person's identity.
+
+        REQUESTED DIRECTION:
+        \(option.prompt)
+        """
+    }
+
+    private func runEdit(action: DirectorAPI.Action, sourceImages: [Data]) async {
         let quality = ChatQuality(rawValue: action.quality) ?? .medium
         let cost = agentCredits(quality)
 
@@ -572,12 +978,17 @@ struct AgentView: View {
             }
         }
 
+        let protectedAction = DirectorAPI.Action(
+            prompt: compositionLockedPrompt(action.prompt),
+            mode: action.mode,
+            quality: action.quality
+        )
         let request = ImageEditRequest(
-            prompt: action.prompt,
+            prompt: protectedAction.prompt,
             referenceImages: refs,
             quality: quality.apiValue,
             aspectRatio: "auto",
-            model: ImageEditAPI.chatModel
+            model: ImageEditAPI.defaultModel
         )
 
         do {
@@ -587,7 +998,7 @@ struct AgentView: View {
             case .success(let imageData):
                 // Realism-QA: Ergebnis prüfen und bei Bedarf EINMAL korrigiert neu
                 // rendern (kostet den Nutzer keinen zweiten Credit).
-                let finalData = await refineIfNeeded(imageData, action: action, refs: refs, sourceImages: sourceImages, quality: quality)
+                let finalData = await refineIfNeeded(imageData, action: protectedAction, refs: refs, sourceImages: sourceImages, quality: quality)
                 await MainActor.run {
                     store.consume(cost)   // Credits ERST bei Erfolg — genau einmal.
                     if let last = messages.indices.last {
@@ -600,7 +1011,7 @@ struct AgentView: View {
                     }
                     lastResult = finalData   // impliziter Input für den nächsten Folge-Edit
                     isWorking = false
-                    persistToLibrary(finalData, prompt: action.prompt, cost: cost, quality: quality.apiValue)
+                    persistToLibrary(finalData, prompt: protectedAction.prompt, cost: cost, quality: quality.apiValue)
                 }
             case .failure(let reason):
                 await MainActor.run {
@@ -624,25 +1035,58 @@ struct AgentView: View {
     /// QA-Agent einen Korrektur-Prompt, wird EINMAL neu gerendert. QA läuft nur
     /// bei echten Foto-Edits (Quellbilder vorhanden) und blockiert nie — bei
     /// Fehlern/OK bleibt das erste Ergebnis.
-    private func refineIfNeeded(_ first: Data, action: AgentAPI.Action, refs: [Data], sourceImages: [Data], quality: ChatQuality) async -> Data {
-        guard !sourceImages.isEmpty else { return first }
+    /// Der Director prüft sein eigenes Ergebnis und bessert nach.
+    ///
+    /// DAS IST DER KERN DES PRODUKTS: nicht „mehr Funktionen", sondern weniger
+    /// Arbeit zwischen dem Wunsch und einem guten Bild. Die Bearbeitung ist
+    /// nicht fertig, wenn das Bild zurückkommt — sie ist fertig, wenn der
+    /// Director es angesehen hat und dafür geradesteht.
+    ///
+    /// Zwei Anläufe, nicht einer. Der erste Versuch scheitert typischerweise
+    /// an Identität oder daran, dass das Ergebnis wie ein NEUES Bild aussieht
+    /// statt wie dasselbe Foto, anders belichtet — beides ist mit einem
+    /// korrigierten Prompt oft im zweiten Anlauf behoben.
+    ///
+    /// Den Nutzer kostet das nichts: Credits werden erst beim Erfolg abgezogen,
+    /// und zwar genau einmal. Die Nachbesserung geht auf uns.
+    ///
+    /// Blockiert nie: schlägt die Prüfung oder der zweite Anlauf fehl, bleibt
+    /// das erste Ergebnis stehen.
+    private func refineIfNeeded(_ first: Data, action: DirectorAPI.Action, refs: [Data], sourceImages: [Data], quality: ChatQuality) async -> Data {
+        guard !sourceImages.isEmpty || action.mode == .generate else { return first }
 
-        await setLoadingNote("Checking realism…")
-        guard let qa = try? await AgentAPI.qa(originals: sourceImages, result: first, prompt: action.prompt) else { return first }
-        guard !qa.ok, let corrected = qa.correctedPrompt,
-              !corrected.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return first }
+        var best = first
+        var prompt = action.prompt
 
-        await setLoadingNote("Making it more realistic…")
-        let req = ImageEditRequest(
-            prompt: corrected,
-            referenceImages: refs,
-            quality: quality.apiValue,
-            aspectRatio: "auto",
-            model: ImageEditAPI.chatModel
-        )
-        guard let taskID = try? await ImageEditAPI.createTask(req) else { return first }
-        if case .success(let data2) = ((try? await pollTask(taskID)) ?? .failure("")) { return data2 }
-        return first
+        // Höchstens zwei Nachbesserungen — danach ist nicht der Prompt das
+        // Problem, sondern der Auftrag, und weitere Anläufe kosten nur Zeit.
+        for attempt in 1...2 {
+            await setLoadingNote(attempt == 1 ? "Checking the result…" : "Checking again…")
+
+            let verdict = await DirectorAPI.review(
+                originals: sourceImages, result: best, prompt: prompt, mode: action.mode
+            )
+            guard verdict.worthRetrying, let corrected = verdict.correctedPrompt else { return best }
+
+            // Sagt, WAS er nachbessert — der Nutzer soll sehen, dass hier
+            // wirklich jemand hinschaut, statt einen Spinner zu zählen.
+            await setLoadingNote(verdict.issues.first.map { "Fixing: \($0.lowercased())" } ?? "Improving the result…")
+
+            let req = ImageEditRequest(
+                prompt: compositionLockedPrompt(corrected),
+                referenceImages: refs,
+                quality: quality.apiValue,
+                aspectRatio: "auto",
+                model: ImageEditAPI.defaultModel
+            )
+            guard let taskID = try? await ImageEditAPI.createTask(req),
+                  case .success(let next) = ((try? await pollTask(taskID)) ?? .failure(""))
+            else { return best }
+
+            best = next
+            prompt = corrected
+        }
+        return best
     }
 
     private func setLoadingNote(_ note: String) async {
@@ -697,24 +1141,152 @@ struct AgentView: View {
         flashToast("Added as input for your next edit.")
     }
 
-    /// „Analyze deeper": schickt den Agenten zurück ans Foto für eine ZWEITE,
-    /// bewusst andere Ideen-Runde — statt Varianten derselben Richtung.
+    /// Räumt offene Vorschläge weg, sobald einer gewählt wurde — sonst stehen
+    /// zwei Runden Karten übereinander.
+    private func clearOpenDirections() {
+        for i in messages.indices where !messages[i].picks.isEmpty || !messages[i].trends.isEmpty {
+            messages[i].picks = []
+            messages[i].trends = []
+        }
+    }
+
+    /// Eine zweite Runde. Was gut ist, entscheidet der Director — hier stand
+    /// früher ein erzwungener Prompt, der ihm drei Farbgradings vorschrieb und
+    /// jede Retusche verbot.
     private func moreIdeas() {
         guard !isWorking else { return }
-        for i in messages.indices where !messages[i].options.isEmpty { messages[i].options = [] }
+        clearOpenDirections()
         Task {
             await send(
-                override: "Analyze my photo again, deeper this time. Give me a completely different set of ideas than the ones you just offered, still grounded in what's actually in this photo — pull from other categories (other cars, watches, jewelry, outfits, locations, looks, grades, money props, or the lighting treatment) and use details in the photo you haven't used yet.",
-                display: "Analyze deeper — more ideas"
+                override: "Two different ideas for the same photo, please — not variations of the ones you just gave me.",
+                display: "Show me something else"
             )
         }
     }
 
     /// Options-Tap: vollen Prompt senden, in der Blase nur das Label zeigen.
-    private func chooseOption(_ opt: AgentAPI.Option) {
+    private func chooseOption(_ opt: DirectorAPI.Option) {
         guard !isWorking else { return }
-        for i in messages.indices where !messages[i].options.isEmpty { messages[i].options = [] }
-        Task { await send(override: opt.prompt, display: opt.label) }
+        clearOpenDirections()
+        // Every suggested direction is rendered by the image model. A preview
+        // grade must never be presented or charged as an AI-created result.
+        Task { await runDirectorSet([opt]) }
+    }
+
+    /// Creates every selected direction as an independent AI render. The
+    /// options may describe more than a colour grade, so local Core Image
+    /// filters are not a valid implementation of this action.
+    private func createAllOptions(_ rawOptions: [DirectorAPI.Option]) {
+        guard !isWorking else { return }
+        let options = Array(rawOptions.prefix(3))
+        guard !options.isEmpty else { return }
+        Task { await runDirectorSet(options) }
+    }
+
+    private func runDirectorSet(_ options: [DirectorAPI.Option]) async {
+        let quality = ChatQuality.medium
+        let costPerImage = agentCredits(quality)
+        let totalCost = options.count * costPerImage
+        let sourceImages = !lastImages.isEmpty ? lastImages : (lastResult.map { [$0] } ?? [])
+
+        guard !sourceImages.isEmpty else {
+            flashToast("Add a photo first.")
+            return
+        }
+        guard store.canCreate else {
+            showSubscriptionGate = true
+            return
+        }
+        guard store.canAfford(totalCost) else {
+            flashToast("Not enough credits to create all \(options.count) versions.")
+            return
+        }
+
+        clearOpenDirections()
+        messages.append(AgentMessage(
+            role: .user,
+            text: options.count == 1 ? options[0].label : "Create all \(options.count) versions"
+        ))
+        var loading = AgentMessage(
+            role: .assistant,
+            text: options.count == 1 ? "Creating your image with AI…" : "Creating your first AI version…",
+            isLoading: true
+        )
+        loading.isRendering = true
+        loading.loadingNote = options.count == 1 ? "AI rendering" : "AI rendering 1 of \(options.count)"
+        let loadingID = loading.id
+        messages.append(loading)
+        isWorking = true
+        inputFocused = false
+
+        var completed: [(option: DirectorAPI.Option, data: Data)] = []
+        var failures = 0
+
+        for (index, option) in options.enumerated() {
+            if let messageIndex = messages.firstIndex(where: { $0.id == loadingID }) {
+                messages[messageIndex].loadingNote = options.count == 1
+                    ? "AI rendering"
+                    : "AI rendering \(index + 1) of \(options.count)"
+            }
+
+            let request = ImageEditRequest(
+                prompt: guidedDirectionPrompt(option, index: index),
+                referenceImages: sourceImages,
+                quality: quality.apiValue,
+                aspectRatio: "auto",
+                model: ImageEditAPI.defaultModel
+            )
+            do {
+                let taskID = try await ImageEditAPI.createTask(request)
+                switch try await pollTask(taskID) {
+                case .success(let data):
+                    completed.append((option, data))
+                case .failure:
+                    failures += 1
+                }
+            } catch {
+                failures += 1
+            }
+        }
+
+        messages.removeAll { $0.id == loadingID }
+        if completed.isEmpty {
+            messages.append(AgentMessage(
+                role: .assistant,
+                text: "I couldn’t create the set. No credits were used — please try again."
+            ))
+            isWorking = false
+            return
+        }
+
+        for (index, item) in completed.enumerated() {
+            store.consume(costPerImage)
+            persistToLibrary(item.data, prompt: item.option.prompt, cost: costPerImage, quality: quality.apiValue)
+            var resultMessage = AgentMessage(
+                role: .assistant,
+                text: index == 0
+                    ? (options.count == 1
+                        ? "Your AI version is ready."
+                        : "Your three AI versions are ready — choose what feels like you, save them, or edit any result again.")
+                    : item.option.label
+            )
+            resultMessage.resultImage = item.data
+            resultMessage.beforeImage = sourceImages.first
+            withAnimation(.smooth(duration: 0.48)) {
+                messages.append(resultMessage)
+            }
+            if index < completed.count - 1 {
+                try? await Task.sleep(for: .milliseconds(320))
+            }
+        }
+        if failures > 0 {
+            messages.append(AgentMessage(
+                role: .assistant,
+                text: "\(failures) version couldn’t be completed, so no credits were used for it."
+            ))
+        }
+        lastResult = completed.first?.data
+        isWorking = false
     }
 
     private func startNewChat() {
@@ -729,7 +1301,7 @@ struct AgentView: View {
         let ext = (data.starts(with: [0x89, 0x50, 0x4E, 0x47])) ? "png" : "jpg"
         let project = VideoProject(
             prompt: prompt,
-            templateTitle: "Agent",
+            templateTitle: "Photo Director",
             ratio: .portrait, resolution: .p720, duration: 0,
             generateAudio: false, useFastModel: true,
             referenceImagesData: [],
@@ -846,58 +1418,6 @@ private struct SentImageBubble: View {
     }
 }
 
-// MARK: - Options-Button (2D-Pixel-Stil)
-
-/// Retro/Pixel-Button für die Edit-Richtungen nach der Analyse: dunkler Chip mit
-/// hartem Pixel-Schatten, Gold-Rand, Mono-Font und einem Pixel-Diamant.
-private struct PixelOptionButton: View {
-    let label: String
-    var action: () -> Void
-    private let gold = Color(red: 0.91, green: 0.77, blue: 0.33)
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                PixelDiamondMini().frame(width: 15, height: 15)
-                Text(label)
-                    .font(.system(size: 15, weight: .bold, design: .monospaced))
-                    .foregroundStyle(.white)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.8)
-                Spacer(minLength: 4)
-                Image(systemName: "chevron.right").font(.system(size: 12, weight: .black)).foregroundStyle(gold)
-            }
-            .padding(.horizontal, 15).padding(.vertical, 13)
-            .background(
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8).fill(.black.opacity(0.9)).offset(x: 3, y: 3)   // harter Pixel-Schatten
-                    RoundedRectangle(cornerRadius: 8).fill(Color(red: 0.11, green: 0.11, blue: 0.14))
-                    RoundedRectangle(cornerRadius: 8).strokeBorder(gold.opacity(0.7), lineWidth: 2)
-                }
-            )
-            .padding(.trailing, 3).padding(.bottom, 3)   // Platz für den Schatten
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-/// Kleiner animationsfreier Pixel-Diamant (5×5) — passend zum LARP-Pixel-Stil.
-private struct PixelDiamondMini: View {
-    private let mask = ["..X..", ".XXX.", "XXXXX", ".XXX.", "..X.."]
-    var body: some View {
-        Canvas { ctx, size in
-            let cell = size.width / 5
-            let cyan = Color(red: 0.75, green: 0.93, blue: 1.0)
-            for (y, row) in mask.enumerated() {
-                for (x, ch) in row.enumerated() where ch == "X" {
-                    ctx.fill(Path(CGRect(x: CGFloat(x) * cell, y: CGFloat(y) * cell, width: cell + 0.5, height: cell + 0.5)),
-                             with: .color((y == 2 || x == 2) ? .white : cyan))
-                }
-            }
-        }
-    }
-}
-
 // MARK: - Modell
 
 struct AgentMessage: Identifiable {
@@ -911,7 +1431,10 @@ struct AgentMessage: Identifiable {
     var loadingNote: String? = nil // Zwischenstatus beim Laden (z. B. „Checking realism…")
     var resultImage: Data? = nil   // vom Agenten erzeugtes Bild (bei .assistant)
     var beforeImage: Data? = nil   // Quellbild für Vorher/Nachher im Vollbild
-    var options: [AgentAPI.Option] = []   // antippbare Edit-Richtungen nach der Analyse
+    /// Die zwei Vorschläge des Directors für dieses Foto.
+    var picks: [DirectorAPI.Option] = []
+    /// Aktuelle Trends, nach Passung sortiert. Öffnet der Nutzer selbst.
+    var trends: [DirectorAPI.Option] = []
 
     enum Role { case user, assistant }
 }

@@ -308,7 +308,13 @@ private struct MascotPlayer: UIViewRepresentable {
         v.configure(throwURL: throwURL, idleURLs: idleURLs, scanURL: scanURL,
                     onHandoff: onHandoff, onThrowFinished: onThrowFinished,
                     onReady: onReady)
-        if throwToken > 0 {
+        // Reihenfolge: Pruefen ZUERST. `throwToken` ist nach dem
+        // Begruessungswurf dauerhaft > 0, und eine frisch aufgebaute Ansicht
+        // hat `lastThrowToken == 0` — der Wurf-Zweig hat den Pruef-Zweig
+        // deshalb bei JEDEM Neuaufbau geschlagen. Er war toter Code.
+        if isScanning {
+            v.startScanning()
+        } else if throwToken > 0 {
             v.startThrow(token: throwToken)
         } else if expectsThrow {
             v.holdFirstFrame()
@@ -420,6 +426,10 @@ final class MascotPlayerUIView: UIView {
         ) { [weak self] note in
             guard let self, let item = note.object as? AVPlayerItem,
                   item === self.front.currentItem else { return }
+            // Beim Pruefen NICHT in den Leerlauf zurueckfallen — sonst
+            // ueberschreibt dieses Sicherheitsnetz den Pruef-Clip, sobald er
+            // einmal durchgelaufen ist.
+            guard !self.scanning else { return }
             // Sicherheitsnetz: wurde die geplante Blende verpasst, trotzdem weiter.
             self.crossfadeToNextIdle(duration: MascotStage.idleFade)
         }
@@ -480,6 +490,34 @@ final class MascotPlayerUIView: UIView {
         }
     }
 
+    /// Startet DIREKT im Pruef-Loop, ohne Umweg ueber die Ruhe.
+    ///
+    /// GEMESSEN: SwiftUI baut diese Ansicht mehrfach neu auf, waehrend der
+    /// Director liest. Jeder Neuaufbau lief `makeUIView` → `startIdle()` und
+    /// erst danach `setScanning(true)` — der Uebergang zur Lupe brauchte aber
+    /// eine Ueberblendung und wurde vom naechsten Neuaufbau abgeschnitten.
+    /// Ergebnis: sichtbar war immer nur der frisch gestartete Leerlauf.
+    func startScanning() {
+        guard let scanURL else { startIdle(); return }
+        scanning = true
+        // Eine abgeschnittene Blende darf nicht dauerhaft sperren: `fading`
+        // wird sonst nie zurueckgesetzt und blockiert jeden Idle-Wechsel.
+        fading = false
+        clearObservers()
+        // Die eigene Ebene ausdruecklich nach vorn holen. Ohne das haengt es
+        // davon ab, welche Blende zufaellig zuletzt lief.
+        let visible = frontLayer, hidden = backLayer
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        visible.opacity = 1
+        visible.zPosition = 1
+        hidden.opacity = 0
+        hidden.zPosition = 0
+        CATransaction.commit()
+        play(scanURL, on: front)
+        scheduleScanRepeat(on: front)
+    }
+
     func startIdle() {
         guard !idleURLs.isEmpty else { return }
         play(idleURLs[idleIndex], on: front)
@@ -498,9 +536,14 @@ final class MascotPlayerUIView: UIView {
         scanning = on
         clearObservers()
         if on {
-            crossfade(to: scanURL, duration: MascotStage.idleFade) { [weak self] in
-                self?.scheduleScanRepeat(on: self?.front)
-            }
+            // HARTER Schnitt statt Ueberblendung. GEMESSEN: mit `crossfade`
+            // blieb `fading` auf true stehen und der Pruef-Clip wurde nie
+            // sichtbar — die Ansicht wird waehrend des Lesens mehrfach neu
+            // aufgebaut und schnitt die laufende Blende jedes Mal ab.
+            // Beide Clips zeigen dieselbe Figur in fast derselben Haltung,
+            // der Sprung faellt praktisch nicht auf.
+            _ = scanURL
+            startScanning()
         } else {
             // Zurueck in die Ruhe — ueber dieselbe Ueberblendung, damit die
             // Figur nicht hart von der Lupe in den Leerlauf springt.
@@ -562,6 +605,15 @@ final class MascotPlayerUIView: UIView {
         leavingLayer.zPosition = 1
         CATransaction.commit()
 
+        // Buchfuehrung SOFORT umlegen, nicht erst im Completion-Block.
+        //
+        // GEMESSEN: vorher kippte `frontIsA` erst am Ende der Blende. Waehrend
+        // sie lief, zeigte `front` also auf die Ebene, die gerade WEGgeblendet
+        // wird. Ein `play(on: front)` in diesem Fenster — genau das tat der
+        // Pruef-Loop — landete auf einer Ebene mit Deckkraft 0. Der Clip lief,
+        // war aber unsichtbar.
+        frontIsA.toggle()
+
         CATransaction.begin()
         CATransaction.setAnimationDuration(duration)
         CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeInEaseOut))
@@ -569,7 +621,6 @@ final class MascotPlayerUIView: UIView {
             guard let self else { return }
             // Erst NACH der Blende anhalten, sonst friert das Bild sichtbar ein.
             leaving.pause()
-            self.frontIsA.toggle()
             self.fading = false
             completion?()
         }
