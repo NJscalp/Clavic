@@ -341,8 +341,14 @@ final class MascotPlayerUIView: UIView {
 
     private let layerA = AVPlayerLayer()
     private let layerB = AVPlayerLayer()
-    private let playerA = AVPlayer()
-    private let playerB = AVPlayer()
+    // AVQueuePlayer statt AVPlayer: erbt davon, aendert am uebrigen Verhalten
+    // nichts — aber nur an einen QueuePlayer laesst sich ein AVPlayerLooper
+    // haengen, und der ist die einzige Art, einen Clip WIRKLICH lueckenlos zu
+    // wiederholen.
+    private let playerA = AVQueuePlayer()
+    private let playerB = AVQueuePlayer()
+    /// Haelt den Pruef-Clip lueckenlos in der Schleife, solange gelesen wird.
+    private var scanLooper: AVPlayerLooper?
     /// true = A ist sichtbar, B ist die Reserve.
     private var frontIsA = true
 
@@ -433,13 +439,9 @@ final class MascotPlayerUIView: UIView {
             // verhindert, aber auch das Sicherheitsnetz: wurde die geplante
             // Wiederholung verpasst, blieb das Video am letzten Bild stehen —
             // die Figur fror mitten im Lesen ein.
-            if self.scanning {
-                if let scanURL = self.scanURL {
-                    self.play(scanURL, on: self.front)
-                    self.scheduleScanRepeat(on: self.front)
-                }
-                return
-            }
+            // Beim Pruefen laeuft der AVPlayerLooper — er wiederholt selbst
+            // und feuert dieses Ereignis gar nicht erst als Ende.
+            if self.scanning { return }
             // Sicherheitsnetz: wurde die geplante Blende verpasst, trotzdem weiter.
             self.crossfadeToNextIdle(duration: MascotStage.idleFade)
         }
@@ -524,8 +526,21 @@ final class MascotPlayerUIView: UIView {
         hidden.opacity = 0
         hidden.zPosition = 0
         CATransaction.commit()
-        play(scanURL, on: front)
-        scheduleScanRepeat(on: front)
+        // Lueckenlose Schleife statt Selbstueberblendung.
+        //
+        // Vorher wurde der Clip kurz vor seinem Ende auf SICH SELBST
+        // ueberblendet. Waehrend dieser Blende liefen Anfang und Ende
+        // gleichzeitig — sichtbar als Doppelbild und als Ruckler. Ein
+        // AVPlayerLooper haengt das Item stattdessen nahtlos an sich selbst,
+        // ohne Neustart und ohne Luecke.
+        scanLooper = nil
+        if let queue = front as? AVQueuePlayer {
+            queue.removeAllItems()
+            scanLooper = AVPlayerLooper(player: queue, templateItem: AVPlayerItem(url: scanURL))
+            if !paused { queue.play() }
+        } else {
+            play(scanURL, on: front)
+        }
     }
 
     func startIdle() {
@@ -555,6 +570,10 @@ final class MascotPlayerUIView: UIView {
             _ = scanURL
             startScanning()
         } else {
+            // Looper zuerst loesen: er wuerde sonst weiter Items nachlegen und
+            // gegen den Idle-Clip arbeiten.
+            scanLooper?.disableLooping()
+            scanLooper = nil
             // Zurueck in die Ruhe — ueber dieselbe Ueberblendung, damit die
             // Figur nicht hart von der Lupe in den Leerlauf springt.
             crossfadeToNextIdle(duration: MascotStage.idleFade)
@@ -562,18 +581,6 @@ final class MascotPlayerUIView: UIView {
     }
 
     /// Haengt den Pruef-Clip kurz vor seinem Ende wieder an sich selbst.
-    private func scheduleScanRepeat(on player: AVPlayer?) {
-        guard scanning, let player, let scanURL, let item = player.currentItem else { return }
-        let total = CMTimeGetSeconds(item.duration)
-        guard total.isFinite, total > MascotStage.idleFade + 0.2 else { return }
-        addBoundary(at: total - MascotStage.idleFade, on: player) { [weak self] in
-            guard let self, self.scanning else { return }
-            self.crossfade(to: scanURL, duration: MascotStage.idleFade) { [weak self] in
-                self?.scheduleScanRepeat(on: self?.front)
-            }
-        }
-    }
-
     /// Blendet auf die Reserve-Ebene, auf der der nächste Idle-Clip startet.
     private func crossfadeToNextIdle(duration: Double) {
         guard !idleURLs.isEmpty, !fading else { return }
@@ -650,6 +657,12 @@ final class MascotPlayerUIView: UIView {
     }
 
     private func play(_ url: URL, on player: AVPlayer) {
+        // Ein aktiver Looper legt selbst Items nach — ohne ihn zu loesen,
+        // waere das Ergebnis ein Wettlauf zwischen beiden.
+        if scanLooper != nil {
+            scanLooper?.disableLooping()
+            scanLooper = nil
+        }
         player.replaceCurrentItem(with: AVPlayerItem(url: url))
         player.seek(to: .zero)
         if !paused { player.play() }
