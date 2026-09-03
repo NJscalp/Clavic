@@ -426,10 +426,20 @@ final class MascotPlayerUIView: UIView {
         ) { [weak self] note in
             guard let self, let item = note.object as? AVPlayerItem,
                   item === self.front.currentItem else { return }
-            // Beim Pruefen NICHT in den Leerlauf zurueckfallen — sonst
-            // ueberschreibt dieses Sicherheitsnetz den Pruef-Clip, sobald er
-            // einmal durchgelaufen ist.
-            guard !self.scanning else { return }
+            // Beim Pruefen NICHT in den Leerlauf zurueckfallen, sondern den
+            // Pruef-Clip neu ansetzen.
+            //
+            // Vorher stand hier nur ein `return`. Das hat den Leerlauf zwar
+            // verhindert, aber auch das Sicherheitsnetz: wurde die geplante
+            // Wiederholung verpasst, blieb das Video am letzten Bild stehen —
+            // die Figur fror mitten im Lesen ein.
+            if self.scanning {
+                if let scanURL = self.scanURL {
+                    self.play(scanURL, on: self.front)
+                    self.scheduleScanRepeat(on: self.front)
+                }
+                return
+            }
             // Sicherheitsnetz: wurde die geplante Blende verpasst, trotzdem weiter.
             self.crossfadeToNextIdle(duration: MascotStage.idleFade)
         }
