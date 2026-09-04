@@ -67,3 +67,42 @@ niemand ihn eingehaengt hat.
 **„…or tell me your own idea"** ist eine kleine Liquid-Glass-Leiste im Fluss.
 Beim Antippen verschwindet sie (`composerOpen`) und dieselbe Leiste steht unten
 am Rand — sie ist nicht zweimal da, sie ist umgezogen.
+
+## Nachtrag 04.09.2026 (5) — Der Kasten atmete: zwei Ursachen
+
+Gemeldet: „man sieht den Background des Mascot im Video, er wird dunkler oder
+heller, und man sieht Kanten."
+
+**Ursache 1 — das Video selbst.** Das Videomodell laesst die Helligkeit des
+ganzen Bildes wandern. GEMESSEN (Randbahn, Spanne ueber die Laufzeit, von 255):
+
+| Clip | Spanne R/G/B |
+|---|---|
+| mascot_idle1 / idle_tab / scan | 1,0 – 2,1 (stabil) |
+| **mascot_read_loop (vorher)** | **8,7 / 8,5 / 9,3** |
+| mascot_throw | 13,0 / 12,6 / 10,9 (noch offen) |
+
+`colorlevels` mit festem Weisspunkt kann das nicht beheben — es kennt EINEN
+Wert, das Problem aendert sich ueber die Zeit. Deshalb `steady.py`: Bild fuer
+Bild die 40-px-Randbahn messen und je Kanal multiplikativ auf den Zielwert
+ziehen. Multiplikativ, weil die Drift eine Belichtung ist; dunkle Konturen
+(Wert um 20) aendern sich dabei um unter 1. Nachher: Spanne 2,2 – 2,5, also im
+Bereich der stabilen Altclips. Die verschweissten Naehte ueberleben das
+(0,65 – 0,85), weil identische Bilder identische Verstaerkung bekommen.
+
+ACHTUNG bei `steady.py`: Breite/Bildrate stehen im Skript. Ein Lauf mit den
+falschen Werten (720/25 statt 960/24) zerlegt die Datei lautlos —
+`mascot_throw` ist 720×720@30, nicht 960×960@24.
+
+**Ursache 2 — unsere eigene Animation.** `MascotMist` schob zwei Cremeschwaden
+9,5 s hin und 9,5 s zurueck ueber die Figur und aenderte dabei ihre Deckkraft
+zwischen 0,30 und 0,75. Auf einer gleichmaessigen Cremeflaeche IST das „der
+Hintergrund wird dunkler und heller". Ersatzlos entfernt.
+
+**Die Kanten:** `fogMask` lief nur links, rechts und unten aus — die Oberkante
+des quadratischen Videokastens war ein harter Schnitt. Jetzt laeuft sie an
+allen vier Seiten aus (oben 3 %, das liegt ueber dem Kopf: die Figur fuellt
+92 % der Bildhoehe). Am Bildschirm gemessen gibt es ueber die Kastenkante
+keinen Sprung mehr: 246 → 250 → 246 ueber die ganze Breite.
+
+Offen: `mascot_throw` driftet noch um 13. Er laeuft einmalig beim Start.

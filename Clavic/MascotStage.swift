@@ -192,10 +192,6 @@ struct MascotStage: View {
         .background {
             if showsHabitat { MascotHabitat().allowsHitTesting(false) }
         }
-        // Nebel ÜBER der Figur statt Farbe dahinter. Dahinter geht nicht: die
-        // Clips sind auf deckendes Creme aufgezogen, jede Fläche dahinter wird
-        // als weißes Rechteck sichtbar. Davor geht.
-        .overlay(MascotMist().allowsHitTesting(false))
         .clipped()
         .allowsHitTesting(false)
         .overlay(alignment: .bottom) {
@@ -251,7 +247,14 @@ struct MascotStage: View {
         .mask(
             LinearGradient(
                 stops: [
-                    .init(color: .black, location: 0.00),
+                    // Auch OBEN ausblenden. Vorher war die Oberkante des
+                    // quadratischen Videokastens ein harter Schnitt — solange
+                    // sein Creme exakt zur Seite passte, fiel das nicht auf,
+                    // aber jede Abweichung wurde dort als Linie sichtbar.
+                    // 3 % sind gut vier Punkte und liegen ueber dem Kopf: die
+                    // Figur fuellt 92 % der Bildhoehe.
+                    .init(color: .clear, location: 0.00),
+                    .init(color: .black, location: 0.03),
                     .init(color: .black, location: 0.945),
                     .init(color: .clear, location: 1.00),
                 ],
@@ -806,47 +809,17 @@ final class MascotPlayerUIView: UIView {
     .background(Theme.background)
 }
 
-// MARK: - Nebel über der Figur
+// MARK: - Warum hier KEIN Nebel mehr liegt
 
-/// Zwei sehr weiche Cremeschwaden, die langsam über die Figur ziehen.
-///
-/// Sie decken nie ganz ab — bei voller Stärke bleibt die Figur klar erkennbar.
-/// Der Sinn ist nicht, etwas zu verbergen, sondern dass die Fläche um sie
-/// herum atmet, statt still zu stehen.
-private struct MascotMist: View {
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var drift = false
-
-    var body: some View {
-        GeometryReader { geo in
-            let w = geo.size.width
-            let h = geo.size.height
-            ZStack {
-                // GEMESSEN im Simulator: mit 0,55 Deckkraft war die Figur
-                // stellenweise fast weg. Der Nebel darf nur andeuten.
-                Ellipse()
-                    .fill(Theme.background.opacity(0.30))
-                    .frame(width: w * 0.66, height: h * 0.46)
-                    .offset(x: drift ? w * 0.40 : -w * 0.44, y: -h * 0.12)
-                    .opacity(drift ? 0.75 : 0.30)
-
-                Ellipse()
-                    .fill(Theme.background.opacity(0.24))
-                    .frame(width: w * 0.54, height: h * 0.34)
-                    .offset(x: drift ? -w * 0.38 : w * 0.42, y: h * 0.22)
-                    .opacity(drift ? 0.28 : 0.70)
-            }
-            .frame(width: w, height: h)
-            .blur(radius: 26)
-        }
-        .onAppear {
-            guard !reduceMotion else { return }
-            withAnimation(.easeInOut(duration: 9.5).repeatForever(autoreverses: true)) {
-                drift = true
-            }
-        }
-    }
-}
+// Hier stand `MascotMist`: zwei Cremeschwaden, die 9,5 s hin und 9,5 s zurueck
+// ueber die Figur zogen und dabei ihre Deckkraft zwischen 0,30 und 0,75
+// aenderten. Gedacht war das als Atmen der Flaeche.
+//
+// Auf einer gleichmaessigen Cremeflaeche ist es aber genau das, was gemeldet
+// wurde: der Hintergrund wird dunkler und wieder heller. Ein wandernder
+// Schleier faellt immer auf; eine ruhige Blende sieht man nie. Das Einblenden
+// der Kastenkanten uebernimmt deshalb allein `fogMask` — die laeuft jetzt an
+// allen vier Seiten aus und bewegt sich nicht.
 
 // MARK: - Ihre Umgebung
 
