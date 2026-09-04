@@ -333,3 +333,41 @@ Ergebnis in einem Zug ab.
 
 Assets: `prop_polaroid`, `prop_bulb`, `prop_film`, `prop_swatch`, `prop_lamp`,
 `prop_cup`, `prop_camera` (zusammen 1,4 MB).
+
+## Nachtrag 04.09.2026 (2) — Der Abzug wird angestrichen
+
+Fuenf Aenderungen am Ergebnis-Bildschirm des Director-Tabs:
+
+1. **`DirectorReadMarks.swift`** misst das Foto (48x48-Graubild, neun Felder,
+   Mittelwert und Streuung) und liefert zwei bis drei Anmerkungen mit Stelle
+   und Text. Die Gesichtserkennung laeuft als EINZELNE, gekapselte
+   Vision-Anfrage obendrauf — nie gebuendelt, weil im Simulator jede
+   modellgestuetzte Anfrage scheitert und ein Fehlschlag die uebrigen
+   mitreisst. Der Graupuffer entsteht mit `data: nil` (siehe die
+   `abrt`-Geschichte im `PlacementSuggester`).
+
+2. **`DirectorInkNotes.swift`** zieht die Striche ueber `trim(to:)`, nicht als
+   Einblendung. `trim` gibt es nur auf `Shape` — ein `@ViewBuilder`, der je
+   nach Fall eine andere Form liefert, ist schon `some View` und laesst sich
+   nicht mehr ziehen. Deshalb EIN `InkStroke` mit drei Formen darin.
+   Rot fuer das, was stoert, gruen fuer das, was sitzt.
+
+3. **`DirectorNote.swift`** — das Urteil als Blatt: Serifen, rote Randlinie,
+   Eselsohr, Unterschrift, leichte Schraeglage.
+
+4. **`DirectorPicks.swift`** neu: Trends als sichtbarer Streifen statt hinter
+   einer zugeklappten Zeile, der ganze Katalog (19 Looks) hinter einem Knopf,
+   der seine Groesse nennt, und „I want to make my own thing" als eigener
+   breiter Knopf.
+
+5. **Die Leiste unten ist die Regie-Leiste**, nicht die Chat-Leiste: kein
+   Anhang, keine Kamera, dafuer die Anmerkungen vom Foto als Schnellauftraege.
+   Sie traegt einen DECKENDEN Untergrund — der erste Entwurf hatte nur Glas um
+   das Textfeld, und ueber den Trendkacheln war nichts davon lesbar.
+
+Ausserdem: **`mascot_idle_present.mp4`** — neue Ruhepose, die Figur hebt den
+Abzug und zeigt ihn her. Erzeugt aus dem ERSTEN BILD von `mascot_idle1`
+(Seedance i2v ueber fal), Cremeton per `colorlevels` auf den Ton der
+vorhandenen Clips gehoben (die Rohdatei war (237,233,230) statt (246,242,237)),
+dann hin und zurueck geschnitten: der Clip endet auf seinem Anfangsbild,
+mittlere Abweichung an der Naht 0,9 von 255.

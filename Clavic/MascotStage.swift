@@ -265,7 +265,13 @@ struct MascotStage: View {
     /// treffen sich beide beim Betrachter. Das ist die charakteristischste
     /// Eigenschaft eines Chamäleons und im Zuhause-Loop kommt sie nicht vor.
     static var idleURLs: [URL] {
-        ["mascot_idle_tab", "mascot_idle1", "mascot_idle2", "mascot_idle3"].compactMap {
+        // `mascot_idle_present` ist neu: die Figur hebt den Abzug und zeigt
+        // ihn her. Sie entstand aus dem ERSTEN BILD von `mascot_idle1`, damit
+        // Koerperbau und Farben exakt dieselben bleiben, und laeuft hin und
+        // zurueck — der Clip endet deshalb genau auf seinem Anfangsbild und
+        // hat keine Naht (gemessen: 0,9 von 255 mittlere Abweichung).
+        ["mascot_idle_tab", "mascot_idle1", "mascot_idle_present",
+         "mascot_idle2", "mascot_idle3"].compactMap {
             Bundle.main.url(forResource: $0, withExtension: "mp4")
         }
     }
