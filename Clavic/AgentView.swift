@@ -82,7 +82,21 @@ struct AgentView: View {
                 conversation
             }
         }
-        .background(Theme.background.ignoresSafeArea())
+        .background {
+            // Die Werkstatt um die Figur herum. Vorher stand sie oben allein
+            // und darunter lag der halbe Bildschirm leeres Cremeweiss — beim
+            // Lesen wie nach dem Ergebnis. Die Requisiten liegen nur an den
+            // Raendern und wachsen von aussen herein, damit nie etwas hinter
+            // Foto oder Text liegt.
+            ZStack {
+                Theme.background
+                // Im Auftakt zurueckhaltender: dort traegt schon das Blattwerk
+                // der Figur, und `DirectorStart` fuellt die Mitte.
+                DirectorScenery(busy: isWorking,
+                                opacity: messages.isEmpty ? 0.7 : 1)
+            }
+            .ignoresSafeArea()
+        }
         // Der Arbeitszustand spiegelt sich in der Bühne — aber nur, wenn nicht
         // gerade der Wurf läuft; der darf nicht unterbrochen werden.
         .task {

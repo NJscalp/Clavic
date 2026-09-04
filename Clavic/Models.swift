@@ -2,7 +2,9 @@
 //  Models.swift
 //  Clavic
 //
-//  Datenmodelle für Seedance-2.0-Videogenerierungen.
+//  Datenmodell für alle Generierungen der Bibliothek. Der Name `VideoProject`
+//  ist historisch: seit `isImageOutput` liegen hier auch BILD-Ergebnisse, und
+//  `remoteVideoURL` / `localVideoFilename` zeigen dann auf ein Bild.
 //
 
 import Foundation

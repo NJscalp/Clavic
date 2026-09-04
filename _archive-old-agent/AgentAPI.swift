@@ -98,17 +98,17 @@ enum AgentAPI {
         } catch {
             // Der Agent ist nur die Planungs-Schicht. Ein Netzwerk-/Provider-
             // Problem darf die eigentliche Bild-Engine nicht blockieren.
-            return fallbackReply(message: message, hasImages: !images.isEmpty)
+            return fallbackReply(message: message, hasImages: !images.isEmpty, persona: persona)
         }
         guard let http = response as? HTTPURLResponse else {
-            return fallbackReply(message: message, hasImages: !images.isEmpty)
+            return fallbackReply(message: message, hasImages: !images.isEmpty, persona: persona)
         }
 
         let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
         guard (200..<300).contains(http.statusCode) else {
-            return fallbackReply(message: message, hasImages: !images.isEmpty)
+            return fallbackReply(message: message, hasImages: !images.isEmpty, persona: persona)
         }
-        guard let json else { return fallbackReply(message: message, hasImages: !images.isEmpty) }
+        guard let json else { return fallbackReply(message: message, hasImages: !images.isEmpty, persona: persona) }
 
         let reply = (json["reply"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
 
@@ -135,7 +135,7 @@ enum AgentAPI {
     /// Deterministischer Notfall-Agent: hält den Larp-Flow funktionsfähig, wenn
     /// Claude/Anthropic kein Guthaben hat, rate-limited ist oder nicht antwortet.
     /// Der teure Render läuft danach unverändert über ImageEditAPI.
-    private static func fallbackReply(message: String, hasImages: Bool) -> Reply {
+    private static func fallbackReply(message: String, hasImages: Bool, persona: String) -> Reply {
         let raw = message.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalized = raw.lowercased()
         let vaguePhrases: Set<String> = [
@@ -152,6 +152,28 @@ enum AgentAPI {
             ? "Keep the exact same person from the reference photo — identical face, facial features, bone structure, skin tone, eye colour, hairline and natural expression. Do not beautify, redraw or alter their identity. "
             : ""
         let realism = " Match the source perspective, light direction, colour temperature, reflections, shadows and phone-camera grain. Make it genuinely photorealistic with natural skin texture, correct hands and crisp details."
+
+        if hasImages && isVague && persona == "feed" {
+            let options = [
+                Option(
+                    label: "Keep it real",
+                    prompt: identityLock + "Keep the exact photo, person, pose, crop, clothes and location. Only balance exposure, recover detail, reduce digital noise and add a subtle authentic compact-digicam color response. Do not replace or invent anything." + realism
+                ),
+                Option(
+                    label: "Post-ready",
+                    prompt: identityLock + "Create the strongest social-post version of this exact image. Keep the person, identity, body, pose, clothes and location. Improve subject separation, exposure, color hierarchy and compact-camera detail; use a tasteful feed-ready crop only if it materially improves the photo. Remove nothing unless it is a minor temporary distraction, and preserve a natural unretouched appearance." + realism
+                ),
+                Option(
+                    label: "Create a new moment",
+                    prompt: identityLock + "Use this person as the identity reference and create a genuinely new, believable photographic moment that suits their styling and mood: an authentic candid compact-camera shot at warm blue-hour sunset with subtle direct flash. Build a natural new pose and coherent environment, correct perspective, body proportions, hands, contact shadows and camera grain. It must look captured, not composited." + realism
+                )
+            ]
+            return Reply(
+                text: "I read the light, framing and mood. These are only starting points — choose one, create all three, or describe your own direction.",
+                action: nil,
+                options: options
+            )
+        }
 
         if hasImages && isVague {
             let options = [

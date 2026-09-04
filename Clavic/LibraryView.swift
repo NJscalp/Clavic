@@ -61,7 +61,7 @@ struct LibraryView: View {
             Text("Nothing here yet")
                 .font(.system(size: 20, weight: .semibold, design: .rounded))
                 .foregroundStyle(Theme.textPrimary)
-            Text("Pick a template in Discover or tap\nthe wand below to start creating.")
+            Text("Open Director for guided looks or\nuse Chat and Studio to start creating.")
                 .font(.system(size: 15))
                 .foregroundStyle(Theme.textSecondary)
                 .multilineTextAlignment(.center)

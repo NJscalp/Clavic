@@ -11,7 +11,7 @@ import StoreKit
 
 /// Palette der dunklen, immersiven Paywall (hebt sie klar vom hellen App-UI ab,
 /// damit sie nicht „wie ein Dokument" wirkt, sondern hochwertig/premium).
-private enum PW {
+private enum HardPW {
     static let bgTop = Color(red: 0.11, green: 0.10, blue: 0.17)
     static let bgMid = Color(red: 0.07, green: 0.06, blue: 0.11)
     static let bgBottom = Color(red: 0.03, green: 0.03, blue: 0.06)
@@ -84,7 +84,7 @@ struct HardPaywallView: View {
         }
         .background {
             ZStack {
-                LinearGradient(colors: [PW.bgTop, PW.bgMid, PW.bgBottom],
+                LinearGradient(colors: [HardPW.bgTop, HardPW.bgMid, HardPW.bgBottom],
                                startPoint: .top, endPoint: .bottom)
                 // Weiche Brand-Glows oben für Tiefe.
                 RadialGradient(colors: [Theme.accent.opacity(0.45), .clear],
@@ -133,7 +133,7 @@ struct HardPaywallView: View {
 
     private func titleBlock(titleSize: CGFloat, isSmall: Bool) -> some View {
         VStack(spacing: isSmall ? 6 : 9) {
-            (Text("Unlock the ").foregroundStyle(PW.text)
+            (Text("Unlock the ").foregroundStyle(HardPW.text)
              + Text("full studio").foregroundStyle(Theme.accent))
                 .font(.system(size: titleSize, weight: .heavy, design: .rounded))
                 .multilineTextAlignment(.center)
@@ -142,7 +142,7 @@ struct HardPaywallView: View {
 
             Text("Every trend, dance and realistic AI edit — credits refill automatically.")
                 .font(.system(size: isSmall ? 13.5 : 15))
-                .foregroundStyle(PW.textSec)
+                .foregroundStyle(HardPW.textSec)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, 18)
@@ -162,7 +162,7 @@ struct HardPaywallView: View {
                     }
                     Text(text)
                         .font(.system(size: isSmall ? 14 : 15, weight: .medium))
-                        .foregroundStyle(PW.text)
+                        .foregroundStyle(HardPW.text)
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
                     Spacer()
@@ -171,10 +171,10 @@ struct HardPaywallView: View {
         }
         .padding(isSmall ? 15 : 18)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(PW.card, in: RoundedRectangle(cornerRadius: Theme.cornerLarge, style: .continuous))
+        .background(HardPW.card, in: RoundedRectangle(cornerRadius: Theme.cornerLarge, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: Theme.cornerLarge, style: .continuous)
-                .strokeBorder(PW.cardStroke, lineWidth: 1)
+                .strokeBorder(HardPW.cardStroke, lineWidth: 1)
         )
     }
 
@@ -198,16 +198,16 @@ struct HardPaywallView: View {
                     ProgressView().tint(.white)
                     Text("Loading plans …")
                         .font(.system(size: 13))
-                        .foregroundStyle(PW.textTer)
+                        .foregroundStyle(HardPW.textTer)
                 }
                 .frame(maxWidth: .infinity)
                 .padding(22)
-                .background(PW.card, in: RoundedRectangle(cornerRadius: Theme.cornerLarge, style: .continuous))
+                .background(HardPW.card, in: RoundedRectangle(cornerRadius: Theme.cornerLarge, style: .continuous))
             } else {
                 VStack(spacing: 10) {
                     Text("Plans couldn't load.")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundStyle(PW.textSec)
+                        .foregroundStyle(HardPW.textSec)
                     Button("Try again") {
                         Task { await store.reload(); preselect() }
                     }
@@ -215,7 +215,7 @@ struct HardPaywallView: View {
                 }
                 .frame(maxWidth: .infinity)
                 .padding(20)
-                .background(PW.card, in: RoundedRectangle(cornerRadius: Theme.cornerLarge, style: .continuous))
+                .background(HardPW.card, in: RoundedRectangle(cornerRadius: Theme.cornerLarge, style: .continuous))
             }
         }
     }
@@ -252,7 +252,7 @@ struct HardPaywallView: View {
 
             Text(ctaSubtitle)
                 .font(.system(size: 12.5))
-                .foregroundStyle(PW.textSec)
+                .foregroundStyle(HardPW.textSec)
                 .multilineTextAlignment(.center)
 
             Button("Restore purchases") {
@@ -264,7 +264,7 @@ struct HardPaywallView: View {
                 }
             }
             .font(.system(size: 13, weight: .medium))
-            .foregroundStyle(PW.textSec)
+            .foregroundStyle(HardPW.textSec)
         }
     }
 
@@ -272,17 +272,17 @@ struct HardPaywallView: View {
         VStack(spacing: 4) {
             Text("Auto-renews until cancelled. Manage anytime in your App Store settings.")
                 .font(.system(size: 10.5))
-                .foregroundStyle(PW.textTer)
+                .foregroundStyle(HardPW.textTer)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
 
             HStack(spacing: 4) {
                 Link("Terms of Use", destination: LegalLinks.terms)
-                Text("·").foregroundStyle(PW.textTer)
+                Text("·").foregroundStyle(HardPW.textTer)
                 Link("Privacy Policy", destination: LegalLinks.privacy)
             }
             .font(.system(size: 10.5, weight: .medium))
-            .foregroundStyle(PW.textSec)
+            .foregroundStyle(HardPW.textSec)
         }
         .padding(.horizontal, 24)
     }
@@ -351,7 +351,7 @@ private struct HardPlanCard: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(planLabel)
                         .font(.system(size: 17, weight: .bold, design: .rounded))
-                        .foregroundStyle(PW.text)
+                        .foregroundStyle(HardPW.text)
                     if let creditsText {
                         Text(creditsText)
                             .font(.system(size: 12.5, weight: .semibold))
@@ -364,24 +364,24 @@ private struct HardPlanCard: View {
                 VStack(alignment: .trailing, spacing: 2) {
                     Text(product.displayPrice)
                         .font(.system(size: 17, weight: .heavy, design: .rounded))
-                        .foregroundStyle(PW.text)
+                        .foregroundStyle(HardPW.text)
                     if let perWeek {
                         Text(perWeek)
                             .font(.system(size: 11, weight: .medium))
-                            .foregroundStyle(PW.textTer)
+                            .foregroundStyle(HardPW.textTer)
                     }
                 }
             }
             .padding(.vertical, 15)
             .padding(.horizontal, 16)
             .background(
-                isSelected ? AnyShapeStyle(Theme.accent.opacity(0.16)) : AnyShapeStyle(PW.card),
+                isSelected ? AnyShapeStyle(Theme.accent.opacity(0.16)) : AnyShapeStyle(HardPW.card),
                 in: RoundedRectangle(cornerRadius: corner, style: .continuous)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: corner, style: .continuous)
                     .strokeBorder(
-                        isSelected ? AnyShapeStyle(Theme.brandGradient) : AnyShapeStyle(PW.cardStroke),
+                        isSelected ? AnyShapeStyle(Theme.brandGradient) : AnyShapeStyle(HardPW.cardStroke),
                         lineWidth: isSelected ? 2 : 1
                     )
             )

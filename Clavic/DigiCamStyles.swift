@@ -2,21 +2,11 @@
 //  DigiCamStyles.swift
 //  Clavic
 //
-//  Der Digicam-Look — der Grund, warum Leute seit Monaten nach einer Canon
-//  G7X suchen, die es nirgends zu kaufen gibt.
+//  100% universelle Foto- & Kamera-Looks:
+//  G7X Flash, Sunset Beach, Y2K Digicam, Sunlit Glow, Clean Girl, Night Flash, 35mm Mono.
 //
-//  Diese Stile sind bewusst KEINE ViralLooks. Ein ViralLook baut eine neue
-//  Szene um die Person herum. Hier passiert das Gegenteil: Motiv, Pose,
-//  Bildaufbau und Ort bleiben unangetastet, es ändert sich nur, wie das Foto
-//  aussieht. Deshalb ein eigener Typ und eine eigene Datei — würde man beides
-//  vermischen, stünde in einer Liste einmal „erfinde eine Szene" und einmal
-//  „fass die Szene nicht an".
-//
-//  Die sechs Rezepte sind aus dem WayShot-Teardown abgeleitet (Desktop/Claud/
-//  wayshot-teardown.md). Deren Vorschaubilder haben wir NICHT übernommen: das
-//  sind fremde Fotos echter Menschen. Unsere Kacheln zeigen stattdessen einen
-//  echten Durchlauf durch genau diesen Prompt — was die Nutzerin auf der
-//  Kachel sieht, ist das, was sie bekommt.
+//  Diese Stile verändern Motiv, Pose, Bildaufbau, Identität, Kleidung und Ort NICHT,
+//  sondern wenden ein authentisches, fotorealistisches Color- & Blitz-Grading an.
 //
 
 import Foundation
@@ -28,125 +18,177 @@ enum DigiCamStyles {
         let title: String
         let subtitle: String
         let hashtag: String
+        let tag: String
+        let category: String
         let icon: String
-        /// Das unveränderte Ausgangsfoto der Kachel — bewusst ein flaues,
-        /// mittelmäßiges Handyfoto. Ein Studio-Katalogbild taugt hier nicht:
-        /// es ist schon perfekt, also kann das Grading nichts mehr sichtbar
-        /// verbessern, und die Kachel verspricht nichts.
         let previewBefore: String
-        /// Derselbe Durchlauf, den `prompt` erzeugt.
         let previewAfter: String
-        /// Das Rezept — ohne die gemeinsamen Klammern oben und unten.
         let recipe: String
 
         var prompt: String { "\(DigiCamStyles.keepRule)\n\n\(recipe)\n\n\(DigiCamStyles.gradeRule)" }
     }
 
-    /// Steht über jedem Rezept. Der Unterschied zu allem anderen im Katalog:
-    /// hier darf sich die POSE ausdrücklich NICHT ändern.
+    /// Steht über jedem Rezept. Motiv & Identität bleiben 100% geschützt.
     static let keepRule = """
     Keep the exact same person: same face and every feature of it, same hair, same skin tone and \
     real skin texture, same build and body proportions, same age, same outfit. Do NOT beautify, \
     slim, smooth, retouch or redraw them. Keep the exact same pose, framing, composition and scene \
-    - change ONLY the look of the photograph.
+    - change ONLY the photographic look and lighting grade.
     """
 
-    /// Steht unter jedem Rezept. „Grade, nicht Retusche" ist der Satz, der den
-    /// Look von einem Beauty-Filter trennt: die Haut behält ihre Poren.
+    /// Steht unter jedem Rezept. Echter Kamera-Look mit Poren, kein Plastik-Filter.
     static let gradeRule = """
-    Skin keeps visible pores and real texture - this is a colour grade, not a retouch. The grade \
-    covers the whole frame, person and background equally. Photorealistic, looks like a real photo \
-    straight out of the camera. No text, no logos, no watermark.
+    Skin keeps visible pores, natural highlights and real texture - this is a colour grade, not a retouch. \
+    The grade covers the whole frame, person and background equally. \
+    Photorealistic, looks like a real photograph straight out of a camera. No text, no logos, no watermark.
     """
 
     static let all: [Style] = [
         Style(
-            id: "digix",
-            title: "DigiX",
-            subtitle: "The punchy 2000s digicam look",
-            hashtag: "#DigiX",
-            icon: "camera.fill",
-            previewBefore: "preview_digicam_digix_before",
-            previewAfter: "preview_digicam_digix_after",
+            id: "g7xflash",
+            title: "G7X Flash",
+            subtitle: "Crisp Xenon flash & warm skin",
+            hashtag: "#G7XFlash",
+            tag: "🔥 VIRAL",
+            category: "Flash",
+            icon: "bolt.circle.fill",
+            previewBefore: "card_look_g7xflash",
+            previewAfter: "card_look_g7xflash",
             recipe: """
-            Grade it like a 2000s compact digital camera on a bright day: high contrast, deep \
-            crushed blacks, warm glowing highlights around hair and edges around 3800K, punchy \
-            saturated colour, a gentle vignette darkening the corners, fine sensor noise in the \
-            shadows.
+            Recreate an authentic Canon G7X direct on-camera flash response: crisp natural skin, \
+            bright but controlled flash highlights on the face and outfit, a softly darker room \
+            ambience in the background, flattering warm-neutral skin tones around 5200K, realistic \
+            compact-camera sharpness and fine sensor texture.
             """
         ),
         Style(
-            id: "digicam",
-            title: "DigiCam",
-            subtitle: "Warm night light, deep blacks",
-            hashtag: "#DigiCam",
-            icon: "flashlight.on.fill",
-            previewBefore: "preview_digicam_digicam_before",
-            previewAfter: "preview_digicam_digicam_after",
-            recipe: """
-            Grade it like a 2000s compact digital camera at night indoors: warm tungsten and \
-            candlelight around 2900K pushed up, glossy specular highlights on the skin, saturated \
-            warm midtones, the background falling away into deep black, visible high-ISO noise.
-            """
-        ),
-        Style(
-            id: "digis",
-            title: "DigiS",
-            subtitle: "Direct flash after sunset",
-            hashtag: "#DigiS",
-            icon: "bolt.fill",
-            previewBefore: "preview_digicam_digis_before",
-            previewAfter: "preview_digicam_digis_after",
-            recipe: """
-            Grade it like a 2000s compact camera with direct on-camera flash after sunset: deep \
-            blue sky, hot warm flash highlights on the skin and the nearest surfaces, high \
-            micro-contrast, crisp point lights in the distance, slight falloff into darkness at \
-            the frame edges.
-            """
-        ),
-        Style(
-            id: "digilite",
-            title: "DigiLite",
-            subtitle: "Bright, airy, barely there",
-            hashtag: "#DigiLite",
+            id: "sunsetbeach",
+            title: "Sunset Beach",
+            subtitle: "Pink dusk sky & golden rim glow",
+            hashtag: "#SunsetBeach",
+            tag: "🌅 SUNSET",
+            category: "Glow",
             icon: "sun.max.fill",
-            previewBefore: "preview_digicam_digilite_before",
-            previewAfter: "preview_digicam_digilite_after",
+            previewBefore: "card_look_sunsetbeach",
+            previewAfter: "card_look_sunsetbeach",
             recipe: """
-            Grade it like a bright airy daylight compact camera photo around 5600K: low contrast, \
-            lifted milky blacks, soft pastel colour, clean bright whites, very fine grain, nothing \
-            crushed.
+            Infuse the photo with a vibrant beach sunset look: soft pastel pink and orange \
+            dusk sky gradients, glowing golden rim light outlining hair and shoulders, warm sunlit \
+            skin tones, and creamy gentle ocean twilight contrast.
+            """
+        ),
+        Style(
+            id: "y2kdigicam",
+            title: "Y2K Digicam",
+            subtitle: "Cyber pop colors & CCD contrast",
+            hashtag: "#Y2KDigicam",
+            tag: "📼 Y2K",
+            category: "Vintage",
+            icon: "camera.fill",
+            previewBefore: "card_look_y2kdigicam",
+            previewAfter: "card_look_y2kdigicam",
+            recipe: """
+            Grade it like a 2000s cyber compact digital camera: punchy contrast, deep crushed blacks, \
+            vibrant saturated pop colors, warm glowing highlights around hair and edges around 3800K, \
+            and subtle digital CCD sensor grain.
+            """
+        ),
+        Style(
+            id: "sunlitglow",
+            title: "Sunlit Glow",
+            subtitle: "Warm window rays & lush tones",
+            hashtag: "#SunlitGlow",
+            tag: "☀️ GLOW",
+            category: "Glow",
+            icon: "sparkles",
+            previewBefore: "card_look_sunlitglow",
+            previewAfter: "card_look_sunlitglow",
+            recipe: """
+            Apply a warm sunlit morning window grade: soft golden light streaming from the side, \
+            delicate luminous skin highlights, lush fresh natural tones, airy bright shadows, and \
+            gentle warm daylight diffusion.
             """
         ),
         Style(
             id: "cleangirl",
             title: "Clean Girl",
-            subtitle: "Warm skin, clean whites, quiet glow",
+            subtitle: "Pure natural daylight & texture",
             hashtag: "#CleanGirl",
-            icon: "sparkles",
-            previewBefore: "preview_digicam_cleangirl_before",
-            previewAfter: "preview_digicam_cleangirl_after",
+            tag: "☁️ CLEAN",
+            category: "Daylight",
+            icon: "sun.haze.fill",
+            previewBefore: "card_look_cleangirl",
+            previewAfter: "card_look_cleangirl",
             recipe: """
-            Grade it in the clean-girl look: warm bright skin with a subtle natural glow, clean \
-            neutral whites, soft gentle contrast, muted beige and cream tones, barely any grade on \
-            the background.
+            Grade with the viral Clean Girl daylight aesthetic: ultra-natural soft daylight, \
+            perfectly balanced neutral-warm tones, sharp natural skin texture with visible pores \
+            and zero artificial smoothing, minimalist clean contrast and effortless clarity.
             """
         ),
         Style(
-            id: "bw",
-            title: "Mono",
-            subtitle: "High-contrast black and white",
-            hashtag: "#Mono",
-            icon: "circle.lefthalf.filled",
-            previewBefore: "preview_digicam_bw_before",
-            previewAfter: "preview_digicam_bw_after",
+            id: "nightflash",
+            title: "Night Flash",
+            subtitle: "Late-night candid & city bokeh",
+            hashtag: "#NightFlash",
+            tag: "🚗 FLASH",
+            category: "Flash",
+            icon: "car.fill",
+            previewBefore: "card_look_nightflash",
+            previewAfter: "card_look_nightflash",
             recipe: """
-            Convert it to high-contrast black and white: deep true blacks, bright clean highlights, \
-            the full range of mid greys in between, visible film grain, no colour anywhere.
+            Recreate a late-night on-camera flash look: crisp direct flash highlighting the subject \
+            sharply, moody dark ambient background falloff, warm vibrant skin tones, and subtle \
+            blurred night street lights in the background.
+            """
+        ),
+        Style(
+            id: "monomono",
+            title: "35mm Mono",
+            subtitle: "High-contrast vintage B&W",
+            hashtag: "#35mmMono",
+            tag: "🖤 EDITORIAL",
+            category: "B&W",
+            icon: "circle.lefthalf.filled",
+            previewBefore: "card_look_monomono",
+            previewAfter: "card_look_monomono",
+            recipe: """
+            Convert to timeless high-contrast 35mm black and white film: rich velvety blacks, \
+            bright luminous highlights, wide dynamic tonal range, and authentic fine monochrome \
+            grain like Kodak Tri-X 400.
             """
         ),
     ]
 
-    static func style(id: String) -> Style? { all.first { $0.id == id } }
+    static func style(id: String) -> Style? {
+        if let match = all.first(where: { $0.id == id }) { return match }
+        let lower = id.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+        if let match = all.first(where: {
+            $0.id.lowercased() == lower
+                || $0.title.lowercased() == lower
+                || $0.hashtag.lowercased() == lower
+                || lower.contains($0.title.lowercased())
+                || $0.title.lowercased().contains(lower)
+        }) {
+            return match
+        }
+
+        // Semantic keyword & legacy mapping
+        if lower.contains("sunset") || lower.contains("beach") {
+            return all.first(where: { $0.id == "sunsetbeach" })
+        } else if lower.contains("y2k") || lower.contains("2000") || lower.contains("digi") {
+            return all.first(where: { $0.id == "y2kdigicam" })
+        } else if lower.contains("sunlit") || lower.contains("glow") || lower.contains("tropic") {
+            return all.first(where: { $0.id == "sunlitglow" })
+        } else if lower.contains("clean") || lower.contains("daylight") {
+            return all.first(where: { $0.id == "cleangirl" })
+        } else if lower.contains("night") || lower.contains("car") || lower.contains("club") {
+            return all.first(where: { $0.id == "nightflash" })
+        } else if lower.contains("mono") || lower.contains("b&w") || lower.contains("bw") || lower.contains("black") {
+            return all.first(where: { $0.id == "monomono" })
+        } else {
+            return all.first(where: { $0.id == "g7xflash" })
+        }
+    }
+
     static func prompt(id: String) -> String { style(id: id)?.prompt ?? "" }
 }

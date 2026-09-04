@@ -10,6 +10,10 @@ import SwiftUI
 import SwiftData
 
 struct ContentView: View {
+    /// true, sobald das Start-Overlay weg ist. Erst dann darf die Maskottchen-
+    /// Animation loslaufen — sonst spielt sie unsichtbar hinter dem Intro ab.
+    var introFinished: Bool = true
+
     @Environment(\.modelContext) private var modelContext
     @Environment(GenerationManager.self) private var generationManager
     @Environment(Store.self) private var store
@@ -19,18 +23,13 @@ struct ContentView: View {
     @AppStorage("hasSignedIn") private var hasSignedIn = false
     @AppStorage("hasSeenSubscriptionOffer") private var hasSeenSubscriptionOffer = false
 
-    @State private var tab: MainTab = .discover
+    @State private var tab: MainTab = .agent
     @State private var showSettings = false
     @State private var createRequest: CreateRequest?
     @State private var showPaywall = false
     @State private var showSubscriptionOffer = false
     /// Abo-Gate beim Template-Tipp (schließbares Sheet, kein App-Block).
     @State private var showSubscriptionGate = false
-    /// Solo Shot direkt aus Discover — der Weg über das Studio bleibt daneben
-    /// bestehen, beide öffnen dieselbe Ansicht.
-    @State private var showSoloShot = false
-    /// Regie-Modus: echte Fotos, kein Credit, keine Server-Runde.
-    @State private var showDirector = false
     @State private var pendingCreateTemplate: VideoTemplate?
     @State private var keyboardVisible = false
     /// Navigations-Pfad: nach „Generate" direkt ins Detail/Generierung pushen.
@@ -38,14 +37,7 @@ struct ContentView: View {
     /// Server-gesteuerte Templates (neue Trends ohne App-Update).
     @State private var templateStore = TemplateStore()
 
-    enum MainTab { case discover, chatEdit, agent, studio, library }
-
-    /// Laufende Kachel-Vorschauen nur, wenn Discover vorne sichtbar ist
-    /// (kein offenes Sheet/Cover) – hält Tab-Wechsel und Tastatur flüssig.
-    private var previewsActive: Bool {
-        let inMainApp = hasSeenOnboarding && hasSignedIn
-        return inMainApp && tab == .discover && createRequest == nil && !showSettings && !showPaywall && !showSubscriptionOffer && !showSubscriptionGate
-    }
+    enum MainTab { case chatEdit, agent, studio, library }
 
     /// Tastatur-/Preview-Last: nur der sichtbare Tab hält Live-State aktiv.
     private var chatEditActive: Bool {
@@ -67,20 +59,11 @@ struct ContentView: View {
                     Theme.background.ignoresSafeArea()
 
                     ZStack {
-                        DiscoverView(
-                            onSelect: { template in openCreate(with: template) },
-                            onSoloShot: { showSoloShot = true },
-                            onDirector: { showDirector = true }
-                        )
-                        .opacity(tab == .discover ? 1 : 0)
-                        .allowsHitTesting(tab == .discover)
-                        .environment(\.previewsActive, previewsActive)
-
                         ChatEditView()
                             .opacity(tab == .chatEdit ? 1 : 0)
                             .allowsHitTesting(tab == .chatEdit)
 
-                        AgentView()
+                        AgentView(introFinished: introFinished)
                             .opacity(tab == .agent ? 1 : 0)
                             .allowsHitTesting(tab == .agent)
 
@@ -98,12 +81,17 @@ struct ContentView: View {
                             .allowsHitTesting(tab == .library)
                     }
                     .safeAreaInset(edge: .top, spacing: 0) { topBar }
-                    // Tab-Bar als Bottom-SafeAreaInset: der Inhalt jeder Tab liegt
-                    // automatisch SAUBER über der Bar (kein manuelles Bottom-Padding
-                    // mehr, keine Überlappung). Bei Tastatur wird die Bar ausgeblendet
-                    // (Inset-Höhe 0), sodass der Chat-Input Platz hat.
+                    // Content tabs keep the old reserved area. Chat + Director
+                    // deliberately draw behind the glass bar so there is no large
+                    // opaque strip between their floating composer and navigation.
                     .safeAreaInset(edge: .bottom, spacing: 0) {
-                        if !keyboardVisible {
+                        if !keyboardVisible && tab != .chatEdit && tab != .agent {
+                            floatingBar
+                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
+                    }
+                    .overlay(alignment: .bottom) {
+                        if !keyboardVisible && (tab == .chatEdit || tab == .agent) {
                             floatingBar
                                 .transition(.move(edge: .bottom).combined(with: .opacity))
                         }
@@ -175,21 +163,6 @@ struct ContentView: View {
             pendingCreateTemplate = nil
             showSubscriptionGate = false
             createRequest = CreateRequest(template: template)
-        }
-        .fullScreenCover(isPresented: $showSoloShot) {
-            SoloShotView(
-                // Das Ergebnis liegt schon in der Bibliothek. Wer hier
-                // weitermachen will, geht denselben Weg wie aus dem Studio:
-                // über die Übergabe, damit nur EINE Regel gilt.
-                onFinish: { image in
-                    showSoloShot = false
-                    editHandoff.pendingStudioImage = image.jpegData(compressionQuality: 0.95)
-                },
-                onCancel: { showSoloShot = false }
-            )
-        }
-        .fullScreenCover(isPresented: $showDirector) {
-            DirectorCameraView(onCancel: { showDirector = false })
         }
         .fullScreenCover(item: $createRequest) { request in
             CreateView(template: request.template) { project in
@@ -310,22 +283,18 @@ struct ContentView: View {
 
     // MARK: - Schwebende Bottom-Bar
 
-    // Beschriftete Bottom-Bar: jedes Tab zeigt Icon + Titel, damit man sofort
-    // findet, was was ist. Reihenfolge gruppiert bewusst: Entdecken (browse) →
-    // die drei Erstellen-Tools (Chat · Agent · Studio) → Bibliothek.
+    // Vier klare Ziele: Director ist der zentrale Einstieg, daneben freie
+    // Bearbeitung, Studio und Bibliothek. Discover ist bewusst entfernt.
     private var floatingBar: some View {
         HStack(spacing: 0) {
             Spacer(minLength: 0)
             GlassEffectContainer(spacing: 4) {
                 HStack(spacing: 2) {
-                    barButton(icon: "square.grid.2x2.fill", label: "Discover", isActive: tab == .discover) {
-                        withAnimation(.spring(duration: 0.3)) { tab = .discover }
+                    barButton(icon: "sparkles.rectangle.stack.fill", label: "Director", isActive: tab == .agent) {
+                        withAnimation(.spring(duration: 0.3)) { tab = .agent }
                     }
                     barButton(icon: "wand.and.stars", label: "Chat", isActive: tab == .chatEdit) {
                         withAnimation(.spring(duration: 0.3)) { tab = .chatEdit }
-                    }
-                    barButton(icon: "diamond.fill", label: "Agent", isActive: tab == .agent) {
-                        withAnimation(.spring(duration: 0.3)) { tab = .agent }
                     }
                     barButton(icon: "slider.horizontal.3", label: "Studio", isActive: tab == .studio) {
                         withAnimation(.spring(duration: 0.3)) { tab = .studio }
@@ -354,7 +323,7 @@ struct ContentView: View {
                     .minimumScaleFactor(0.8)
             }
             .foregroundStyle(isActive ? .white : Theme.textSecondary)
-            .frame(width: 60, height: 50)
+            .frame(width: 70, height: 50)
             .background {
                 if isActive {
                     Capsule().fill(Theme.accent)

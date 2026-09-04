@@ -304,3 +304,32 @@ Die Clips stehen **nicht** in `project.pbxproj` — das ist korrekt so. Das
 Projekt nutzt Dateisystem-Synchronisation (`PBXFileSystemSynchronizedRootGroup`,
 5 Vorkommen); Dateien im Ordner landen automatisch im Bundle. Nachgeprüft:
 `mascot_scan.mp4` liegt in beiden gebauten `Clavic.app` (Gerät und Simulator).
+
+## Nachtrag 04.09.2026 — Die Werkstatt um die Figur
+
+Im Director-Tab stand das Maskottchen oben allein, darunter lag der halbe
+Bildschirm leeres Cremeweiss — beim Lesen wie nach dem Ergebnis.
+
+Neu: `DirectorScenery.swift`. Sieben Requisiten im Stil des Maskottchens
+(Sofortbilder, Filmdose, Softbox, Farbfaecher, Gluehbirne, Kamera, Becher),
+erzeugt mit **Nano Banana 2 ueber fal** und auf die Theme-Palette festgelegt.
+Die Rohbilder entstanden auf magentafarbenem Grund und wurden lokal
+freigestellt — Magenta kommt in der Palette nicht vor, deshalb liess es sich
+sauber wegschneiden, ohne die cremefarbenen Flaechen zu treffen.
+
+Zwei Regeln, die den Aufbau bestimmen:
+1. Requisiten liegen **nur an den Raendern** und wachsen von aussen herein.
+   Nie etwas hinter Text oder Foto — deshalb ist die Position an eine Kante
+   gebunden (`edge` + `bleed`), nicht frei.
+2. Sie bewegen sich nach **derselben Windformel** wie das Blattwerk
+   (`MascotHabitat.wind`). Eine Bewegungssprache, nicht zwei.
+
+Beim Lesen atmet die Kulisse kraeftiger (`busy`), danach beruhigt sie sich.
+Sie laeuft mit 15 Bildern/s statt 30: ein Takt dauert 5-7 s, und sie liegt
+hinter dem ganzen Bildschirm.
+
+Eingehaengt in `AgentView.body` als Hintergrund — deckt Auftakt, Lesen und
+Ergebnis in einem Zug ab.
+
+Assets: `prop_polaroid`, `prop_bulb`, `prop_film`, `prop_swatch`, `prop_lamp`,
+`prop_cup`, `prop_camera` (zusammen 1,4 MB).

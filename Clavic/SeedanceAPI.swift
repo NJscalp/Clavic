@@ -105,9 +105,6 @@ struct SeedanceTaskState {
 }
 
 struct SeedanceAPI {
-    /// Aus Kompatibilität beibehalten (frühere fal-Key-Speicherung).
-    static let apiKeyDefaultsKey = "fal.apiKey"
-
     /// Backend hält den Schlüssel – die App ist startklar, sobald das Backend konfiguriert ist.
     static var hasAPIKey: Bool { BackendConfiguration.isConfigured }
 

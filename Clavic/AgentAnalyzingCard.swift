@@ -19,97 +19,115 @@ import SwiftUI
 /// Foto-Analyse: das Bild klein, darüber ein weicher Scan-Streifen von oben nach
 /// unten, plus Raster-Andeutung. Läuft in Schleife, bis die Antwort da ist.
 struct AgentAnalyzingCard: View {
-    let image: UIImage
+    let images: [UIImage]
     var note: String = "Reading your photo"
 
-    private let side: CGFloat = 132
-    private let corner: CGFloat = 16
+    init(images: [UIImage], note: String = "Reading your photo") {
+        self.images = images
+        self.note = note
+    }
+
+    init(image: UIImage, note: String = "Reading your photo") {
+        self.images = [image]
+        self.note = note
+    }
+
+    private let cardWidth: CGFloat = 188
+    private let cardHeight: CGFloat = 224
+    private let corner: CGFloat = 22
+
+    private let stages = [
+        ("Reading composition", "viewfinder"),
+        ("Checking light & color", "sun.max.fill"),
+        ("Protecting your identity", "faceid"),
+        ("Building 3 directions", "square.stack.3d.up.fill")
+    ]
 
     var body: some View {
-        HStack(spacing: 12) {
-            TimelineView(.animation) { timeline in
-                let t = timeline.date.timeIntervalSinceReferenceDate
-                // 2,2 s pro Durchlauf, danach kurze Pause → kein Dauer-Zappeln.
-                let cycle = 2.2
-                let p = (t.truncatingRemainder(dividingBy: cycle)) / cycle
+        TimelineView(.animation) { timeline in
+            let t = timeline.date.timeIntervalSinceReferenceDate
+            let beat = 1.65
+            let step = Int(t / beat)
+            let fraction = (t.truncatingRemainder(dividingBy: beat)) / beat
+            // Hold long enough to read, then perform a clean 180° card flip.
+            let flipProgress = max(0, min(1, (fraction - 0.70) / 0.30))
+            let rawAngle = flipProgress * 180
+            let showsNext = rawAngle >= 90
+            let visibleStep = step + (showsNext ? 1 : 0)
+            let visibleStage = visibleStep % stages.count
+            let visibleImage = images.isEmpty ? nil : images[visibleStep % images.count]
+            let readableAngle = showsNext ? rawAngle - 180 : rawAngle
 
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFill()
-                    .frame(width: side, height: side)
-                    .clipped()
-                    .overlay(scanOverlay(progress: p))
-                    .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: corner, style: .continuous)
-                            .strokeBorder(Theme.stroke, lineWidth: 1)
-                    )
-            }
+            VStack(alignment: .leading, spacing: 8) {
+                Text(note.uppercased())
+                    .font(.system(size: 9.5, weight: .black, design: .rounded))
+                    .tracking(0.8)
+                    .foregroundStyle(Theme.textSecondary)
 
-            VStack(alignment: .leading, spacing: 6) {
-                TimelineView(.periodic(from: .now, by: 0.45)) { ctx in
-                    let n = Int(ctx.date.timeIntervalSinceReferenceDate / 0.45) % 3 + 1
-                    HStack(spacing: 3) {
-                        Text(note)
-                            .font(.system(size: 14, weight: .semibold, design: .rounded))
-                            .foregroundStyle(Theme.textPrimary)
-                        Text(String(repeating: ".", count: n))
-                            .font(.system(size: 14, weight: .semibold, design: .rounded))
-                            .foregroundStyle(Theme.accent)
+                ZStack {
+                    if let visibleImage {
+                        Image(uiImage: visibleImage)
+                            .resizable()
+                            .scaledToFill()
+                            .frame(width: cardWidth, height: cardHeight)
+                            .clipped()
+                            .blur(radius: 2.2)
+                    } else {
+                        Theme.surfaceHigh
                     }
-                    .lineLimit(1)
+
+                    LinearGradient(
+                        colors: [.black.opacity(0.08), .black.opacity(0.16), .black.opacity(0.72)],
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+
+                    VStack(spacing: 9) {
+                        Spacer()
+                        Image(systemName: stages[visibleStage].1)
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 42, height: 42)
+                            .background(.ultraThinMaterial, in: Circle())
+                        Text(stages[visibleStage].0)
+                            .font(.system(size: 14, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white)
+                            .multilineTextAlignment(.center)
+                            .lineLimit(2)
+
+                        HStack(spacing: 5) {
+                            ForEach(stages.indices, id: \.self) { index in
+                                Capsule()
+                                    .fill(index == visibleStage ? .white : .white.opacity(0.34))
+                                    .frame(width: index == visibleStage ? 22 : 8, height: 4)
+                            }
+                        }
+                        .padding(.bottom, 16)
+                    }
+                    .padding(.horizontal, 14)
                 }
-                // Zwei Platzhalter-Zeilen, die schimmern: signalisiert „hier
-                // entsteht gleich Text", ohne schon etwas zu behaupten.
-                ShimmerBar(width: 116)
-                ShimmerBar(width: 78)
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(10)
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .strokeBorder(Theme.stroke, lineWidth: 1)
-        )
-    }
-
-    /// Der Scan: eine weiche Lichtkante, die nach unten wandert, darüber ein
-    /// feines Raster — liest sich als „wird ausgemessen", nicht als Deko.
-    private func scanOverlay(progress: Double) -> some View {
-        GeometryReader { geo in
-            let h = geo.size.height
-            let y = h * CGFloat(progress)
-            ZStack(alignment: .topLeading) {
-                // Bereich oberhalb der Kante leicht abdunkeln = „schon gelesen".
-                Rectangle()
-                    .fill(Color.black.opacity(0.18))
-                    .frame(height: max(0, y))
-
-                LinearGradient(
-                    colors: [Theme.accent.opacity(0), Theme.accent.opacity(0.85), Theme.accent.opacity(0)],
-                    startPoint: .top, endPoint: .bottom
+                .frame(width: cardWidth, height: cardHeight)
+                .clipShape(RoundedRectangle(cornerRadius: corner, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: corner, style: .continuous)
+                        .strokeBorder(.white.opacity(0.28), lineWidth: 1)
                 )
-                .frame(height: 26)
-                .offset(y: y - 13)
-                .blendMode(.plusLighter)
+                .shadow(color: .black.opacity(0.16), radius: 16, y: 9)
+                .rotation3DEffect(
+                    .degrees(readableAngle),
+                    axis: (x: 0, y: 1, z: 0),
+                    perspective: 0.72
+                )
 
-                gridLines(size: geo.size)
+                if images.count > 1 {
+                    Text("Photo \((visibleStep % images.count) + 1) of \(images.count)")
+                        .font(.system(size: 10.5, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Theme.textSecondary)
+                        .frame(width: cardWidth)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
-    }
-
-    private func gridLines(size: CGSize) -> some View {
-        Canvas { ctx, s in
-            var path = Path()
-            let step = s.width / 4
-            var x = step
-            while x < s.width { path.addRect(CGRect(x: x, y: 0, width: 0.5, height: s.height)); x += step }
-            var y = step
-            while y < s.height { path.addRect(CGRect(x: 0, y: y, width: s.width, height: 0.5)); y += step }
-            ctx.fill(path, with: .color(.white.opacity(0.22)))
-        }
-        .frame(width: size.width, height: size.height)
     }
 }
 

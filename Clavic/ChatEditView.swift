@@ -26,6 +26,9 @@ struct ChatEditView: View {
     @State private var currentImage: Data?        // jeweils letztes Ergebnis → Referenz für nächsten Edit
     /// Ergebnisse, deren Reveal-Wipe schon lief (jedes nur einmal animieren).
     @State private var revealedResults: Set<UUID> = []
+    /// Inline comparison state. Tapping a result swaps the pixels in-place;
+    /// there is no separate comparison screen or draggable comparison widget.
+    @State private var showingOriginalResults: Set<UUID> = []
     @State private var isWorking = false
     @State private var isLoadingPhoto = false
     @State private var quality: ChatQuality = .medium
@@ -96,7 +99,12 @@ struct ChatEditView: View {
                 .simultaneousGesture(TapGesture().onEnded {
                     if inputFocused { inputFocused = false }
                 })
-                .safeAreaInset(edge: .bottom, spacing: 0) { editToolbar }
+                .simultaneousGesture(
+                    DragGesture(minimumDistance: 18).onEnded { value in
+                        if value.translation.height > 28 { inputFocused = false }
+                    }
+                )
+                .overlay(alignment: .bottom) { editToolbar }
             } else {
                 ScrollViewReader { proxy in
                     ScrollView {
@@ -121,18 +129,18 @@ struct ChatEditView: View {
                         }
                         .padding(.horizontal, Theme.screenPadding)
                         .padding(.top, 10)
-                        .padding(.bottom, 10)
+                        .padding(.bottom, 150)
                         .animation(.spring(response: 0.42, dampingFraction: 0.86), value: messages.count)
                     }
                     // Runter-Wischen schließt die Tastatur sofort (kein „hängen").
-                    .scrollDismissesKeyboard(.immediately)
+                    .scrollDismissesKeyboard(.interactively)
                     // Tippen auf die Nachrichten-/Bildfläche schließt die Tastatur
                     // (liegt VOR dem safeAreaInset → das Eingabefeld selbst bleibt
                     // fokussierbar). simultan → Buttons/Slider funktionieren weiter.
                     .simultaneousGesture(TapGesture().onEnded {
                         if inputFocused { inputFocused = false }
                     })
-                    .safeAreaInset(edge: .bottom, spacing: 0) { editToolbar }
+                    .overlay(alignment: .bottom) { editToolbar }
                     // Neuen Chat starten (Verlauf + gespeicherte Session löschen).
                     .overlay(alignment: .topTrailing) {
                         if !isWorking {
@@ -163,18 +171,6 @@ struct ChatEditView: View {
         }
         // Nur der Chat: ruhiger App-Hintergrund, keine Raster/Blöcke mehr.
         .background(Theme.background.ignoresSafeArea())
-        // „Done"-Tastaturleiste (ganz rechts) — NUR wenn das Chat-Feld fokussiert
-        // ist, damit sie nicht doppelt mit Studio erscheint (beide Tabs im Baum).
-        .toolbar {
-            if inputFocused {
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button("Done") { inputFocused = false }
-                        .font(.system(size: 15, weight: .semibold, design: .rounded))
-                        .foregroundStyle(Theme.accent)
-                }
-            }
-        }
         .onChange(of: photoSelections) { _, items in
             guard !items.isEmpty else { return }
             if !acceptedContentPolicy {
@@ -255,6 +251,14 @@ struct ChatEditView: View {
                 let msg = ChatMessage(role: .assistant, text: "add a green Lamborghini", image: after, isLoading: false, beforeImage: before)
                 revealedResults.insert(msg.id)    // Wipe überspringen fürs Standbild
                 messages = [msg]
+            }
+            if env["UITEST_CHAT_COMPOSER"] != nil, messages.isEmpty,
+               let image = UIImage(named: "director_real_car")?.jpegData(compressionQuality: 0.9) {
+                currentImage = image
+                pendingImages = [image]
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
+                    inputFocused = true
+                }
             }
         }
         #endif
@@ -550,23 +554,50 @@ struct ChatEditView: View {
                     stageBadge(msg: msg, step: step)
                     Spacer()
                     if !msg.isOriginal, msg.beforeImage != nil {
-                        Label("Swipe to compare", systemImage: "arrow.left.and.right")
+                        Label(
+                            showingOriginalResults.contains(msg.id) ? "Original · tap for result" : "Result · tap for original",
+                            systemImage: "hand.tap"
+                        )
                             .font(.system(size: 11, weight: .medium, design: .rounded))
                             .foregroundStyle(Theme.textTertiary)
+                            .contentTransition(.opacity)
                     }
                 }
 
-                // Kompaktes Ergebnis: ganzes Bild sichtbar (Fit) mit weichem
-                // Blur-Fade an den Rändern. Ist ein „Vorher" vorhanden, IST das
-                // Bild ein Wisch-Slider (Before/After direkt im Chat, kein Vollbild).
+                // Result and original occupy the exact same frame. One tap on
+                // the photo switches between them; no extra tab/full-screen
+                // comparison and no slider handle obscuring the image.
                 Group {
                     if !msg.isOriginal, let bData = msg.beforeImage, let bUI = ChatImageCache.image(for: bData) {
-                        // Argumente bewusst getauscht: links = Original (Before),
-                        // rechts = Ergebnis (After). contentFill → beide Bilder füllen
-                        // EXAKT denselben Rahmen → deckungsgleich, sauberer Wisch.
-                        BeforeAfterSlider(before: ui, after: bUI,
-                                          showLabels: true, isAnimating: false,
-                                          interactive: true, contentFill: true)
+                        ZStack(alignment: .topLeading) {
+                            Image(uiImage: ui)
+                                .resizable()
+                                .scaledToFit()
+                                .opacity(showingOriginalResults.contains(msg.id) ? 0 : 1)
+                            Image(uiImage: bUI)
+                                .resizable()
+                                .scaledToFit()
+                                .opacity(showingOriginalResults.contains(msg.id) ? 1 : 0)
+
+                            Text(showingOriginalResults.contains(msg.id) ? "ORIGINAL" : "RESULT")
+                                .font(.system(size: 10, weight: .black, design: .rounded))
+                                .tracking(0.6)
+                                .foregroundStyle(.white)
+                                .padding(.horizontal, 9).padding(.vertical, 5)
+                                .background(.black.opacity(0.48), in: Capsule())
+                                .padding(12)
+                                .contentTransition(.opacity)
+                        }
+                        .contentShape(Rectangle())
+                        .onTapGesture {
+                            withAnimation(.easeInOut(duration: 0.28)) {
+                                if showingOriginalResults.contains(msg.id) {
+                                    showingOriginalResults.remove(msg.id)
+                                } else {
+                                    showingOriginalResults.insert(msg.id)
+                                }
+                            }
+                        }
                     } else {
                         Image(uiImage: ui).resizable().scaledToFill()
                             .modifier(RevealWipe(
@@ -666,12 +697,19 @@ struct ChatEditView: View {
         }
         .padding(.horizontal, Theme.screenPadding)
         .padding(.top, 8)
-        .padding(.bottom, 10)
+        // Same floating geometry as Director: above the shared tab bar at rest,
+        // then flush with the keyboard safe area while typing.
+        .padding(.bottom, inputFocused ? 2 : 82)
         .animation(Self.composerMotion, value: inputFocused)
         .animation(Self.composerMotion, value: makesVideo)
         // Auch die Anhaenge-Leiste gehoert zu derselben Bewegung, sonst laeuft
         // die Bildhoehe der uebrigen Leiste hinterher.
         .animation(Self.composerMotion, value: pendingImages.count)
+        // The composer floats above suggestion cards. Give its complete visual
+        // bounds a hit-test surface so taps never fall through the glass into a
+        // template behind it (especially while the send button is disabled).
+        .contentShape(Rectangle())
+        .zIndex(100)
     }
 
     /// Angehängte Fotos. GROSS solange man nichts schreibt, KLEIN sobald die
@@ -689,7 +727,7 @@ struct ChatEditView: View {
                                 Image(uiImage: ui)
                                     .resizable()
                                     .aspectRatio(ui.size.width / max(ui.size.height, 1), contentMode: .fit)
-                                    .frame(maxHeight: inputFocused ? 96 : 185)
+                                    .frame(maxHeight: 185)
                                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                                     .overlay(
                                         RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -705,11 +743,6 @@ struct ChatEditView: View {
                                         .foregroundStyle(.white)
                                         .frame(width: 26, height: 26)
                                         .background(.black.opacity(0.55), in: Circle())
-                                        // Skalieren statt Schrift- und Rahmenmass
-                                        // umzuschalten: Schriftgroessen werden von
-                                        // SwiftUI nicht interpoliert, der Knopf
-                                        // sprang deshalb sichtbar um.
-                                        .scaleEffect(inputFocused ? 0.77 : 1, anchor: .topTrailing)
                                 }
                                 .buttonStyle(.plain)
                                 .padding(7)
@@ -824,6 +857,7 @@ struct ChatEditView: View {
         // durchscrollt, statt eine deckende Fläche zu sein.
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
         .shadow(color: .black.opacity(0.10), radius: 18, y: 8)
+        .contentShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
     }
 
     private var placeholder: String {
@@ -920,7 +954,8 @@ struct ChatEditView: View {
     }
 
     private var canSend: Bool {
-        !input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isWorking
+        (!input.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !pendingImages.isEmpty)
+            && !isWorking
     }
 
     // MARK: - Toast
@@ -962,7 +997,9 @@ struct ChatEditView: View {
             pendingImages = loaded
             messages = []
             input = ""
-            inputFocused = true
+            // Same behavior as Director: selecting a photo shows the large
+            // attachment first and does not force the keyboard open.
+            inputFocused = false
             flashToast(loaded.count == 1
                        ? "Photo ready — describe your edit."
                        : "\(loaded.count) photos ready — describe your edit.")
@@ -1143,7 +1180,30 @@ struct ChatEditView: View {
 
     private func send() async {
         let rawPrompt = input.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !rawPrompt.isEmpty, !isWorking else { return }
+        guard !isWorking else { return }
+
+        // Sending a photo without text is a valid chat action: move it from the
+        // composer into the conversation without inventing an edit prompt or
+        // spending credits. The user can then describe the edit in the next turn.
+        if rawPrompt.isEmpty {
+            guard !pendingImages.isEmpty else { return }
+            await MainActor.run {
+                for picked in pendingImages {
+                    messages.append(ChatMessage(
+                        role: .assistant,
+                        text: nil,
+                        image: picked,
+                        isLoading: false,
+                        isOriginal: true
+                    ))
+                }
+                currentImage = pendingImages.first ?? currentImage
+                pendingImages = []
+                inputFocused = false
+                ChatSessionStore.save(messages: messages, currentImage: currentImage)
+            }
+            return
+        }
 
         if let reason = ContentPolicy.rejectionReason(for: rawPrompt) {
             flashToast(reason)

@@ -19,7 +19,10 @@ struct IntroView: View {
     var body: some View {
         ZStack {
             // Gleicher Weißton wie das Video, damit der Übergang nahtlos ist.
-            Theme.background.ignoresSafeArea()
+            // NICHT `Theme.background`: das ist seit dem Maskottchen-Umbau ein
+            // warmes Creme, das Intro-Video liegt aber auf #F1F1F3 — sonst
+            // steht ein heller Kasten mitten auf der Fläche.
+            Color(red: 0.945, green: 0.945, blue: 0.953).ignoresSafeArea()
 
             if let url = Bundle.main.url(forResource: "intro", withExtension: "mp4") {
                 OncePlayerView(url: url) {

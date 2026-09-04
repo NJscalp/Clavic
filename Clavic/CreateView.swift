@@ -503,17 +503,6 @@ struct CreateView: View {
                             .foregroundStyle(Theme.textPrimary)
                     }
                 }
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    // Schließt die Tastatur aus JEDEM Feld (auch den Inline-Feldern
-                    // ohne FocusState-Bindung wie Motion-/Brainrot-Prompts).
-                    Button("Done") {
-                        focusedField = nil
-                        hideKeyboard()
-                    }
-                    .font(.system(size: 15, weight: .semibold, design: .rounded))
-                    .foregroundStyle(Theme.accent)
-                }
             }
             .alert("No connection", isPresented: $showMissingKeyAlert) {
                 Button("OK", role: .cancel) {}

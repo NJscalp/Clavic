@@ -10,7 +10,7 @@
 //  wirklich geliefert (kein Fake-Ladebalken, keine Täuschung). Die Analyse ist
 //  billig (Claude Vision), nur die teure Bildgenerierung (GPT Image 2) ist gated.
 //
-//  Nutzt die bestehende Agent-API (`AgentAPI.chat` → offer_options) und die
+//  Nutzt die bestehende Agent-API (`DirectorAPI.chat` → offer_options) und die
 //  Bild-Pipeline (`ImageEditAPI`). Siehe [[clavic-larp-agent]].
 //
 
@@ -36,8 +36,8 @@ struct LarpFunnelView: View {
     @State private var photoSelection: PhotosPickerItem?
     @State private var photoData: Data?
     @State private var replyLine: String = ""
-    @State private var options: [AgentAPI.Option] = []
-    @State private var chosen: AgentAPI.Option?
+    @State private var options: [DirectorAPI.Option] = []
+    @State private var chosen: DirectorAPI.Option?
     @State private var resultImage: Data?
     @State private var showPaywall = false
     @State private var errorText: String?
@@ -330,10 +330,10 @@ struct LarpFunnelView: View {
     }
 
     private func analyze(_ data: Data) async {
-        let reply = try? await AgentAPI.chat(history: [], message: "", images: [data])
+        let reply = try? await DirectorAPI.chat(history: [], message: "", images: [data])
         await MainActor.run {
-            replyLine = reply?.text ?? ""
-            let opts = reply?.options ?? []
+            replyLine = reply?.message ?? ""
+            let opts = (reply?.picks ?? []) + (reply?.trends ?? [])
             options = opts.count >= 2 ? opts : Self.fallbackOptions
             withAnimation(.spring(response: 0.45, dampingFraction: 0.85)) { stage = .options }
         }
@@ -401,12 +401,12 @@ struct LarpFunnelView: View {
 
     /// Sichere Standard-Ideen, falls die Analyse mal nichts liefert (Funnel darf
     /// nie in einer Sackgasse enden). Identity-locked.
-    private static let fallbackOptions: [AgentAPI.Option] = [
-        .init(label: "Supercar flex",
-              prompt: "Keep the exact same person from the photo — identical face, features, bone structure, skin tone, eye colour and hair, do not change or beautify their face. Place them leaning on a glossy black Lamborghini in a night city street, harsh direct flash like a paparazzi shot, real reflections on the paint, believable shadows, shot-on-phone realism with subtle grain. Change only the world around them."),
-        .init(label: "Iced-out night look",
-              prompt: "Keep the exact same person from the photo — identical face, features, bone structure, skin tone, eye colour and hair, do not change or beautify their face. Add a diamond Cuban chain and a two-tone luxury watch, dark designer outfit, upscale rooftop lounge at night with city lights bokeh behind them, warm flash lighting, natural imperfect skin, shot-on-phone realism. Change only the outfit and background."),
-        .init(label: "Old-money golden hour",
-              prompt: "Keep the exact same person from the photo — identical face, features, bone structure, skin tone, eye colour and hair, do not change or beautify their face. Dress them in a quiet-luxury cream outfit on a Mediterranean yacht deck at warm golden hour, soft natural light from the side, believable reflections and shadows, subtle phone-photo grain. Change only the outfit and scene.")
+    private static let fallbackOptions: [DirectorAPI.Option] = [
+        .init(id: "fallback_supercar", label: "Supercar flex", caption: "Night street, hard flash",
+              mode: .restage, prompt: "Keep the exact same person from the photo — identical face, features, bone structure, skin tone, eye colour and hair, do not change or beautify their face. Place them leaning on a glossy black Lamborghini in a night city street, harsh direct flash like a paparazzi shot, real reflections on the paint, believable shadows, shot-on-phone realism with subtle grain. Change only the world around them.", preview: nil),
+        .init(id: "fallback_icedout", label: "Iced-out night look", caption: "Rooftop, city bokeh",
+              mode: .restage, prompt: "Keep the exact same person from the photo — identical face, features, bone structure, skin tone, eye colour and hair, do not change or beautify their face. Add a diamond Cuban chain and a two-tone luxury watch, dark designer outfit, upscale rooftop lounge at night with city lights bokeh behind them, warm flash lighting, natural imperfect skin, shot-on-phone realism. Change only the outfit and background.", preview: nil),
+        .init(id: "fallback_oldmoney", label: "Old-money golden hour", caption: "Yacht deck, golden hour",
+              mode: .restage, prompt: "Keep the exact same person from the photo — identical face, features, bone structure, skin tone, eye colour and hair, do not change or beautify their face. Dress them in a quiet-luxury cream outfit on a Mediterranean yacht deck at warm golden hour, soft natural light from the side, believable reflections and shadows, subtle phone-photo grain. Change only the outfit and scene.", preview: nil)
     ]
 }

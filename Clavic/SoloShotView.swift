@@ -9,10 +9,12 @@
 //
 
 import PhotosUI
+import CoreImage
+import CoreImage.CIFilterBuiltins
 import SwiftData
 import SwiftUI
 import UIKit
-import CoreImage
+import Vision
 
 private enum SoloShotFormat: String, CaseIterable, Identifiable {
     case square, portrait, story
@@ -43,136 +45,73 @@ private enum SoloShotQuality: String, CaseIterable, Identifiable {
 }
 
 enum SoloShotPrompt {
-    /// Zwei Bilder (bewusst nicht drei):
-    ///   IMAGE 1 = Ort + blaue Platzierungs-Silhouette (WO / WIE GROSS)
-    ///   IMAGE 2 = ich / Outfit / Identität
-    ///
-    /// Drei Fullsize-Referenzen + langer Prompt haben den Upload an die
-    /// Gateway-Grenze gedrückt („That didn't work"). Die Guide-Datei enthält
-    /// den Ort schon — ein separates Background-Bild ist überflüssig.
+    // Seedream accepts the complete instruction set; keeping this above the
+    // immutable-scene rules prevents safety constraints from being truncated.
+    static let maximumLength = 4_000
+
+    /// Seedream bekommt getrennte Quellen mit genau einer Verantwortung:
+    /// FIGURE 1 = finales Originalfoto, FIGURE 2 = reine Positionskarte,
+    /// FIGURE 3 = Koerper und Kleidung, optional FIGURE 4 = enger Identitaets-
+    /// und Haar-Crop. Diese Trennung verhindert, dass das Modell die rosa Karte
+    /// als eigentliches Basisbild neu zeichnet oder das Gesicht erraten muss.
     static func build(
         userText: String,
-        sceneImage: Data? = nil,
-        placement: PlacementSuggestion? = nil
+        sceneImage _: Data? = nil,
+        placement: PlacementSuggestion? = nil,
+        hasIdentityCloseup: Bool = false
     ) -> String {
-        let extra = userText.trimmingCharacters(in: .whitespacesAndNewlines)
-        var parts = [core(placement: placement), identityRule]
+        let fallback = CGRect(x: 0.42, y: 0.34, width: 0.16, height: 0.42)
+        let rect = placement?.rect ?? fallback
+        let percent: (CGFloat) -> Int = { Int(($0 * 100).rounded()) }
+        let pose = placement?.poseSentence ?? "standing naturally with believable balance"
 
-        // Nach der Identitäts-Klausel, vor dem Licht: erst wer, dann wo, dann wie
-        // beleuchtet. Das Modell gewichtet spätere Absätze stärker — die
-        // Platzierung darf die Identität nicht verdrängen.
-        if let placement {
-            parts.append(placementRule(placement))
-        }
+        let identityCloseup = hasIdentityCloseup
+            ? "FIGURE 4 is a tight identity lock for the same person's face and hair. Preserve its exact facial geometry, eye shape and color, nose, lips, jaw, hairline, parting, natural skin tone and marks, and exact hair base color, highlights and streak pattern. It is not a pose reference."
+            : ""
+        let required = """
+        Create exactly one cohesive photorealistic camera photograph.
 
-        if let hint = sceneImage.flatMap({ SceneLightingHints.describe($0) }) {
-            parts.append("""
-            LIGHTING LOCK — match ME to the real location light in IMAGE 1, not to IMAGE 2.
-            Measured look of the scene: \(hint)
-            Relight every pixel of my skin, hair and clothes under that light. Discard \
-            IMAGE 2's flash, ring light, flat indoor light and white balance completely. \
-            Same key direction, colour temperature, exposure, grain and contact shadows \
-            as IMAGE 1. If I still look pasted on, the lighting failed.
-            """)
-        } else {
-            parts.append("""
-            LIGHTING LOCK — match ME to the real location light in IMAGE 1, not to IMAGE 2.
-            Relight every pixel of my skin, hair and clothes under IMAGE 1's light. \
-            Discard IMAGE 2's flash, ring light and white balance. Same contact shadows \
-            and grain as IMAGE 1. If I still look pasted on, the lighting failed.
-            """)
-        }
+        FIGURE 1 is the immutable original scene and the final base image. Keep its exact crop, camera, lens, geometry, walls, floor, ceiling, furniture, bedding, screens, cables, objects, people, reflections, colors and exposure. Never remove, move, resize, clean, replace or redesign anything already visible.
 
-        if !extra.isEmpty {
-            parts.append("""
-            Extra direction from me (style and mood only — do not keep IMAGE 2's \
-            lighting, do not keep my stiff selfie pose, do not change my identity, \
-            do not alter IMAGE 1's background): \(extra)
-            """)
-        }
-        return parts.joined(separator: "\n\n")
+        FIGURE 2 is only a placement map of FIGURE 1. Its pink rectangle spans x \(percent(rect.minX))–\(percent(rect.maxX))% and y \(percent(rect.minY))–\(percent(rect.maxY))% from the top-left. It is the maximum insertion zone, not a demand to show a full body or feet. Never render its rectangle, tint or guide marks.
+
+        FIGURE 3 is the full identity and wardrobe reference. Insert exactly that person once: same facial structure and features, eye color, hairline, hair color and highlights, age, skin tone and marks, natural skin texture, body build and proportions, and the same visible outfit. Do not beautify, slim, smooth, recolor, change the face, add accessories or substitute a look-alike.
+
+        \(identityCloseup)
+
+        POSE OVERRIDE: FIGURE 3's pose is forbidden. Do not copy its head tilt, neck bend, shoulder angle, arm positions, seated posture or weight distribution. Build one continuous, anatomically correct person \(pose). Unless the user explicitly asks otherwise, keep the head naturally upright, neck unbent, shoulders relaxed and close to level, and use a calm gaze fitting FIGURE 1. Do not cut out, paste, overlay or preserve FIGURE 3 pixels. Discard all of FIGURE 3's lighting, white balance, sharpness and background.
+
+        Photograph the person through FIGURE 1's camera: match its vanishing lines, camera height, focal length and depth. Use the pink zone for position and maximum scale, then verify scale against doors and furniture. Existing foreground has absolute priority: if a bed, blanket, table, person, plant or other object crosses the zone, leave it exactly where it is and place it naturally in front of the inserted person. Hide or crop unseen body parts behind that foreground or the frame edge. Never remove an object or reveal invented legs or feet just to show a full body.
+
+        Reconstruct the same identity in the new scene-fitting pose; do not redesign it. Apply FIGURE 1's actual light over the locked skin and hair colors without changing their underlying color or identity. Match light direction, softness, exposure, color cast, contrast, depth of field, sensor grain, compression and edge softness. The person must not be cleaner, brighter, sharper or more saturated than the surrounding room. Add physically correct contact shadow, ambient occlusion, cast shadow, color spill and any required reflection. Local pixels may change where those effects touch the scene; everything else follows FIGURE 1.
+
+        Every FIGURE 1 pixel outside the visible inserted person and a narrow natural contact-shadow edge is immutable. The result must look like one untouched real phone photo, never a sticker or composite. No halo, plastic skin, mannequin body, extra limbs, duplicate person, text, watermark or guide marks.
+        """
+        let compact = required
+            .replacingOccurrences(of: "[ \\t]+", with: " ", options: .regularExpression)
+            .replacingOccurrences(of: "\\n{3,}", with: "\n\n", options: .regularExpression)
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let extra = sanitizeUserNote(userText)
+        guard !extra.isEmpty else { return String(compact.prefix(maximumLength)) }
+
+        let suffix = "\n\nOptional direction applies only to the inserted person's pose or expression, never to FIGURE 1: "
+        let available = maximumLength - compact.count - suffix.count
+        guard available > 0 else { return String(compact.prefix(maximumLength)) }
+        return compact + suffix + String(extra.prefix(available))
     }
 
-    /// Die Klausel, die in JEDEM Bild-Prompt der App steht. Sie hat hier
-    /// gefehlt — der Prompt umschrieb Identität zwar, benannte sie aber nie so
-    /// hart, wie es der Rest der App tut.
-    private static let identityRule = """
-    Keep the exact same person: same face and every feature of it, same hair, same skin tone \
-    and real skin texture, same build and body proportions, same age, same outfit. Do NOT \
-    beautify, slim, smooth, retouch or redraw them, and do not replace them with a look-alike.
-    """
-
-    /// Die zwei Sätze zur markierten Region.
-    ///
-    /// Bewusst in der ICH-Form: der gesamte übrige Prompt spricht von „me".
-    /// Ein Wechsel in die dritte Person mitten im Text ist der schnellste Weg
-    /// zu zwei Personen im Ergebnis.
-    private static func placementRule(_ placement: PlacementSuggestion) -> String {
-        """
-        Place me exactly inside the pink marked region of the reference image: that rectangle \
-        is where my body belongs, my feet at its bottom edge, my head at its top edge. Remove \
-        the pink marker itself completely — it must not appear in the output. I am \
-        \(placement.poseSentence), in a position built for this location and not carried over \
-        from the outfit reference. Match my lighting, shadow direction and colour temperature \
-        to the location photo, and ground me with a real contact shadow where I meet the floor.
-        """
-    }
-
-    /// Ohne Box bleibt es bei der von Hand ausgerichteten blauen Silhouette,
-    /// mit Box ist die Markierung ein rosa Rechteck. Der Prompt muss dasselbe
-    /// benennen, was wirklich im Bild liegt — sonst sucht das Modell eine
-    /// Markierung, die es nicht gibt, und lässt die echte stehen.
-    private static func core(placement: PlacementSuggestion?) -> String {
-        let markerIntro = placement != nil
-            ? "a pink semi-transparent rectangle marking WHERE I should stand and HOW LARGE I should be"
-            : "a blue semi-transparent placement silhouette showing WHERE I should stand and HOW LARGE I should be"
-        let marker = placement != nil ? "pink rectangle" : "blue silhouette"
-
-        return """
-    You are given exactly two reference images.
-    IMAGE 1 = the real background location with \(markerIntro). The real \
-    background is sacred: do not change, regenerate, crop or restyle it. Remove \
-    the \(marker) completely from the result — it is only a placement guide, \
-    not a pose guide and not part of the photo.
-    IMAGE 2 = a photo of ME. Use it ONLY for identity and wardrobe: my exact face, \
-    natural skin with every mole and freckle, body shape, hair, and the outfit \
-    and shoes visible there. Someone who knows me must recognise me instantly. \
-    Do NOT copy IMAGE 2's lighting onto the result.
-
-    Create ONE photorealistic photograph: me, alone, naturally present in IMAGE 1's \
-    location at the spot and size of the \(marker) — as if a real photographer \
-    took this shot of me on location with the same camera. No other people.
-
-    SCALE & PERSPECTIVE LOCK (critical — most failures happen here):
-    - My height in the result MUST match the \(marker) height exactly. Do NOT \
-    enlarge me to fill the frame.
-    - Compare me to furniture and architecture in IMAGE 1 (doors, chairs, cabinets, \
-    tables, windows). A real adult is roughly door-handle to top-of-door tall, never \
-    as tall as a wardrobe or ceiling.
-    - Match IMAGE 1's camera height, lens foreshortening and vanishing lines. If the \
-    floor recedes, my feet sit on that same ground plane with correct perspective — \
-    not floating, not sliding up walls.
-    - If the \(marker) looks slightly large vs nearby objects, prefer the smaller, \
-    physically believable size that still follows its position.
-
-    GROUNDING & COMPOSITING:
-    - Both feet (or seated contact) must touch a real surface in IMAGE 1 with soft \
-    contact shadows and ambient occlusion under me.
-    - Cast a subtle shadow consistent with IMAGE 1's light direction. Match depth of \
-    field, noise/grain and colour of IMAGE 1 on my body.
-    - I must look photographed in that room, not cut out and stuck on. No halo, no \
-    hard cut-out edge, no plastic skin, no beauty filter.
-
-    POSE: Do NOT copy the pose from IMAGE 2 or from the \(marker). Invent a new, \
-    natural, aesthetic body pose that fits this exact location: correct weight on \
-    the ground, believable balance, relaxed limbs, a head angle and gaze that belong \
-    in the scene.
-
-    Re-render my full body in that new pose as one continuous person — head, neck, \
-    torso, arms, hands, legs and feet in my own build, with no seam at the neck or \
-    wrists. Drape the outfit from IMAGE 2 naturally over that pose with real fabric \
-    folds. No watermark, no leftover marker or outline.
-    """
+    static func sanitizeUserNote(_ raw: String) -> String {
+        let text = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return "" }
+        let generic = text
+            .lowercased()
+            .replacingOccurrences(of: "[^a-zäöüß ]", with: "", options: .regularExpression)
+            .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
+        let ignored = [
+            "add me", "add me in the image", "put me in the image",
+            "insert me", "place me", "füge mich ein", "setz mich ins bild",
+        ]
+        return ignored.contains(generic) ? "" : text
     }
 }
 
@@ -213,7 +152,9 @@ struct SoloShotView: View {
     @State private var note = ""
     @State private var errorText: String?
     @State private var selectedFormat: SoloShotFormat = .portrait
-    @State private var selectedQuality: SoloShotQuality = .standard
+    /// One Shot soll standardmaessig das finale 2K-Foto liefern. 1K bleibt als
+    /// guenstigere Wahl erhalten, wird aber nicht mehr still bevorzugt.
+    @State private var selectedQuality: SoloShotQuality = .high
     @State private var keyboardVisible = false
     /// Das Erzeugen läuft jetzt HIER, nicht mehr erst nach dem Schließen im
     /// Studio: nur so kann der Wartezustand und danach das Ergebnis in dem
@@ -512,11 +453,11 @@ struct SoloShotView: View {
                     .kerning(0.9)
                     .foregroundStyle(Theme.accent)
 
-                Text("Take a full-body photo or choose one from your gallery.")
+                Text("Use a clear photo of your face and outfit. A cropped reference stays cropped or naturally hidden — One Shot will never remove scene objects just to expose a full body.")
                     .font(.system(size: 11, weight: .medium, design: .rounded))
                     .foregroundStyle(Theme.textSecondary)
                     .multilineTextAlignment(.center)
-                    .padding(.horizontal, 30)
+                    .padding(.horizontal, 24)
             }
 
             Spacer(minLength: 8)
@@ -675,7 +616,7 @@ struct SoloShotView: View {
                     .transition(.opacity.combined(with: .move(edge: .bottom)))
             } else {
                 if !isCreating {
-                    Text("Drag the box if you want to stand somewhere else — then describe and create.")
+                    Text("The box is the maximum area for you. Existing beds, furniture and foreground always stay in place and may naturally cover part of the body.")
                         .font(.system(size: 11.5, weight: .medium, design: .rounded))
                         .foregroundStyle(Theme.textSecondary)
                         .multilineTextAlignment(.center)
@@ -812,7 +753,7 @@ struct SoloShotView: View {
     /// Reihe darüber zu schweben.
     private func soloShotComposer(createAction: @escaping () -> Void) -> some View {
         VStack(spacing: 10) {
-            TextField("Describe the pose, outfit or mood…", text: $note, axis: .vertical)
+            TextField("Optional pose or expression…", text: $note, axis: .vertical)
                 .textInputAutocapitalization(.sentences)
                 .font(.system(size: 16.5, weight: .medium, design: .rounded))
                 .focused($noteFocused)
@@ -1233,37 +1174,43 @@ struct SoloShotView: View {
         }
 
         let instruction = note.trimmingCharacters(in: .whitespacesAndNewlines)
-        // Licht-Hint aus dem unveraenderten Ort; hochgeladen werden der Guide
-        // (Ort + rosa Markierung) und ich.
-        let prompt = SoloShotPrompt.build(
-            userText: instruction,
-            sceneImage: backgroundData,
-            placement: effectivePlacement
-        )
+        let aspectRatio = selectedFormat.label
+        let lockedPlacement = effectivePlacement
+        let lockedPlacementRect = markerRect(lockedPlacement.rect)
         isCreating = true
         workStartedAt = Date()
 
         Task {
-            // Kompakter hochladen: drei Fullsize-Referenzen haben den Request
-            // an die Gateway-Grenze gedrückt. Guide enthält den Ort bereits.
-            let refs = [guideData, personData].compactMap {
-                UIImage(data: $0)?.jpegForAPIUpload(maxDimension: 1024, quality: 0.72) ?? $0
-            }
-            guard refs.count == 2 else {
-                await MainActor.run {
-                    isCreating = false
-                    flash("Couldn't prepare your photos — try again.")
-                }
-                return
-            }
+            // FIGURE 1 muss das unmarkierte Original sein. Die rosa Karte ist
+            // nur FIGURE 2; FIGURE 3 liefert Koerper und Kleidung. Ein enger
+            // Gesichts-/Haar-Crop wird, wenn Vision ein Gesicht erkennt, als
+            // FIGURE 4 zur Identitaetssperre angehaengt.
+            let identityCloseup = await SoloShotIdentityReference.make(from: personData)
+            let refs = [backgroundData, guideData, personData]
+                + (identityCloseup.map { [$0] } ?? [])
+            let prompt = SoloShotPrompt.build(
+                userText: instruction,
+                sceneImage: backgroundData,
+                placement: lockedPlacement,
+                hasIdentityCloseup: identityCloseup != nil
+            )
 
             do {
-                let data = try await runSoloShotEdit(
+                let generated = try await runSoloShotEdit(
                     prompt: prompt,
                     references: refs,
                     quality: quality,
-                    model: ImageEditAPI.chatModel
+                    aspectRatio: aspectRatio
                 )
+                guard let data = await SoloShotSceneLock.merge(
+                    generatedData: generated,
+                    originalData: backgroundData,
+                    placementRect: lockedPlacementRect
+                ) else {
+                    throw SeedanceError.server(
+                        "Couldn't isolate the inserted person without changing your scene. Please try another placement."
+                    )
+                }
                 await MainActor.run {
                     store.consume(cost)
                     persistToLibrary(
@@ -1289,61 +1236,42 @@ struct SoloShotView: View {
         }
     }
 
-    /// Erstellt den Edit und pollt bis Ergebnis oder Fehler. Bei GPT-Timeout/
-    /// Gateway-Fehler einmal mit Seedream nachlegen — dasselbe Prompt-Paket,
-    /// nur robusterer Upload-Pfad.
+    /// Ein einziger reproduzierbarer Modellpfad. Ein stiller Wechsel zu einem
+    /// zweiten Modell wuerde Prompt und Referenzbedeutung wieder auseinander
+    /// bringen und bei identischen Eingaben verschiedene Resultate erzeugen.
     private func runSoloShotEdit(
         prompt: String,
         references: [Data],
         quality: String,
-        model: String
+        aspectRatio: String
     ) async throws -> Data {
-        func attempt(model: String) async throws -> Data {
-            let request = ImageEditRequest(
-                prompt: prompt,
-                referenceImages: references,
-                quality: quality,
-                aspectRatio: "auto",
-                model: model
-            )
-            let taskID = try await ImageEditAPI.createTask(request)
-            var lastFailure: String?
-            for attempt in 0..<200 {
-                if attempt > 0 { try? await Task.sleep(nanoseconds: 1_250_000_000) }
-                let state = try await ImageEditAPI.fetchTask(id: taskID)
-                if state.status == .succeeded, let urlString = state.imageURL,
-                   let url = URL(string: urlString) {
-                    let (data, _) = try await URLSession.shared.data(from: url)
-                    guard UIImage(data: data) != nil else {
-                        throw SeedanceError.invalidResponse
-                    }
-                    return data
+        let request = ImageEditRequest(
+            prompt: prompt,
+            referenceImages: references,
+            quality: quality,
+            aspectRatio: aspectRatio,
+            model: ImageEditAPI.soloShotModel,
+            highFidelityReferences: true
+        )
+        let taskID = try await ImageEditAPI.createTask(request)
+        var lastFailure: String?
+        for attempt in 0..<200 {
+            if attempt > 0 { try? await Task.sleep(nanoseconds: 1_250_000_000) }
+            let state = try await ImageEditAPI.fetchTask(id: taskID)
+            if state.status == .succeeded, let urlString = state.imageURL,
+               let url = URL(string: urlString) {
+                let (data, _) = try await URLSession.shared.data(from: url)
+                guard UIImage(data: data) != nil else {
+                    throw SeedanceError.invalidResponse
                 }
-                if state.status == .failed {
-                    lastFailure = state.failureReason
-                    break
-                }
+                return data
             }
-            throw SeedanceError.taskFailed(lastFailure ?? "Timed out — please try again.")
+            if state.status == .failed {
+                lastFailure = state.failureReason
+                break
+            }
         }
-
-        do {
-            return try await attempt(model: model)
-        } catch {
-            // Nur soft failen, wenn GPT am Einreichen/Gateway scheitert — nicht
-            // bei inhaltlichem Fail (dann würde Seedream oft dasselbe ablehnen).
-            let text = (error as? LocalizedError)?.errorDescription?.lowercased() ?? ""
-            let retryable = text.contains("unexpected response")
-                || text.contains("unreachable")
-                || text.contains("timed out")
-                || text.contains("network")
-                || text.contains("413")
-                || text.contains("payload")
-                || text.contains("too large")
-                || text.contains("busy")
-            guard model == ImageEditAPI.chatModel, retryable else { throw error }
-            return try await attempt(model: ImageEditAPI.defaultModel)
-        }
+        throw SeedanceError.taskFailed(lastFailure ?? "Timed out — please try again.")
     }
 
     /// Gleiche Ablage wie im Chat und im Agent: Datei in Documents, Thumbnail
@@ -1384,167 +1312,192 @@ struct SoloShotView: View {
     }
 }
 
-/// Halbtransparente, absichtlich generische Figur. Sie ist eine Positionshilfe,
-/// keine Vorschau des später erzeugten Körpers und wird nie exportiert.
-private struct SoloShotGhost: View {
-    var body: some View {
-        GeometryReader { geo in
-            let w = geo.size.width
-            let h = geo.size.height
-            ZStack {
-                Capsule()
-                    .fill(Theme.accent.opacity(0.22))
-                    .frame(width: w * 0.68, height: h * 0.46)
-                    .position(x: w * 0.5, y: h * 0.43)
-                Circle()
-                    .fill(Theme.accent.opacity(0.30))
-                    .frame(width: w * 0.42, height: w * 0.42)
-                    .position(x: w * 0.5, y: h * 0.14)
-                HStack(spacing: w * 0.09) {
-                    Capsule().fill(Theme.accent.opacity(0.24))
-                    Capsule().fill(Theme.accent.opacity(0.24))
-                }
-                .frame(width: w * 0.54, height: h * 0.42)
-                .position(x: w * 0.5, y: h * 0.78)
-            }
-            .overlay(
-                RoundedRectangle(cornerRadius: w * 0.18, style: .continuous)
-                    .strokeBorder(Theme.accent.opacity(0.92), lineWidth: 1.5)
-            )
-            .shadow(color: Theme.accent.opacity(0.85), radius: 10)
-        }
-        .accessibilityHidden(true)
+/// Liefert Seedream neben der Ganzkoerperreferenz einen hochaufgeloesten,
+/// engen Kopf-Crop. So muss das Modell Gesichtszuege und Haarfarbe nicht aus
+/// wenigen Pixeln der Ganzkoerperaufnahme erraten. Der Crop ist ausdruecklich
+/// nur Identitaets-, niemals Posevorlage.
+nonisolated enum SoloShotIdentityReference {
+    static func make(from data: Data) async -> Data? {
+        await Task.detached(priority: .userInitiated) {
+            crop(from: data)
+        }.value
     }
-}
 
-/// Die Referenz ist keine neue KI-Vorschau: Sie zeigt den wirklich gewählten
-/// Galerie-Look als ausgeschnittene, bewegliche Stellvertreterin über dem
-/// Live-Kamerabild. Damit sieht man vor dem Auslösen genau, wen Clavic später
-/// in die Szene einsetzen soll.
-private struct SoloShotReferenceOverlay: View {
-    let image: UIImage
+    static func crop(from data: Data) -> Data? {
+        guard let raw = UIImage(data: data) else { return nil }
+        let image = PhotoEditEngine.normalizedForEditing(raw)
+        guard let cg = image.cgImage else { return nil }
 
-    var body: some View {
-        ZStack {
-            SoloShotGhost()
-                .opacity(0.38)
-            Image(uiImage: image)
-                .resizable()
-                .scaledToFit()
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .shadow(color: .black.opacity(0.22), radius: 7, y: 3)
-        }
-        .overlay(
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(Theme.accent.opacity(0.98), lineWidth: 1.5)
+        let request = VNDetectFaceRectanglesRequest()
+        let handler = VNImageRequestHandler(cgImage: cg, orientation: .up)
+        guard (try? handler.perform([request])) != nil,
+              let face = request.results?.max(by: {
+                  $0.boundingBox.width * $0.boundingBox.height
+                      < $1.boundingBox.width * $1.boundingBox.height
+              }) else { return nil }
+
+        let width = CGFloat(cg.width)
+        let height = CGFloat(cg.height)
+        let box = face.boundingBox
+        let faceRect = CGRect(
+            x: box.minX * width,
+            y: (1 - box.maxY) * height,
+            width: box.width * width,
+            height: box.height * height
         )
-        .shadow(color: Theme.accent.opacity(0.55), radius: 9)
-        .accessibilityHidden(true)
+
+        // Vision schliesst Haare groesstenteils aus dem Gesichtsrechteck aus.
+        // Grosszuegig nach oben und seitlich erweitern, damit Haaransatz,
+        // Scheitel, Grundfarbe und Highlights wirklich in FIGURE 4 liegen.
+        let expanded = CGRect(
+            x: faceRect.minX - faceRect.width * 0.75,
+            y: faceRect.minY - faceRect.height * 1.05,
+            width: faceRect.width * 2.5,
+            height: faceRect.height * 2.65
+        ).intersection(CGRect(x: 0, y: 0, width: width, height: height)).integral
+
+        guard expanded.width >= 80, expanded.height >= 80,
+              let cropped = cg.cropping(to: expanded) else { return nil }
+        return UIImage(cgImage: cropped, scale: 1, orientation: .up)
+            .jpegData(compressionQuality: 0.96)
     }
 }
 
-private enum SoloShotPersonCutout {
+/// Seedream darf die Person realistisch neu beleuchten, aber es darf nicht das
+/// Ortsfoto neu erfinden. Darum wird aus dem Ergebnis nur die eingefuegte
+/// Personeninstanz (plus wenige weiche Randpixel fuer Haar/Kontaktschatten)
+/// ueber das lokale Original gelegt. Der Rest stammt wieder aus FIGURE 1.
+nonisolated enum SoloShotSceneLock {
     private static let context = CIContext(options: [
         .useSoftwareRenderer: false,
         .cacheIntermediates: false,
     ])
 
-    static func make(from source: UIImage) -> UIImage? {
-        let strokes = EraseMask.largestForegroundObjectStrokes(in: source)
-        guard let prepared = EraseMask.prepare(base: source, strokes: strokes),
-              let input = prepared.base.cgImage,
-              let mask = prepared.mask.cgImage else { return nil }
+    static func merge(
+        generatedData: Data,
+        originalData: Data,
+        placementRect: CGRect
+    ) async -> Data? {
+        guard let generated = UIImage(data: generatedData),
+              let original = UIImage(data: originalData) else { return nil }
+        let analysis = await BodyAnalyzer.analyze(generated)
+        guard analysis.hasPerson, let personMask = analysis.mask,
+              let result = composite(
+                generated: generated,
+                original: original,
+                personMask: personMask,
+                placementRect: placementRect
+              ) else { return nil }
+        return result.jpegData(compressionQuality: 0.96)
+    }
 
-        let extent = CGRect(x: 0, y: 0, width: input.width, height: input.height)
+    /// Separat testbar: nur weisse Maskenpixel duerfen vom generierten Bild
+    /// kommen. Die Placement-Zone verhindert, dass eine bereits im Original
+    /// vorhandene Person an einer anderen Stelle versehentlich mitkopiert wird.
+    static func composite(
+        generated: UIImage,
+        original: UIImage,
+        personMask: CIImage,
+        placementRect: CGRect = CGRect(x: 0, y: 0, width: 1, height: 1)
+    ) -> UIImage? {
+        let foreground = PhotoEditEngine.normalizedForEditing(generated)
+        let background = PhotoEditEngine.normalizedForEditing(original)
+        guard foreground.cgImage != nil,
+              let backgroundCG = background.cgImage else { return nil }
+
+        // Das lokale Ortsfoto bestimmt Aufloesung und Pixelraum. Seedreams
+        // Person wird in diesen Raum skaliert; nicht umgekehrt.
+        let size = CGSize(width: backgroundCG.width, height: backgroundCG.height)
+        let extent = CGRect(origin: .zero, size: size)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        format.opaque = true
+        let fittedForeground = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            foreground.draw(in: extent)
+        }
+        guard let fittedForegroundCG = fittedForeground.cgImage else { return nil }
+
+        let foregroundCI = CIImage(cgImage: fittedForegroundCG)
+        let backgroundCI = CIImage(cgImage: backgroundCG)
+        let edgeRadius = max(3, min(size.width, size.height) * 0.003)
+
+        let morphology = CIFilter.morphologyMaximum()
+        morphology.inputImage = personMask.resizedMask(to: extent)
+        morphology.radius = Float(edgeRadius)
+        guard let expanded = morphology.outputImage else { return nil }
+
+        let blur = CIFilter.gaussianBlur()
+        blur.inputImage = expanded
+        blur.radius = Float(max(1.5, edgeRadius * 0.45))
+        guard let softened = blur.outputImage?.cropped(to: extent) else { return nil }
+
+        let padX = max(0.055, placementRect.width * 0.22)
+        let padY = max(0.055, placementRect.height * 0.14)
+        let zone = CGRect(
+            x: max(0, placementRect.minX - padX),
+            y: max(0, placementRect.minY - padY),
+            width: min(1, placementRect.maxX + padX) - max(0, placementRect.minX - padX),
+            height: min(1, placementRect.maxY + padY) - max(0, placementRect.minY - padY)
+        )
+        let zonePixels = CGRect(
+            x: zone.minX * size.width,
+            y: (1 - zone.maxY) * size.height,
+            width: zone.width * size.width,
+            height: zone.height * size.height
+        ).intersection(extent)
+        let black = CIImage(color: .black).cropped(to: extent)
+        let whiteZone = CIImage(color: .white)
+            .cropped(to: zonePixels)
+            .composited(over: black)
+        let restrictToZone = CIFilter.multiplyCompositing()
+        restrictToZone.inputImage = softened
+        restrictToZone.backgroundImage = whiteZone
+        guard let lockedMask = restrictToZone.outputImage?.cropped(to: extent) else { return nil }
+
         let blend = CIFilter.blendWithMask()
-        blend.inputImage = CIImage(cgImage: input)
-        blend.backgroundImage = CIImage(color: .clear).cropped(to: extent)
-        blend.maskImage = CIImage(cgImage: mask)
+        blend.inputImage = foregroundCI
+        blend.backgroundImage = backgroundCI
+        blend.maskImage = lockedMask
         guard let output = blend.outputImage?.cropped(to: extent),
-              let cutout = context.createCGImage(output, from: extent) else { return nil }
-        return UIImage(cgImage: cutout, scale: 1, orientation: .up)
+              let cg = context.createCGImage(output, from: extent) else { return nil }
+        return UIImage(cgImage: cg, scale: 1, orientation: .up)
     }
 }
 
 private enum SoloShotGuide {
-
-    /// Die Box als gefülltes Rechteck auf einer Kopie des Ortsfotos.
-    ///
-    /// Rosa, weil die Farbe in echten Innen- und Außenaufnahmen praktisch nie
-    /// vorkommt: das Modell kann sie nicht mit etwas Vorhandenem verwechseln
-    /// und entfernt sie deshalb zuverlässiger wieder.
+    /// FIGURE 2 ist keine zweite Basisaufnahme, sondern nur eine gut lesbare
+    /// Positionskarte. Die Kontur ist eine MAXIMALE Einfuegezone, keine
+    /// Ganzkoerper- oder Fussvorgabe. Vordergrund innerhalb der Zone bleibt.
     static func renderMarker(on source: UIImage, rect: CGRect) -> Data? {
         let normalized = PhotoEditEngine.normalizedForEditing(source)
         guard let cg = normalized.cgImage else { return nil }
         let size = CGSize(width: cg.width, height: cg.height)
+        let canvas = CGRect(origin: .zero, size: size)
         let format = UIGraphicsImageRendererFormat.default()
         format.scale = 1
         format.opaque = true
-        let image = UIGraphicsImageRenderer(size: size, format: format).image { _ in
-            normalized.draw(in: CGRect(origin: .zero, size: size))
 
-            let marker = CGRect(
+        let image = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            normalized.draw(in: canvas)
+
+            let proposed = CGRect(
                 x: rect.minX * size.width,
                 y: rect.minY * size.height,
                 width: rect.width * size.width,
                 height: rect.height * size.height
             )
-            guard marker.width > 0, marker.height > 0 else { return }
-            UIColor.systemPink.withAlphaComponent(0.45).setFill()
-            UIBezierPath(roundedRect: marker, cornerRadius: marker.width * 0.18).fill()
-        }
-        return image.jpegData(compressionQuality: 0.9)
-    }
+            let marker = proposed.intersection(canvas.insetBy(dx: 2, dy: 2))
+            guard marker.width > 8, marker.height > 8 else { return }
 
-    static func render(
-        on source: UIImage,
-        reference: UIImage,
-        scale: CGFloat,
-        offset: CGSize
-    ) -> Data? {
-        let normalized = PhotoEditEngine.normalizedForEditing(source)
-        guard let cg = normalized.cgImage else { return nil }
-        let size = CGSize(width: cg.width, height: cg.height)
-        let format = UIGraphicsImageRendererFormat.default()
-        format.scale = 1
-        format.opaque = true
-        let image = UIGraphicsImageRenderer(size: size, format: format).image { renderer in
-            normalized.draw(in: CGRect(origin: .zero, size: size))
-
-            let referenceSize = reference.size
-            guard referenceSize.width > 0, referenceSize.height > 0 else { return }
-            // `min`, nicht `max`: die Vorschau passt die Referenz vollständig in
-            // den Rahmen ein. Mit formatfüllender Rechnung säße die Figur in der
-            // exportierten Vorlage größer als dort, wo der Nutzer sie abgelegt
-            // hat — und das Modell setzte sie entsprechend falsch ein.
-            let fitScale = min(size.width / referenceSize.width,
-                               size.height / referenceSize.height)
-            let safeScale = min(max(scale, 0.18), 2.5)
-            let drawSize = CGSize(
-                width: referenceSize.width * fitScale * safeScale,
-                height: referenceSize.height * fitScale * safeScale
-            )
-            let drawRect = CGRect(
-                x: (size.width - drawSize.width) / 2 + offset.width * size.width,
-                y: (size.height - drawSize.height) / 2 + offset.height * size.height,
-                width: drawSize.width,
-                height: drawSize.height
-            )
-            // Als getönte Silhouette zeichnen, nicht als klares Foto: sonst
-            // liest das Modell die steife Selfie-Pose aus IMAGE 3 als Vorgabe.
-            // Form + Größe bleiben; Gesicht/Outfit-Details werden absichtlich
-            // unlesbar, damit nur die Platzierung zählt.
-            let ghostFormat = UIGraphicsImageRendererFormat.default()
-            ghostFormat.scale = 1
-            ghostFormat.opaque = false
-            let ghost = UIGraphicsImageRenderer(size: drawSize, format: ghostFormat).image { _ in
-                let local = CGRect(origin: .zero, size: drawSize)
-                reference.draw(in: local)
-                UIColor(red: 0.18, green: 0.42, blue: 1.0, alpha: 1).setFill()
-                UIRectFillUsingBlendMode(local, .sourceAtop)
-            }
-            ghost.draw(in: drawRect, blendMode: .normal, alpha: 0.48)
+            let stroke = max(5, min(size.width, size.height) * 0.006)
+            let radius = min(marker.width * 0.14, 30)
+            let path = UIBezierPath(roundedRect: marker, cornerRadius: radius)
+            UIColor.systemPink.withAlphaComponent(0.06).setFill()
+            path.fill()
+            UIColor.systemPink.withAlphaComponent(0.98).setStroke()
+            path.lineWidth = stroke
+            path.stroke()
         }
-        return image.jpegData(compressionQuality: 0.88)
+        return image.jpegData(compressionQuality: 0.90)
     }
 }

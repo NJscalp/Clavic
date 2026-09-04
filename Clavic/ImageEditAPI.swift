@@ -3,9 +3,15 @@
 //  Clavic
 //
 //  Spricht das gemeinsame Vercel-Backend (limitless-web) für die
-//  Bild-Bearbeitung (Bild → Bild) an. Läuft über WaveSpeed AI
-//  (Nano Banana 2, provider "wavespeed"). Der WAVESPEED_API_KEY liegt
-//  server-seitig, die App braucht keinen eigenen Schlüssel.
+//  Bild-Bearbeitung (Bild → Bild) an, immer über provider "wavespeed".
+//  Der WAVESPEED_API_KEY liegt server-seitig, die App braucht keinen
+//  eigenen Schlüssel.
+//
+//  WELCHES Modell, entscheidet der Aufrufer über `ImageEditRequest.model`:
+//    • defaultModel / soloShotModel → Seedream 5.0 Pro Edit (Standard)
+//    • chatModel                    → GPT Image 2 (Chat, beste Texttreue)
+//    • poseModel                    → Nano Banana 2 (Pose/Haltung)
+//  Die Konstanten unten sind die eine Quelle der Wahrheit dafür.
 //
 //  Ablauf:
 //   1. POST /v1/gpt-image/edit   → liefert taskId
@@ -24,6 +30,10 @@ struct ImageEditRequest {
     var aspectRatio: String = "auto"
     /// WaveSpeed-Modell-Slug — Standard überall: Nano Banana 2 (edit).
     var model: String = ImageEditAPI.defaultModel
+    /// One Shot arbeitet mit sorgfaeltig getrennten Referenzen. Fuer
+    /// Gesichts-, Stoff- und Raumdetails duerfen sie weniger stark verkleinert
+    /// werden als normale Chat-Anhaenge; das harte Byte-Limit bleibt bestehen.
+    var highFidelityReferences: Bool = false
 }
 
 struct ImageEditTaskState {
@@ -49,6 +59,12 @@ enum ImageEditAPI {
     /// der gültige Slug ist `…/text-to-image`.
     static let chatGenerateModel = "openai/gpt-image-2/text-to-image"
     static let chatDisplayName = "GPT Image 2"
+
+    /// One Shot nutzt bewusst Seedream v5.0 Pro Edit: das Modell kann das
+    /// unveraenderte Raumfoto, eine separate Positionskarte und die Person als
+    /// drei eigenstaendige Referenzen lesen und fotografisch zusammenfuehren.
+    static let soloShotModel = "bytedance/seedream-v5.0-pro/edit"
+    static let soloShotDisplayName = "Seedream 5.0 Pro"
 
     /// Google Nano Banana 2 (Gemini 3 Pro Image) auf WaveSpeed — fuer alles,
     /// wo die Person selbst UMGEBAUT wird: Pose, Haltung, Blickrichtung,
@@ -82,22 +98,31 @@ enum ImageEditAPI {
     static func createTask(_ request: ImageEditRequest) async throws -> String {
         guard BackendConfiguration.isConfigured else { throw SeedanceError.missingBackend }
 
+        let model = request.model.isEmpty
+            ? (request.referenceImages.isEmpty ? generateModel : defaultModel)
+            : request.model
+
         // Immer neu komprimieren. Rohe Kamerabytes als Base64 sprengen sonst
         // leicht das ~4,5 MB Gateway-Limit — der Server antwortet dann mit 413
         // und die App zeigt nur „doesn't work".
+        // Keep the complete JSON body below the gateway limit even when One
+        // Shot adds a fourth, tight face/hair identity reference.
+        let referenceByteBudget = min(
+            850_000,
+            max(450_000, 2_900_000 / max(request.referenceImages.count, 1))
+        )
         let images = request.referenceImages.compactMap { data -> String? in
-            let jpeg = UIImage(data: data)?.jpegForAPIUpload(maxDimension: 1024, quality: 0.72)
-                ?? UIImage(data: data)?.jpegData(compressionQuality: 0.7)
+            let jpeg = encodedReferenceImage(
+                data,
+                highFidelity: request.highFidelityReferences,
+                byteBudget: referenceByteBudget
+            )
             guard let jpeg, !jpeg.isEmpty else { return nil }
             return jpeg.base64EncodedString()
         }
         if !request.referenceImages.isEmpty && images.isEmpty {
             throw SeedanceError.server("Couldn't prepare your photos for upload.")
         }
-        // Ohne Referenzfoto → Text→Bild (Seedream v5.0 Pro); mit Foto → Edit.
-        let model = request.model.isEmpty
-            ? (images.isEmpty ? generateModel : defaultModel)
-            : request.model
         // Qualität → Auflösung, modellabhängig:
         //  - Seedream v5 kennt NUR 1k/2k → low/medium = 1k, high = 2k
         //    ("4k" würde die API ablehnen).
@@ -137,6 +162,37 @@ enum ImageEditAPI {
             return taskID
         }
         throw SeedanceError.invalidResponse
+    }
+
+    /// Einmalige Upload-Kodierung. Im High-Fidelity-Pfad wird das gemeinsame
+    /// Byte-Budget dynamisch auf alle One-Shot-Referenzen verteilt. So bleibt
+    /// auch die zusaetzliche Gesicht-/Haar-Referenz nach Base64 unter dem
+    /// Gateway-Limit, ohne Gesicht und Raum auf 1024 px zu zerdruecken.
+    private static func encodedReferenceImage(
+        _ data: Data,
+        highFidelity: Bool,
+        byteBudget: Int
+    ) -> Data? {
+        guard let image = UIImage(data: data) else { return nil }
+        guard highFidelity else {
+            return image.jpegForAPIUpload(maxDimension: 1024, quality: 0.72)
+                ?? image.jpegData(compressionQuality: 0.7)
+        }
+
+        let attempts: [(CGFloat, CGFloat)] = [
+            (1600, 0.86), (1600, 0.78), (1440, 0.76),
+            (1280, 0.72), (1120, 0.66), (960, 0.60),
+        ]
+        for (dimension, quality) in attempts {
+            if let candidate = image.jpegForAPIUpload(
+                maxDimension: dimension,
+                quality: quality
+            ),
+               candidate.count <= byteBudget {
+                return candidate
+            }
+        }
+        return image.jpegForAPIUpload(maxDimension: 768, quality: 0.52)
     }
 
     // MARK: - Status abfragen

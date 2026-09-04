@@ -12,8 +12,13 @@ enum Theme {
 
     // MARK: - Farben
 
-    /// Seitenhintergrund – exakt der Weißton aus dem Intro-Video (#F1F1F3)
-    static let background = Color(red: 0.945, green: 0.945, blue: 0.953)
+    /// Seitenhintergrund – der Bauchton des Chamäleons (#F6F3EE). Vorher ein
+    /// kaltes Grau (#F1F1F3); das Creme lässt die Fläche zur Figur gehören.
+    static let background = Color(red: 0.965, green: 0.953, blue: 0.933)
+
+    /// Das Papier eines Sofortbilds — eine Spur heller als der
+    /// Seitengrund, damit eine Lasche darauf als eigenes Blatt liest.
+    static let papier = Color(red: 0.984, green: 0.976, blue: 0.961)   // #FBF9F5
     /// Karten / erhöhte Flächen
     static let surface = Color.white
     /// Chips / Eingabefelder
@@ -21,13 +26,23 @@ enum Theme {
     /// Feine Trennlinien / Ränder
     static let stroke = Color.black.opacity(0.06)
 
-    static let textPrimary = Color(red: 0.07, green: 0.07, blue: 0.10)
-    static let textSecondary = Color.black.opacity(0.55)
-    static let textTertiary = Color.black.opacity(0.32)
+    /// Die Konturfarbe des Maskottchens (#041A44) statt Fast-Schwarz.
+    /// Auf `background` rund 15:1 Kontrast.
+    static let textPrimary = Color(red: 0.016, green: 0.102, blue: 0.267)
+    static let textSecondary = Color(red: 0.016, green: 0.102, blue: 0.267).opacity(0.58)
+    static let textTertiary = Color(red: 0.016, green: 0.102, blue: 0.267).opacity(0.34)
 
-    /// Marken-Akzent (Blau)
-    static let accent = Color(red: 0.16, green: 0.50, blue: 1.0)
-    static let accentSoft = Color(red: 0.16, green: 0.50, blue: 1.0).opacity(0.12)
+    /// Marken-Akzent: das Körperblau des Maskottchens (#2E86F3). Vorher
+    /// #2980FF — praktisch derselbe Ton, jetzt exakt der der Illustration.
+    static let accent = Color(red: 0.180, green: 0.525, blue: 0.953)
+    static let accentSoft = Color(red: 0.180, green: 0.525, blue: 0.953).opacity(0.12)
+
+    /// Kamm- und Schwanzstreifen des Maskottchens (#65C5FE).
+    static let accentLight = Color(red: 0.396, green: 0.773, blue: 0.996)
+
+    /// „Der Agent arbeitet gerade" (#D1E26D) — die Augenfarbe des Chamäleons.
+    /// NUR für Aktivität: Scan-Punkte, Ladezustand, Credit-Münze. Nie als Fläche.
+    static let aiActive = Color(red: 0.820, green: 0.886, blue: 0.427)
 
     /// Sucherfarben der Location-Kamera. Weiß heißt „noch suchen", Gelb heißt
     /// „so steht es". Zwei Farben, kein Text: man hält das Telefon hoch und
@@ -68,8 +83,8 @@ enum Theme {
     /// Marken-Verlauf für Buttons & Highlights
     static let brandGradient = LinearGradient(
         colors: [
-            Color(red: 0.16, green: 0.50, blue: 1.0),
-            Color(red: 0.50, green: 0.35, blue: 1.0)
+            Color(red: 0.180, green: 0.525, blue: 0.953),
+            Color(red: 0.396, green: 0.773, blue: 0.996)
         ],
         startPoint: .topLeading,
         endPoint: .bottomTrailing

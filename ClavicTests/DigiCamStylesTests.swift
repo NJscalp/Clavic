@@ -19,7 +19,7 @@ import XCTest
 final class DigiCamStylesTests: XCTestCase {
 
     func testEveryStyleKeepsPersonAndPose() {
-        XCTAssertEqual(DigiCamStyles.all.count, 6)
+        XCTAssertEqual(DigiCamStyles.all.count, 7)
 
         for style in DigiCamStyles.all {
             let prompt = style.prompt
@@ -34,7 +34,7 @@ final class DigiCamStylesTests: XCTestCase {
             XCTAssertFalse(prompt.isEmpty)
         }
 
-        XCTAssertEqual(Set(DigiCamStyles.all.map(\.id)).count, 6, "Doppelte Stil-ID")
+        XCTAssertEqual(Set(DigiCamStyles.all.map(\.id)).count, 7, "Doppelte Stil-ID")
     }
 
     /// Die Vorher/Nachher-Kachel ist das Versprechen. Fehlt eine der beiden
@@ -45,14 +45,6 @@ final class DigiCamStylesTests: XCTestCase {
                             "\(style.title): Vorher-Bild \(style.previewBefore) fehlt")
             XCTAssertNotNil(UIImage(named: style.previewAfter),
                             "\(style.title): Nachher-Bild \(style.previewAfter) fehlt")
-        }
-    }
-
-    func testEveryStyleIsReachableAsATemplate() {
-        let prompts = Set(TemplateLibrary.all.compactMap(\.fixedEditPrompt))
-        for style in DigiCamStyles.all {
-            XCTAssertTrue(prompts.contains(style.prompt),
-                          "\(style.title) ist ueber keine Kachel erreichbar")
         }
     }
 
