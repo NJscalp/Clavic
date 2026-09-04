@@ -371,3 +371,41 @@ und die Zahl der Vorschläge liegt fast immer bei 2 statt bei 1–3 — dem
 OpenAI-Protokoll fehlen `thinking` und `effort`. Die Vielfalt aus Nachtrag (8)
 ist damit teilweise wieder verloren; das ist der bewusst eingegangene Tausch
 für einen Schlüssel und eine Abrechnung.
+
+## Nachtrag 04.09.2026 (12) — Warum die Vorschläge ausblieben
+
+Gemeldet: nach der Analyse nur noch Bild und Maskottchen, keine Vorschläge.
+
+**Ursache gefunden und behoben: das Zeitlimit der Funktion.**
+`api/gpt-image/[action].mjs` bedient ALLE DREI Director-Routen (chat, read,
+review) und stand auf `maxDuration: 60`. Solange der Zug direkt über Anthropic
+lief, brauchte er rund 13 s — reichlich Luft. Über WaveSpeed dauert derselbe
+Zug 17–50 s, und wenn der Client keine Lesung mitschickt, laufen Lesung UND
+Entscheidung in EINER Aufruf­instanz.
+
+Reproduziert, dreimal, mit demselben Foto:
+
+| Weg | HTTP | Dauer |
+|---|---|---|
+| read | 200 | 14–20 s |
+| chat MIT Lesung | 200 | 17–43 s |
+| chat OHNE Lesung | **504 FUNCTION_INVOCATION_TIMEOUT** | **60,3 s** |
+
+Die App schickt genau dann keine Lesung mit, wenn die Lesung noch läuft oder in
+ihr eigenes Zeitlimit gelaufen ist — auf dem alten Build 30 s, bei gemessenen
+bis 24 s also knapp. Damit fällt sie in den Fall, der sicher scheitert.
+
+`maxDuration` steht jetzt auf **300** (wie `kie/future-self`). Ein Lauf nach dem
+Deploy: chat ohne Lesung, 47,5 s, HTTP 200, 2 Picks — die Grenze fällt weg.
+
+**Danach neuer Anschlag: WaveSpeed-Guthaben leer.**
+`director_http_403 · "group (…) balance not enough"`, reproduzierbar.
+Stufe 1 (Gemini 3.5 Flash) läuft weiter — sie ist billig. Stufe 2 (Opus 5)
+nicht: ~20k Token Systemprompt plus Bild, bei $5/$25 je Million.
+
+Damit sind **beide** Konten leer: Anthropic seit heute Vormittag, WaveSpeed
+seit den Messläufen. Ein erheblicher Teil davon geht auf die Messungen aus den
+Nachträgen (9) bis (12) — rund 40 Opus-Aufrufe mit Bild an einem Tag.
+
+**Zu tun, bevor weiter geprüft wird:** WaveSpeed aufladen. Ohne Guthaben ist
+jede weitere Messung an Stufe 2 sinnlos.
