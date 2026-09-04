@@ -42,11 +42,20 @@ private let arbeitsStufen = [
     "Ideas coming together…",
 ]
 
+/// Wo die Figur gerade steht. Sie braucht an beiden Stellen eine andere
+/// Groesse und einen anderen Rand, deshalb entscheidet der Aufrufer — die
+/// Werkbank sagt nur, WELCHER Platz gemeint ist.
+enum MascotSlot {
+    /// Beim Lesen: breit unter der Ladekarte, sie schaut sie an.
+    case unterDerKarte
+    /// Beim Ergebnis: klein rechts NEBEN dem Foto. Vorher stand sie oben
+    /// allein ueber dem Bild und hatte sichtbar nichts damit zu tun.
+    case nebenDemFoto
+}
+
 struct DirectorWorkspace<Mascot: View>: View {
-    /// Die Figur. Sie steht beim Lesen UNTER der Karte und schaut sie an,
-    /// sonst darüber — deshalb reicht der Aufrufer sie herein, statt sie
-    /// selbst zu platzieren.
-    @ViewBuilder let mascot: () -> Mascot
+    /// Die Figur, an dem Platz, den die Werkbank gerade braucht.
+    @ViewBuilder let mascot: (MascotSlot) -> Mascot
     /// Das Bild, um das es geht — Ergebnis, sonst das Original.
     let photo: Data?
     /// Ein zweites Bild zum Vergleichen (Vorher), falls es ein Ergebnis gibt.
@@ -63,11 +72,17 @@ struct DirectorWorkspace<Mascot: View>: View {
     var onPick: (DirectorAPI.Option) -> Void = { _ in }
     var onOwnIdea: () -> Void = {}
     var onCompare: () -> Void = {}
+    /// Reicht die gemessenen Anmerkungen nach oben. Die Leiste unten baut ihre
+    /// Schnellauftraege daraus — so redet sie ueber DIESES Foto und nicht
+    /// ueber Fotos im Allgemeinen.
+    var onMarks: ([ReadMark]) -> Void = { _ in }
 
     @State private var stufe = 0
     /// Laeuft, solange gelesen wird — treibt den Schimmer in der Zeile.
     @State private var schimmer = false
     @State private var zeigeVorher = false
+    /// Die gemessenen Anmerkungen auf dem Foto. Leer, solange gelesen wird.
+    @State private var marks: [ReadMark] = []
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
 
@@ -75,7 +90,7 @@ struct DirectorWorkspace<Mascot: View>: View {
         VStack(spacing: 14) {
             if isWorking {
                 ladeKarte
-                mascot()
+                mascot(.unterDerKarte)
                 arbeitsZeile
                 // Darunter blieb der halbe Bildschirm leer. Zwei Platzhalter in
                 // GENAU der Form der spaeteren Vorschlaege sagen ohne ein Wort,
@@ -83,9 +98,10 @@ struct DirectorWorkspace<Mascot: View>: View {
                 // ist kleiner, weil die Form schon dasteht.
                 platzhalterVorschlaege
             } else {
-                mascot()
-                bildZentriert
-                if let verdict, !verdict.isEmpty { befund(verdict) }
+                ergebnisBuehne
+                if let verdict, !verdict.isEmpty {
+                    DirectorNote(text: verdict, markCount: marks.count)
+                }
             }
 
             if !picks.isEmpty {
@@ -103,6 +119,21 @@ struct DirectorWorkspace<Mascot: View>: View {
             withAnimation(.linear(duration: 1.6).repeatForever(autoreverses: false)) {
                 schimmer = true
             }
+        }
+        // Die Anmerkungen werden am Bild GEMESSEN, nicht erfunden — deshalb
+        // laufen sie hier und nicht im Aufrufer: sie gehoeren zu dem Foto, das
+        // gerade auf der Buehne liegt, und zu keinem anderen.
+        .task(id: markKey) {
+            guard !isWorking, before == nil,
+                  let daten = photo, let ui = UIImage(data: daten) else {
+                marks = []
+                onMarks([])
+                return
+            }
+            let gemessen = await DirectorReadMarks.marks(for: ui)
+            guard !Task.isCancelled else { return }
+            marks = gemessen
+            onMarks(gemessen)
         }
         .task(id: isWorking) {
             guard isWorking, !reduceMotion else { return }
@@ -208,6 +239,16 @@ struct DirectorWorkspace<Mascot: View>: View {
                                 .padding(.bottom, 6)
                         }
                     }
+                    // Der Stift geht ueber den Abzug. Nur ueber dem ORIGINAL:
+                    // beim Vorher/Nachher-Vergleich waeren die Anmerkungen auf
+                    // dem fertigen Bild eine Kritik an der eigenen Arbeit.
+                    .overlay {
+                        if !isWorking, !zeigeVorher, before == nil {
+                            DirectorInkNotes(marks: marks, active: true)
+                                .padding(9)
+                                .padding(.bottom, 6)
+                        }
+                    }
             }
         }
         .overlay(alignment: .bottomTrailing) {
@@ -217,14 +258,30 @@ struct DirectorWorkspace<Mascot: View>: View {
         }
     }
 
-    /// `.frame(maxWidth: .infinity)` allein hat die Karte nicht zentriert —
-    /// sie blieb an der linken Kante. Zwei Spacer sind eindeutig.
-    private var bildZentriert: some View {
-        HStack(spacing: 0) {
-            Spacer(minLength: 0)
+    // MARK: - Die Ergebnis-Buehne
+
+    /// Foto und Figur NEBENEINANDER.
+    ///
+    /// Vorher stand die Figur breit ueber dem Bild und das Bild darunter
+    /// mittig — zwei Dinge untereinander, die nichts miteinander zu tun
+    /// hatten. Jetzt steht sie rechts daneben, unten buendig, und schaut auf
+    /// den Abzug, den sie gerade angestrichen hat.
+    ///
+    /// `.bottom` als Ausrichtung ist nicht Geschmack: die Fuesse der Figur
+    /// sollen auf derselben Linie stehen wie die Unterkante des Bildes,
+    /// sonst schwebt sie daneben.
+    private var ergebnisBuehne: some View {
+        HStack(alignment: .bottom, spacing: 2) {
             bildKarte
-            Spacer(minLength: 0)
+                .frame(maxWidth: .infinity)
+            mascot(.nebenDemFoto)
         }
+    }
+
+    /// Nur neu messen, wenn sich wirklich das Foto oder der Zustand aendert.
+    /// Ohne eigenen Schluessel liefe die Messung bei jedem Neuzeichnen erneut.
+    private var markKey: String {
+        "\(isWorking)-\(before != nil)-\(photo?.count ?? 0)"
     }
 
     private var anzuzeigen: Data? {
@@ -283,23 +340,4 @@ struct DirectorWorkspace<Mascot: View>: View {
         .padding(.horizontal, 2)
     }
 
-    /// Sein Urteil. Kein Sprechblasen-Schwanz, kein Avatar — eine Zeile, die
-    /// dasteht wie eine Notiz am Rand eines Abzugs.
-    private func befund(_ text: String) -> some View {
-        HStack(alignment: .top, spacing: 9) {
-            Rectangle()
-                .fill(Theme.accent)
-                .frame(width: 3)
-                .clipShape(Capsule())
-            Text(text)
-                // Größer und ruhiger. Mit 15 pt las es sich wie eine Fußnote;
-                // es ist aber das Einzige, was er sagt.
-                .font(.system(size: 19, weight: .semibold, design: .rounded))
-                .lineSpacing(2)
-                .foregroundStyle(Theme.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 2)
-    }
 }

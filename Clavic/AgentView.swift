@@ -30,6 +30,9 @@ struct AgentView: View {
     @State private var lastResult: Data?                 // letztes erzeugtes Bild → impliziter Input für Folge-Edits
     @State private var lastImages: [Data] = []           // zuletzt angehängte Original-Fotos → für Options/Folge-Edits
     @State private var isWorking = false
+    /// Was auf dem Foto angestrichen wurde. Füttert die Schnellaufträge der
+    /// Regie-Leiste — sie soll über DIESES Bild reden, nicht über Fotos.
+    @State private var readMarks: [ReadMark] = []
     @State private var photoSelections: [PhotosPickerItem] = []
     @AppStorage("acceptedContentPolicy") private var acceptedContentPolicy = false
     @State private var showConsent = false
@@ -245,12 +248,14 @@ struct AgentView: View {
         throwToken += 1
     }
 
-    private var mascotBlock: some View {
+    /// `height` nur setzen, wo die Figur NEBEN etwas steht — im Ergebnis
+    /// steht sie klein rechts vom Foto statt breit darueber.
+    private func mascotBlock(height: CGFloat? = nil) -> some View {
         MascotStage(
             act: mascotAct,
             throwToken: throwToken,
             expectsThrow: !didPlayWelcomeThrow && messages.isEmpty,
-            height: mascotHeight,
+            height: height ?? mascotHeight,
             isActive: true,
             showsHabitat: messages.isEmpty,
             // In der Werkbank erzählt die Zeile darunter den Stand — die
@@ -285,8 +290,17 @@ struct AgentView: View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 14) {
                 DirectorWorkspace(
-                    mascot: {
-                        mascotBlock.padding(.horizontal, -Theme.screenPadding)
+                    mascot: { slot in
+                        switch slot {
+                        case .unterDerKarte:
+                            mascotBlock().padding(.horizontal, -Theme.screenPadding)
+                        case .nebenDemFoto:
+                            // Klein und ohne den negativen Rand: hier steht sie
+                            // IM Textspiegel neben dem Bild, nicht über die
+                            // ganze Breite.
+                            mascotBlock(height: 132)
+                                .frame(width: 132)
+                        }
                     },
                     photo: letzter?.resultImage ?? lastImages.first,
                     before: letzter?.resultImage != nil ? lastImages.first : nil,
@@ -299,7 +313,8 @@ struct AgentView: View {
                     throwToken: throwToken,
                     onPick: { chooseOption($0) },
                     onOwnIdea: { showComposer = true; inputFocused = true },
-                    onCompare: {}
+                    onCompare: {},
+                    onMarks: { readMarks = $0 }
                 )
             }
             .frame(maxWidth: .infinity)
@@ -354,7 +369,7 @@ struct AgentView: View {
                 // mit dem Hintergrund nach oben weg, der Rest rückt nach.
                 // Über den Seitenrand hinaus, damit das Blattwerk vom
                 // Bildrand hereinwächst und nicht im Textspiegel klebt.
-                mascotBlock
+                mascotBlock()
                     .padding(.horizontal, -Theme.screenPadding)
 
                 // Kein Wurf mehr im Auftakt: geworfen wird, was ein Bild
@@ -646,56 +661,25 @@ struct AgentView: View {
 
     // MARK: - Eingabeleiste
 
+    /// DIE REGIE-LEISTE — nicht die Chat-Leiste noch einmal.
+    ///
+    /// Im Chat-Tab kann man alles: Fotos anhängen, die Kamera öffnen, über
+    /// irgendetwas reden. Hier nicht, und zwar mit Absicht. Der Director hat
+    /// EIN Foto gelesen und angestrichen; alles, was hier gesagt wird, gehört
+    /// zu diesem Foto. Ein Plus-Knopf und eine Kamera wären die Einladung,
+    /// genau das zu verlassen — dann wäre es wieder ein Chat.
+    ///
+    /// Deshalb fehlen sie. Stattdessen stehen über dem Feld die Anmerkungen
+    /// als fertige Aufträge: was er angestrichen hat, kann man mit einem Tipp
+    /// beheben lassen. Das ist der Unterschied zwischen „schreib etwas" und
+    /// „hier ist, was du wollen könntest".
     private var inputBar: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Im Auftakt liegt das Foto bereits IN der Karte. Hier noch einmal
-            // als Anhangzeile wäre es doppelt — und genau die Anhangzeile ist
-            // das, was einen Chat ausmacht.
-            if !attachments.isEmpty && !messages.isEmpty {
-                // Angehängte Fotos GROSS über dem Textfeld — genau wie im
-                // Chat-Tab: man sieht, woran man schreibt, bevor etwas im Chat
-                // landet. Vorher waren es beschnittene 54-pt-Quadrate, in denen
-                // ein Hochformat nicht zu erkennen war.
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 8) {
-                        ForEach(Array(attachments.enumerated()), id: \.offset) { idx, data in
-                            if let ui = UIImage(data: data) {
-                                ZStack(alignment: .topTrailing) {
-                                    // Seitenverhältnis zuerst, dann NUR eine
-                                    // Höhengrenze — sonst liegt der Rahmen nicht
-                                    // am Bild an und es entstehen weiße Balken.
-                                    Image(uiImage: ui)
-                                        .resizable()
-                                        .aspectRatio(ui.size.width / max(ui.size.height, 1), contentMode: .fit)
-                                        .frame(maxHeight: 185)
-                                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                                        .overlay(
-                                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                                .strokeBorder(Theme.stroke, lineWidth: 1)
-                                        )
+        VStack(alignment: .leading, spacing: 9) {
+            leistenKopf
+            if !schnellauftraege.isEmpty { schnellzeile }
 
-                                    Button { attachments.remove(at: idx) } label: {
-                                        Image(systemName: "xmark")
-                                            .font(.system(size: 11, weight: .bold))
-                                            .foregroundStyle(.white)
-                                            .frame(width: 26, height: 26)
-                                            .background(.black.opacity(0.55), in: Circle())
-                                    }
-                                    .buttonStyle(.plain)
-                                    .padding(7)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Gleiche Leiste wie im Chat-Tab: Textfeld oben, darunter die
-            // Aktionszeile. Vorher stand hier eine eigene, einzeilige Variante
-            // mit anderem Aussehen — zwei Chats in derselben App sollen sich
-            // nicht unterschiedlich anfühlen.
-            VStack(spacing: 10) {
-                TextField("Describe anything you want…", text: $input, axis: .vertical)
+            HStack(alignment: .bottom, spacing: 10) {
+                TextField("Tell him what to change…", text: $input, axis: .vertical)
                     .font(.system(size: 16.5, weight: .medium, design: .rounded))
                     .lineLimit(1...5)
                     .focused($inputFocused)
@@ -707,65 +691,137 @@ struct AgentView: View {
                     .foregroundStyle(Theme.textPrimary)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
-                HStack(spacing: 8) {
-                    PhotosPicker(selection: $photoSelections, maxSelectionCount: 6, matching: .images) {
-                        Image(systemName: "plus")
-                            .font(.system(size: 17, weight: .semibold))
-                            .foregroundStyle(Theme.textPrimary)
-                            .frame(width: 34, height: 34)
-                            .glassEffect(.regular.interactive(), in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(isWorking)
-
-                    Button {
-                        inputFocused = false
-                        showPoseCamera = true
-                    } label: {
-                        Image(systemName: "camera")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(Theme.textPrimary)
-                            .frame(width: 34, height: 34)
-                            .glassEffect(.regular.interactive(), in: Circle())
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(isWorking)
-
-                    Spacer(minLength: 0)
-
-                    Button {
-                        inputFocused = false
-                        Task { await send() }
-                    } label: {
-                        Image(systemName: "arrow.up")
-                            .font(.system(size: 17, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 36, height: 36)
-                            .glassEffect(canSend ? .regular.tint(Theme.accent).interactive() : .regular, in: Circle())
-                            .shadow(color: canSend ? Theme.accent.opacity(0.28) : .clear, radius: 8, y: 3)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!canSend)
-                    .animation(.spring(duration: 0.25), value: canSend)
+                Button {
+                    inputFocused = false
+                    Task { await send() }
+                } label: {
+                    // Weisses Glas auf weissem Feld war unsichtbar: solange
+                    // nichts getippt ist, sah man den Knopf gar nicht. Der
+                    // ausgeschaltete Zustand braucht deshalb eine eigene,
+                    // sichtbare Fuellung.
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(canSend ? .white : Theme.textTertiary)
+                        .frame(width: 36, height: 36)
+                        .background(canSend ? Theme.accent : Theme.surfaceHigh, in: Circle())
+                        .shadow(color: canSend ? Theme.accent.opacity(0.28) : .clear, radius: 8, y: 3)
                 }
+                .buttonStyle(.plain)
+                .disabled(!canSend)
+                .animation(.spring(duration: 0.25), value: canSend)
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-            .shadow(color: .black.opacity(0.10), radius: 18, y: 8)
-            // The glass is visually solid but otherwise has transparent gaps.
-            // Claim its complete shape so buttons/templates behind it cannot
-            // receive the tap intended for +, camera or send.
-            .contentShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
+            .padding(.vertical, 11)
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .strokeBorder(Theme.textPrimary.opacity(0.09), lineWidth: 1)
+            )
+            // Das Feld ist optisch geschlossen, hat aber durchsichtige Lücken.
+            // Ohne eigene Trefferfläche bekämen Karten dahinter den Tipp, der
+            // dem Senden galt.
+            .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         }
         .padding(.horizontal, Theme.screenPadding)
-        .padding(.top, 8)
-        // Above the shared tab bar when idle; directly above the keyboard when
-        // focused. The scroll content remains visible through the gap.
-        .padding(.bottom, inputFocused ? 2 : 82)
+        .padding(.top, 12)
+        // Über der Tableiste, wenn niemand tippt; direkt über der Tastatur,
+        // sobald jemand tippt.
+        .padding(.bottom, inputFocused ? 12 : 92)
+        // EIN DECKENDES TABLETT, KEIN SCHWEBENDES GLAS.
+        //
+        // Zuerst lag hier nur ein Glaseffekt um das Textfeld. Über den bunten
+        // Trendkacheln war das Ergebnis unlesbar: Gesichter schienen mitten
+        // durch die Leiste, die Kopfzeile verschwand im Bild darunter. Im
+        // Simulator genau so gesehen.
+        //
+        // Deshalb trägt jetzt die GANZE Leiste — Kopfzeile, Schnellaufträge,
+        // Feld — einen gemeinsamen, deckenden Untergrund, und darüber liegt
+        // eine kurze Blende, unter der der Inhalt weich verschwindet, statt
+        // an einer Kante abzureissen.
+        .background(alignment: .top) {
+            ZStack(alignment: .top) {
+                UnevenRoundedRectangle(
+                    topLeadingRadius: 26, bottomLeadingRadius: 0,
+                    bottomTrailingRadius: 0, topTrailingRadius: 26,
+                    style: .continuous
+                )
+                .fill(Theme.background)
+                .shadow(color: Theme.textPrimary.opacity(0.13), radius: 18, y: -6)
+
+                LinearGradient(colors: [Theme.background, Theme.background.opacity(0)],
+                               startPoint: .bottom, endPoint: .top)
+                    .frame(height: 26)
+                    .offset(y: -25)
+            }
+            .ignoresSafeArea(edges: .bottom)
+        }
         .animation(.easeInOut(duration: 0.2), value: inputFocused)
         .contentShape(Rectangle())
         .zIndex(100)
+    }
+
+    /// Sagt, worüber hier gesprochen wird — und lässt es wieder schließen.
+    private var leistenKopf: some View {
+        HStack(spacing: 7) {
+            Image(systemName: "pencil.and.scribble")
+                .font(.system(size: 11, weight: .bold))
+            Text("ASK THE DIRECTOR")
+                .font(.system(size: 10, weight: .black, design: .rounded))
+                .tracking(1.4)
+            Spacer(minLength: 0)
+            Button {
+                inputFocused = false
+                withAnimation(.spring(response: 0.4, dampingFraction: 0.88)) {
+                    showComposer = false
+                }
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundStyle(Theme.textSecondary)
+                    .frame(width: 24, height: 24)
+                    .background(Theme.surface.opacity(0.8), in: Circle())
+            }
+            .buttonStyle(.plain)
+        }
+        .foregroundStyle(Theme.textTertiary)
+        .padding(.horizontal, 6)
+    }
+
+    /// Die Anmerkungen vom Foto als fertige Aufträge, dazu ein allgemeiner.
+    ///
+    /// Sie schreiben nur ins Feld, sie senden nicht. Jeder Zug kostet Credits —
+    /// ein Tipp, der sofort rendert, wäre eine Falle.
+    private var schnellauftraege: [String] {
+        var alle = readMarks.map(\.request)
+        if alle.count < 3 { alle.append("Make it feel like a real camera shot") }
+        return Array(alle.prefix(3))
+    }
+
+    private var schnellzeile: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 7) {
+                ForEach(schnellauftraege, id: \.self) { auftrag in
+                    Button {
+                        input = auftrag
+                        inputFocused = true
+                    } label: {
+                        Text(auftrag)
+                            .font(.system(size: 13, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Theme.textPrimary)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 8)
+                            .background(Theme.papier, in: Capsule())
+                            .overlay(
+                                Capsule().strokeBorder(Theme.textPrimary.opacity(0.09), lineWidth: 1)
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 4)
+        }
+        .padding(.horizontal, -Theme.screenPadding)
+        .padding(.leading, Theme.screenPadding)
     }
 
     private var canSend: Bool {
