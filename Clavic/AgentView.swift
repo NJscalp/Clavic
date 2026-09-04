@@ -33,6 +33,14 @@ struct AgentView: View {
     /// Was auf dem Foto angestrichen wurde. Füttert die Schnellaufträge der
     /// Regie-Leiste — sie soll über DIESES Bild reden, nicht über Fotos.
     @State private var readMarks: [ReadMark] = []
+    /// Was der Server gerade als Trend führt. Kommt aus `templates.json` und
+    /// braucht kein App-Update: neuer Trend samt Bild hochgeladen, sofort im
+    /// Streifen. Genau dafür wurde der eingebaute Katalog hier entfernt.
+    /// OPTIONAL, nicht zwingend: `@Environment` mit einem nicht-optionalen
+    /// `@Observable` stuerzt beim Zugriff ab, wenn niemand ihn eingehaengt
+    /// hat — etwa in einer Vorschau oder einem Test. Der Streifen faellt dann
+    /// auf die Vorschlaege des Directors zurueck, statt die App mitzureissen.
+    @Environment(TemplateStore.self) private var templateStore: TemplateStore?
     @State private var photoSelections: [PhotosPickerItem] = []
     @AppStorage("acceptedContentPolicy") private var acceptedContentPolicy = false
     @State private var showConsent = false
@@ -251,13 +259,13 @@ struct AgentView: View {
     /// `height` nur setzen, wo die Figur NEBEN etwas steht — im Ergebnis
     /// steht sie klein rechts vom Foto statt breit darueber.
     private func mascotBlock(height: CGFloat? = nil,
-                            idleSet: [URL] = MascotStage.idleURLs) -> some View {
+                            idleLoopURL: URL? = nil) -> some View {
         MascotStage(
             act: mascotAct,
             throwToken: throwToken,
             expectsThrow: !didPlayWelcomeThrow && messages.isEmpty,
             height: height ?? mascotHeight,
-            idleSet: idleSet,
+            idleLoopURL: idleLoopURL,
             isActive: true,
             showsHabitat: messages.isEmpty,
             // In der Werkbank erzählt die Zeile darunter den Stand — die
@@ -272,6 +280,28 @@ struct AgentView: View {
             },
             onThrowFinished: { mascotAct = isWorking ? .working : .idle }
         )
+    }
+
+    /// Serververlagen als antippbare Richtungen.
+    ///
+    /// Nur Bild-Trends mit Vorschau und Rezept: ein Video-Trend gehört nicht
+    /// in einen Streifen, der verspricht, DIESES Foto zu verändern, und eine
+    /// Kachel ohne Bild kann man sich nicht vorstellen.
+    private var serverTrends: [DirectorAPI.Option] {
+        (templateStore?.templates ?? [])
+            .filter { $0.isImageEdit && !$0.prompt.isEmpty && !$0.isHiddenFromDiscover }
+            .compactMap { template in
+                let vorschau = template.previewRemoteURL ?? template.preview
+                guard !vorschau.isEmpty else { return nil }
+                return DirectorAPI.Option(
+                    id: template.hashtag.isEmpty ? template.title : template.hashtag,
+                    label: template.title,
+                    caption: template.subtitle,
+                    mode: .grade,
+                    prompt: template.fixedEditPrompt ?? template.prompt,
+                    preview: vorschau
+                )
+            }
     }
 
     /// Der letzte Stand des Directors — das ist alles, was gezeigt wird.
@@ -303,7 +333,7 @@ struct AgentView: View {
                             // Eigener Ruhe-Satz: hier zeigt, betrachtet und
                             // billigt sie den Abzug — statt dasselbe zu tun
                             // wie im Leerlauf auf dem Startbildschirm.
-                            mascotBlock(height: 132, idleSet: MascotStage.readIdleURLs)
+                            mascotBlock(height: 132, idleLoopURL: MascotStage.readLoopURL)
                                 .frame(width: 132)
                         }
                     },
@@ -314,6 +344,8 @@ struct AgentView: View {
                     verdict: letzter?.text,
                     picks: letzter?.picks ?? [],
                     trends: letzter?.trends ?? [],
+                    serverTrends: serverTrends,
+                    composerOpen: showComposer,
                     landed: optionsRevealed,
                     throwToken: throwToken,
                     onPick: { chooseOption($0) },

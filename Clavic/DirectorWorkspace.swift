@@ -67,6 +67,10 @@ struct DirectorWorkspace<Mascot: View>: View {
     let verdict: String?
     let picks: [DirectorAPI.Option]
     let trends: [DirectorAPI.Option]
+    /// Trends vom Server — kein App-Update noetig.
+    var serverTrends: [DirectorAPI.Option] = []
+    /// true, solange die Regie-Leiste unten steht.
+    var composerOpen: Bool = false
     let landed: Bool
     let throwToken: Int
     var onPick: (DirectorAPI.Option) -> Void = { _ in }
@@ -107,6 +111,7 @@ struct DirectorWorkspace<Mascot: View>: View {
             if !picks.isEmpty {
                 DirectorPicks(
                     picks: picks, trends: trends,
+                    serverTrends: serverTrends, composerOpen: composerOpen,
                     landed: landed, throwToken: throwToken,
                     sourcePhoto: before ?? photo,
                     onPick: onPick, onOwnIdea: onOwnIdea

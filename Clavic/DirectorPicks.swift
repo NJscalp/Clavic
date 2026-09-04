@@ -18,21 +18,19 @@
 //       liegt, klappt nicht auf — man kann sich nichts vorstellen, was man
 //       nicht sieht. Jetzt liegen die Vorschaubilder offen da.
 //
-//    3. Der ganze Katalog — als FILMSTREIFEN, nicht als Listenzeile.
+//    3. „…or tell me your own idea" — eine kleine Glasleiste, die nach
+//       unten wandert.
 //
-//       Eine weisse Zeile mit einem Pfeil rechts ist das Bauteil, das in
-//       jeder App steht. Sie sagt nichts darüber, wo man ist. Der Streifen
-//       mit Perforation gehört dagegen auf denselben Tisch wie die Filmdose
-//       in der Kulisse und die Sofortbilder darüber — und man sieht sofort
-//       Bilder statt eines Versprechens.
+//       Sie liegt zuerst klein im Fluss, dort wo man sie braucht. Beim
+//       Antippen verschwindet sie hier und die grosse Regie-Leiste steht
+//       unten am Bildschirmrand — dieselbe Bewegung, die man aus dem
+//       Chat-Tab kennt. Kein zweiter Ort zum Suchen.
 //
-//    4. „…or tell me your own idea" — als LEERER ABZUG.
-//
-//       Vorher war das ein Kasten mit gestrichelter Umrandung. Der liest sich
-//       als Ablagefeld für Dateien, und gestrichelte Kästen stehen in jeder
-//       zweiten App. Ein leerer Abzug mit einer Bleistiftlinie darauf sagt
-//       dasselbe in der Sprache dieses Bildschirms: der Director hat zwei
-//       Bilder hingelegt, und eins ist noch frei.
+//  KEIN KATALOG-KNOPF MEHR. Hier stand „Every look we have" mit allem, was
+//  im Bundle liegt. Das war eine Liste, die nur ein App-Update aendern kann —
+//  und Trends kommen nicht im Rhythmus von App-Updates. Was der Streifen
+//  zeigt, kommt deshalb VOM SERVER (`TemplateStore`, `templates.json`):
+//  neuer Trend, Bild dazu, hochgeladen, sofort drin.
 //
 //  ES WIRD NICHTS GERENDERT, bevor hier etwas angetippt wurde. Jeder Tipp
 //  kostet Credits, deshalb ist jeder Tipp eine bewusste Entscheidung.
@@ -43,6 +41,12 @@ import SwiftUI
 struct DirectorPicks: View {
     let picks: [DirectorAPI.Option]
     let trends: [DirectorAPI.Option]
+    /// Was der Server gerade als Trend fuehrt. Kommt aus `templates.json` und
+    /// braucht kein App-Update — genau dafuer ist der Streifen da.
+    var serverTrends: [DirectorAPI.Option] = []
+    /// true, solange die grosse Leiste unten steht. Dann ist die kleine hier
+    /// weg: sie ist ja nach unten gewandert.
+    var composerOpen: Bool = false
     /// false = der Wurf läuft noch.
     let landed: Bool
     let throwToken: Int
@@ -50,19 +54,6 @@ struct DirectorPicks: View {
     let sourcePhoto: Data?
     var onPick: (DirectorAPI.Option) -> Void = { _ in }
     var onOwnIdea: () -> Void = {}
-
-    @State private var katalogOffen = false
-
-    /// Der Hauskatalog als antippbare Richtungen. Alles unter „Viral Looks",
-    /// das ein Vorschaubild und ein Rezept hat.
-    private static let katalog: [DirectorAPI.Option] = TemplateLibrary.all
-        .filter { $0.category == .looks && !$0.prompt.isEmpty }
-        .map {
-            DirectorAPI.Option(
-                id: $0.hashtag, label: $0.title, caption: $0.subtitle,
-                mode: .grade, prompt: $0.prompt, preview: $0.preview
-            )
-        }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 18) {
@@ -72,22 +63,19 @@ struct DirectorPicks: View {
             vorschlaege
 
             if landed {
-                if !trends.isEmpty { trendStreifen }
-                katalogStreifen
-                eigeneIdee
+                if !alleTrends.isEmpty { trendStreifen }
+                if !composerOpen { eigeneIdee }
             }
         }
         .animation(.easeOut(duration: 0.35), value: landed)
-        .sheet(isPresented: $katalogOffen) {
-            DirectorCatalogSheet(
-                looks: Self.katalog,
-                sourcePhoto: sourcePhoto,
-                onPick: { option in
-                    katalogOffen = false
-                    onPick(option)
-                }
-            )
-        }
+        .animation(.spring(response: 0.42, dampingFraction: 0.9), value: composerOpen)
+    }
+
+    /// Vorschlaege des Directors zuerst — sie sind auf DIESES Foto sortiert —,
+    /// dahinter, was der Server gerade fuehrt. Doppelte fliegen raus.
+    private var alleTrends: [DirectorAPI.Option] {
+        var gesehen = Set(trends.map(\.id))
+        return trends + serverTrends.filter { gesehen.insert($0.id).inserted }
     }
 
     // MARK: - Seine zwei
@@ -115,7 +103,7 @@ struct DirectorPicks: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
-                    ForEach(Array(trends.enumerated()), id: \.element.id) { rang, trend in
+                    ForEach(Array(alleTrends.enumerated()), id: \.element.id) { rang, trend in
                         Button { onPick(trend) } label: { trendKachel(trend, rang: rang) }
                             .buttonStyle(.plain)
                     }
@@ -132,11 +120,7 @@ struct DirectorPicks: View {
         VStack(alignment: .leading, spacing: 0) {
             ZStack(alignment: .topLeading) {
                 Rectangle().fill(Theme.surfaceHigh)
-                if let name = trend.preview, UIImage(named: name) != nil {
-                    Image(name).resizable().scaledToFill()
-                } else if let data = sourcePhoto, trend.mode.keepsPhoto, let ui = UIImage(data: data) {
-                    Image(uiImage: ui).resizable().scaledToFill()
-                }
+                vorschau(trend)
 
                 // Der Rang ist nicht Zierrat: die Reihenfolge ist bereits nach
                 // Passung zu DIESEM Foto sortiert, und die Zahl sagt das.
@@ -174,116 +158,69 @@ struct DirectorPicks: View {
         .shadow(color: Theme.textPrimary.opacity(0.07), radius: 8, y: 4)
     }
 
-    // MARK: - Der ganze Katalog
-
-    /// Ein Filmstreifen statt einer Listenzeile.
+    /// Das Vorschaubild einer Kachel — aus dem Bundle ODER vom Server.
     ///
-    /// Die Perforation oben und unten ist der ganze Trick: sie macht aus einer
-    /// Reihe Bildchen ein Objekt, das auf diesem Tisch liegen kann. Sie ist
-    /// nicht gezeichnet, sondern eine Reihe kleiner Rechtecke im gleichen
-    /// Abstand — deshalb passt sie sich jeder Breite an.
-    private var katalogStreifen: some View {
-        Button { katalogOffen = true } label: {
-            VStack(alignment: .leading, spacing: 7) {
-                abschnitt("EVERY LOOK WE HAVE", zusatz: "\(Self.katalog.count)")
-
-                ZStack {
-                    Theme.textPrimary
-                    VStack(spacing: 0) {
-                        perforation
-                        HStack(spacing: 3) {
-                            ForEach(Array(Self.katalog.prefix(6).enumerated()), id: \.offset) { _, look in
-                                Group {
-                                    if let name = look.preview, UIImage(named: name) != nil {
-                                        Image(name).resizable().scaledToFill()
-                                    } else {
-                                        Rectangle().fill(Theme.surfaceHigh)
-                                    }
-                                }
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 62)
-                                .clipped()
-                            }
-                        }
-                        .padding(.horizontal, 3)
-                        perforation
-                    }
-                    .padding(.vertical, 5)
+    /// Ein Trend, der erst gestern hochgeladen wurde, hat kein Asset im
+    /// Bundle. Sieht `preview` wie eine Adresse aus, wird es geladen; sonst
+    /// bleibt es der alte Weg ueber den Asset-Katalog.
+    @ViewBuilder
+    private func vorschau(_ trend: DirectorAPI.Option) -> some View {
+        if let name = trend.preview, name.hasPrefix("http"), let url = URL(string: name) {
+            AsyncImage(url: url) { phase in
+                if let bild = phase.image {
+                    bild.resizable().scaledToFill()
+                } else {
+                    // Kein Kreisel: eine ruhige Flaeche stoert weniger als ein
+                    // Dutzend drehende Raedchen in einem Streifen.
+                    Rectangle().fill(Theme.surfaceHigh)
                 }
-                .frame(height: 88)
-                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
-                // Er liegt leicht schief auf dem Tisch, wie alles hier.
-                .rotationEffect(.degrees(-0.6))
-                .shadow(color: Theme.textPrimary.opacity(0.16), radius: 10, y: 5)
             }
+        } else if let name = trend.preview, UIImage(named: name) != nil {
+            Image(name).resizable().scaledToFill()
+        } else if let data = sourcePhoto, trend.mode.keepsPhoto, let ui = UIImage(data: data) {
+            Image(uiImage: ui).resizable().scaledToFill()
         }
-        .buttonStyle(.plain)
-    }
-
-    /// Eine Reihe Perforationslöcher.
-    private var perforation: some View {
-        HStack(spacing: 0) {
-            ForEach(0..<14, id: \.self) { _ in
-                RoundedRectangle(cornerRadius: 1.5, style: .continuous)
-                    .fill(Theme.background)
-                    .frame(width: 7, height: 5)
-                    .frame(maxWidth: .infinity)
-            }
-        }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 4)
     }
 
     // MARK: - Eigene Idee
 
-    /// Ein leerer Abzug. Kein gestrichelter Kasten.
+    /// Eine kleine Glasleiste, die beim Antippen nach unten wandert.
     ///
-    /// Er hat genau die Form der geworfenen Karten darüber — Bildfeld oben,
-    /// beschrifteter Streifen unten, leicht schief. Dadurch steht die eigene
-    /// Idee sichtbar AUF DERSELBEN STUFE wie die beiden Vorschläge, statt als
-    /// Notausgang darunter.
+    /// Sie sieht aus wie die grosse Regie-Leiste, nur klein und an der Stelle,
+    /// an der man auf den Gedanken kommt. Beim Antippen verschwindet sie hier
+    /// und dieselbe Leiste steht unten am Bildschirmrand — sie ist nicht
+    /// zweimal da, sie ist umgezogen. Deshalb steuert `composerOpen` von
+    /// aussen, ob sie ueberhaupt gezeigt wird.
     ///
-    /// Im Bildfeld liegt eine Bleistiftlinie, die nichts darstellt: sie sagt
-    /// „hier ist noch nichts", ohne ein Symbol zu bemühen.
+    /// Das Glas ist dasselbe Material wie im Chat-Tab. Wer dort getippt hat,
+    /// erkennt hier sofort, was das ist.
     private var eigeneIdee: some View {
         Button(action: onOwnIdea) {
-            VStack(spacing: 0) {
-                ZStack {
-                    Theme.background
-                    KritzelLinie()
-                        .stroke(Theme.textTertiary.opacity(0.5),
-                                style: StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round))
-                        .padding(.horizontal, 34)
-                        .padding(.vertical, 22)
-                    Image(systemName: "pencil")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(Theme.accent)
-                        .frame(width: 34, height: 34)
-                        .background(Theme.surface, in: Circle())
-                        .shadow(color: Theme.textPrimary.opacity(0.10), radius: 5, y: 2)
-                }
-                .frame(height: 74)
-                .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
-                .padding(9)
-                .padding(.bottom, 0)
-
-                HStack(spacing: 0) {
-                    Text("…or tell me your own idea")
-                        .font(.system(size: 14.5, weight: .semibold, design: .serif))
-                        .italic()
-                        .foregroundStyle(Theme.textPrimary)
-                    Spacer(minLength: 0)
-                }
-                .padding(.horizontal, 11)
-                .padding(.top, 8)
-                .padding(.bottom, 12)
+            HStack(spacing: 10) {
+                Image(systemName: "pencil.and.scribble")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(Theme.accent)
+                Text("…or tell me your own idea")
+                    .font(.system(size: 15, weight: .medium, design: .rounded))
+                    .foregroundStyle(Theme.textSecondary)
+                Spacer(minLength: 0)
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Theme.textTertiary)
+                    .frame(width: 28, height: 28)
+                    .background(Theme.surfaceHigh, in: Circle())
             }
-            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-            .rotationEffect(.degrees(1.1))
-            .shadow(color: Theme.textPrimary.opacity(0.13), radius: 11, y: 6)
-            .padding(.horizontal, 2)
+            .padding(.leading, 15)
+            .padding(.trailing, 7)
+            .padding(.vertical, 7)
+            .glassEffect(.regular.interactive(), in: Capsule())
+            .shadow(color: Theme.textPrimary.opacity(0.08), radius: 10, y: 4)
+            // Glas ist optisch geschlossen, hat aber durchsichtige Luecken —
+            // ohne eigene Trefferflaeche geht der Tipp daran vorbei.
+            .contentShape(Capsule())
         }
         .buttonStyle(.plain)
+        .transition(.opacity.combined(with: .offset(y: 12)))
     }
 
     // MARK: - Bausteine
@@ -332,84 +269,5 @@ private struct KritzelLinie: Shape {
             if step == 0 { p.move(to: point) } else { p.addLine(to: point) }
         }
         return p
-    }
-}
-
-// MARK: - Der ganze Katalog als Kachelwand
-
-/// Alles, was das Haus kann, in einem Raster mit echten Vorschaubildern.
-///
-/// Bewusst KEINE Suchzeile und keine Filter: bei rund zwanzig Kacheln ist
-/// Scrollen schneller als Tippen, und jedes Bedienelement mehr macht aus
-/// einer Auswahl eine Verwaltung.
-private struct DirectorCatalogSheet: View {
-    let looks: [DirectorAPI.Option]
-    let sourcePhoto: Data?
-    let onPick: (DirectorAPI.Option) -> Void
-
-    @Environment(\.dismiss) private var dismiss
-
-    private let spalten = [GridItem(.flexible(), spacing: 12),
-                           GridItem(.flexible(), spacing: 12)]
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                LazyVGrid(columns: spalten, spacing: 14) {
-                    ForEach(looks) { look in
-                        Button { onPick(look) } label: { kachel(look) }
-                            .buttonStyle(.plain)
-                    }
-                }
-                .padding(Theme.screenPadding)
-            }
-            .background(Theme.background.ignoresSafeArea())
-            .navigationTitle("Every look")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 13, weight: .bold))
-                            .foregroundStyle(Theme.textPrimary)
-                    }
-                }
-            }
-        }
-    }
-
-    private func kachel(_ look: DirectorAPI.Option) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ZStack {
-                Rectangle().fill(Theme.surfaceHigh)
-                if let name = look.preview, UIImage(named: name) != nil {
-                    Image(name).resizable().scaledToFill()
-                }
-            }
-            .frame(height: 178)
-            .clipped()
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(look.label)
-                    .font(.system(size: 14, weight: .bold, design: .rounded))
-                    .foregroundStyle(Theme.textPrimary)
-                    .lineLimit(1)
-                Text(look.caption)
-                    .font(.system(size: 11.5, weight: .medium, design: .rounded))
-                    .foregroundStyle(Theme.textSecondary)
-                    .lineLimit(2, reservesSpace: true)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 10)
-            .padding(.top, 8)
-            .padding(.bottom, 10)
-        }
-        .background(Theme.surface)
-        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                .strokeBorder(Theme.textPrimary.opacity(0.08), lineWidth: 1)
-        )
-        .shadow(color: Theme.textPrimary.opacity(0.06), radius: 8, y: 4)
     }
 }

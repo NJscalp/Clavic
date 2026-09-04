@@ -71,9 +71,11 @@ struct MascotStage: View {
     var expectsThrow: Bool = false
     /// Höhe des Blocks im Fluss.
     var height: CGFloat = 250
-    /// Welchen Ruhe-Satz die Figur spielt. Neben dem gelesenen Foto ein
-    /// eigener, der zum Bild gehoert — nicht derselbe wie im Leerlauf.
-    var idleSet: [URL] = MascotStage.idleURLs
+    /// Ist das gesetzt, laeuft NUR diese eine Datei in Endlosschleife, statt
+    /// der Rotation aus mehreren Clips mit Ueberblendung dazwischen. Neben dem
+    /// gelesenen Foto ist genau das noetig: die Ueberblendung ist der Grund,
+    /// warum man dort einen Wechsel sah.
+    var idleLoopURL: URL? = nil
     /// Nur der sichtbare Tab lässt die Videos laufen (Akku).
     var isActive: Bool = true
     /// true nur im leeren Auftakt: dann steht die Figur zwischen Blättern.
@@ -118,7 +120,8 @@ struct MascotStage: View {
     /// mit, sobald der Zähler stieg. Dann lagen die Karten schon da, bevor der
     /// Wurf begonnen hatte.
     private var canPlayVideos: Bool {
-        !reduceMotion && Self.throwURL != nil && !idleSet.isEmpty
+        !reduceMotion && Self.throwURL != nil
+            && (idleLoopURL != nil || !Self.idleURLs.isEmpty)
     }
 
     var body: some View {
@@ -142,7 +145,8 @@ struct MascotStage: View {
 
                 MascotPlayer(
                     throwURL: throwURL,
-                    idleURLs: idleSet,
+                    idleURLs: Self.idleURLs,
+                    idleLoopURL: idleLoopURL,
                     scanURL: Self.scanURL,
                     // Waehrend er das Foto liest, haelt er die Lupe darueber —
                     // statt danebenzustehen, als ginge ihn das nichts an.
@@ -273,29 +277,29 @@ struct MascotStage: View {
         }
     }
 
-    /// DREI EIGENE POSEN fuer den Platz neben dem gelesenen Foto.
+    /// DREI EIGENE POSEN neben dem gelesenen Foto — in EINER Datei.
     ///
-    /// Dort stand vorher derselbe Ruhe-Satz wie auf dem Startbildschirm. Das
-    /// war zweimal falsch: die Figur tat neben dem Abzug dasselbe wie im
-    /// Leerlauf, und der Wechsel zwischen den alten Clips war als Schnitt zu
-    /// sehen — sie enden in voellig verschiedenen Posen, und eine Blende
-    /// zwischen zwei verschiedenen Posen ist ein sichtbares Doppelbild.
+    /// Warum eine Datei und nicht drei: die Idle-Rotation blendet 0,30 s VOR
+    /// dem Ende des laufenden Clips auf den naechsten. Waehrend dieser Blende
+    /// bewegt sich der alte Clip noch und der neue laeuft schon — man sieht
+    /// zwei Figuren in verschiedenen Haltungen uebereinander. GENAU DAS war
+    /// der sichtbare „Videowechsel". Eine Blende kann das nicht heilen; sie
+    /// ist die Ursache.
     ///
-    /// Diese drei sind darauf gebaut, ineinander zu laufen:
-    ///   • Alle drei entstanden aus DEMSELBEN Bild — dem ersten Bild von
-    ///     `mascot_idle1` — also aus derselben Pose.
-    ///   • Jeder Clip laeuft hin und zurueck und endet deshalb exakt auf
-    ///     seinem Anfangsbild. GEMESSEN: eigene Naht 0,9 bis 1,1 von 255.
-    ///   • Damit sind auch Ende und Anfang ZWEIER VERSCHIEDENER Clips fast
-    ///     deckungsgleich. GEMESSEN: 2,3 bis 2,5 von 255 im Mittel — was die
-    ///     kurze Blende vollstaendig verdeckt.
+    /// Deshalb: `mascot_read_loop.mp4` enthaelt alle drei Posen hintereinander
+    /// und laeuft als EIN `AVPlayerLooper` — dieselbe Mechanik, die den
+    /// Pruef-Loop schon lueckenlos haelt. Keine Blende, kein Wechsel, kein
+    /// Neustart.
     ///
-    /// Inhaltlich gehoeren sie zum Foto: zeigen, betrachten, gutheissen.
-    static var readIdleURLs: [URL] {
-        ["mascot_read_point", "mascot_read_study", "mascot_read_approve"].compactMap {
-            Bundle.main.url(forResource: $0, withExtension: "mp4")
-        }
+    /// Die Naehte sind VERSCHWEISST: jede Pose blendet ueber fuenf Bilder auf
+    /// EIN gemeinsames Ankerbild und wieder heraus. Dadurch sind die Bilder an
+    /// jedem Uebergang identisch. GEMESSEN, mittlere Abweichung von 255:
+    /// Pose 1→2: 0,78 · Pose 2→3: 0,81 · Ende→Anfang: 0,64. Das ist der Rest
+    /// der Videokompression, nicht mehr die Figur.
+    static var readLoopURL: URL? {
+        Bundle.main.url(forResource: "mascot_read_loop", withExtension: "mp4")
     }
+
 
     /// Der Prüf-Loop: er hält eine Lupe, ein Auge fixiert durch das Glas,
     /// das andere wandert weiter über die Karte. Läuft, solange er liest, und
@@ -314,6 +318,8 @@ struct MascotStage: View {
 private struct MascotPlayer: UIViewRepresentable {
     let throwURL: URL
     let idleURLs: [URL]
+    /// Eine einzige Datei in Endlosschleife statt der Rotation.
+    let idleLoopURL: URL?
     /// Der Pruef-Loop. Optional: fehlt der Clip, bleibt es beim Leerlauf.
     let scanURL: URL?
     /// true, solange der Director das Foto liest.
@@ -332,7 +338,8 @@ private struct MascotPlayer: UIViewRepresentable {
 
     func makeUIView(context: Context) -> MascotPlayerUIView {
         let v = MascotPlayerUIView()
-        v.configure(throwURL: throwURL, idleURLs: idleURLs, scanURL: scanURL,
+        v.configure(throwURL: throwURL, idleURLs: idleURLs,
+                    idleLoopURL: idleLoopURL, scanURL: scanURL,
                     onHandoff: onHandoff, onThrowFinished: onThrowFinished,
                     onReady: onReady)
         // Reihenfolge: Pruefen ZUERST. `throwToken` ist nach dem
@@ -356,7 +363,7 @@ private struct MascotPlayer: UIViewRepresentable {
         // Buehne zeigt beim Lesen den einen und danach neben dem Foto den
         // anderen. `configure` laeuft nur beim Aufbau — ohne diese Zeile
         // spielte sie danach weiter die alten Clips.
-        uiView.setIdleSet(idleURLs)
+        uiView.setIdleLoop(idleLoopURL)
         uiView.setActive(isActive)
         uiView.startThrow(token: throwToken)
         // Nach dem Wurf, sonst ueberschreibt der Wurf den Pruef-Loop sofort.
@@ -386,6 +393,7 @@ final class MascotPlayerUIView: UIView {
 
     private var throwURL: URL?
     private var idleURLs: [URL] = []
+    private var idleLoopURL: URL?
     private var idleIndex = 0
     /// Der Pruef-Loop (Lupe). Laeuft, solange der Director das Foto liest.
     private var scanURL: URL?
@@ -418,22 +426,27 @@ final class MascotPlayerUIView: UIView {
 
     // MARK: Aufbau
 
-    /// Tauscht den Ruhe-Satz im Betrieb.
+    /// Schaltet im Betrieb zwischen Rotation und Endlosschleife um.
     ///
-    /// Der laufende Clip wird NICHT abgeschnitten — er spielt zu Ende, und
-    /// erst der naechste kommt aus dem neuen Satz. Ein harter Wechsel mitten
-    /// in einer Geste waere genau der Schnitt, den es hier zu vermeiden gilt.
-    func setIdleSet(_ urls: [URL]) {
-        guard urls != idleURLs, !urls.isEmpty else { return }
-        idleURLs = urls
-        idleIndex = urls.indices.randomElement() ?? 0
+    /// Dieselbe Buehne zeigt beim Lesen die Lupe und danach neben dem Foto den
+    /// Ruhe-Loop. `configure` laeuft nur beim Aufbau — ohne diese Zeile bliebe
+    /// sie danach in der Rotation vom Startbildschirm haengen.
+    func setIdleLoop(_ url: URL?) {
+        guard url != idleLoopURL else { return }
+        idleLoopURL = url
+        // Nicht waehrend des Wurfs oder des Lesens umschalten: die haben eine
+        // eigene Erzaehlung, die nicht mittendrin abreissen darf.
+        guard !scanning, !holding else { return }
+        startIdle()
     }
 
-    func configure(throwURL: URL, idleURLs: [URL], scanURL: URL? = nil,
+    func configure(throwURL: URL, idleURLs: [URL], idleLoopURL: URL? = nil,
+                   scanURL: URL? = nil,
                    onHandoff: @escaping () -> Void, onThrowFinished: @escaping () -> Void,
                    onReady: @escaping () -> Void) {
         self.throwURL = throwURL
         self.idleURLs = idleURLs
+        self.idleLoopURL = idleLoopURL
         self.scanURL = scanURL
         self.onHandoff = onHandoff
         self.onThrowFinished = onThrowFinished
@@ -587,9 +600,40 @@ final class MascotPlayerUIView: UIView {
     }
 
     func startIdle() {
+        // Eine Datei, ein Looper, KEINE Blende — siehe `readLoopURL`.
+        if let idleLoopURL {
+            startLoop(idleLoopURL)
+            return
+        }
         guard !idleURLs.isEmpty else { return }
         play(idleURLs[idleIndex], on: front)
         scheduleIdleHandover(on: front)
+    }
+
+    /// Haengt eine Datei lueckenlos an sich selbst.
+    ///
+    /// Herausgeloest aus `startScanning`, weil es dort schon bewiesen war: der
+    /// Looper legt das naechste Item an, ohne Neustart und ohne Luecke. Der
+    /// Weg HINEIN ist ein harter Schnitt — der Wurf endet in der Startpose und
+    /// der Loop beginnt in derselben, da faellt nichts auf.
+    func startLoop(_ url: URL) {
+        fading = false
+        clearObservers()
+        let visible = frontLayer, hidden = backLayer
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        visible.opacity = 1; visible.zPosition = 1
+        hidden.opacity = 0; hidden.zPosition = 0
+        CATransaction.commit()
+        scanLooper?.disableLooping()
+        scanLooper = nil
+        if let queue = front as? AVQueuePlayer {
+            queue.removeAllItems()
+            scanLooper = AVPlayerLooper(player: queue, templateItem: AVPlayerItem(url: url))
+            if !paused { queue.play() }
+        } else {
+            play(url, on: front)
+        }
     }
 
     /// Schaltet zwischen Pruef-Loop und Ruhe um.
@@ -626,6 +670,8 @@ final class MascotPlayerUIView: UIView {
     /// Haengt den Pruef-Clip kurz vor seinem Ende wieder an sich selbst.
     /// Blendet auf die Reserve-Ebene, auf der der nächste Idle-Clip startet.
     private func crossfadeToNextIdle(duration: Double) {
+        // Laeuft hier eine Endlosschleife, gibt es nichts zu wechseln.
+        if idleLoopURL != nil { startIdle(); return }
         guard !idleURLs.isEmpty, !fading else { return }
         if idleURLs.count > 1 {
             var next = idleIndex
