@@ -291,3 +291,43 @@ steht (`director-trends.mjs`).
 **Warnung beim Deploy:** Node 20.x ist veraltet, Deployments ab 01.10.2026
 schlagen fehl. Fix waere `"engines": { "node": "24.x" }` in der `package.json`
 des Backends.
+
+## Nachtrag 04.09.2026 (10) — Warum der Director stehenblieb
+
+**Die Ursache war Geld, nicht Code.** Jeder Zug endete mit 502, im Rumpf stand:
+`"Your credit balance is too low to access the Anthropic API."` Der direkte
+Anthropic-Zugang war leer. Der Testlauf aus Nachtrag (9) lief noch davor.
+
+**Wie die zwei Modelle wirklich verdrahtet sind** (nachgesehen, nicht vermutet):
+
+| Stufe | Modell | Weg | Schluessel |
+|---|---|---|---|
+| 1 — Foto lesen | google/gemini-3.5-flash | `fal.run/openrouter/router/vision` | `FAL_KEY` |
+| 2 — entscheiden | claude-opus-5 | `api.anthropic.com` direkt | `ANTHROPIC_API_KEY` |
+
+Also: **keine der beiden Stufen lief ueber WaveSpeed**, obwohl
+`wavespeedConfigured: true` meldet und `director-wavespeed.mjs` existiert.
+Stufe 1 war zu keiner Zeit kaputt — 26 Felder kamen sauber zurueck.
+
+**WaveSpeed gemessen** (14 Laeufe, 7 Fotos, 2 Runden):
+- Werkzeugaufruf geliefert: **14/14**. Die im Dateikopf befuerchtete Schwaeche
+  (Opus schreibt den Aufruf als Text statt ihn zu taetigen) trat NICHT auf.
+- Dauer 28–48 s gegenueber 12–15 s direkt.
+- ABER: **13 von 14 Laeufen gaben genau 2 Picks**, einer gab 1. Direkt ueber
+  Anthropic lag die Verteilung bei 1/2/2/3/1/3/2. Das ist der Preis von
+  fehlendem `thinking: {type:"adaptive"}` und `output_config: {effort}` im
+  OpenAI-Protokoll — und es kostet genau die Vielfalt aus Nachtrag (8).
+
+**Gebaut: automatisches Ausweichen.** Faellt der direkte Weg aus (Guthaben,
+Zeitlimit, nicht erreichbar), laeuft derselbe Opus 5 ueber WaveSpeed weiter,
+statt dem Nutzer einen 502 zu zeigen. Der direkte Weg bleibt die Vorgabe.
+Die Antwort meldet in `provider`, welcher Weg tatsaechlich geantwortet hat.
+Geprueft nach dem Deploy: 4/4 HTTP 200, `provider: "wavespeed"`.
+
+**Zu entscheiden:**
+- Anthropic aufladen → die vielfaeltige Beurteilung kommt zurueck, Ausweichen
+  bleibt als Netz.
+- Oder `DIRECTOR_PROVIDER=wavespeed` dauerhaft → ein Schluessel, eine
+  Abrechnung, aber fast immer zwei Vorschlaege.
+- Stufe 1 laeuft weiter ueber fal. Sie auf WaveSpeed zu holen ist eigene
+  Arbeit: `readPhoto` haengt fest am fal-Vision-Endpunkt.
