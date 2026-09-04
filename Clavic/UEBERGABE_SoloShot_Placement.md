@@ -409,3 +409,72 @@ Nachträgen (9) bis (12) — rund 40 Opus-Aufrufe mit Bild an einem Tag.
 
 **Zu tun, bevor weiter geprüft wird:** WaveSpeed aufladen. Ohne Guthaben ist
 jede weitere Messung an Stufe 2 sinnlos.
+
+## Nachtrag 04.09.2026 (13) — Der Director bildet eine Vision statt einen Befund
+
+Umsetzung der Diagnose. Kein UI-Redesign, adaptive 1–3-Logik unangetastet.
+
+**1. Repair-Pflichtregeln entfernt.** Alle drei Sätze aus der Diagnose sind raus:
+„at least one of your directions should clear it", „one pick should deal with
+them", „often the stronger pick". Ebenso „issues[0] gehört in deine eine Zeile".
+
+**2. Zwei Ebenen im Schema.** `direction.internal_steps[]` (max 8, je ≤120
+Zeichen) trägt die technische Arbeit. Der Prompt sagt ausdrücklich: eine
+Störstelle ist fast nie eine Direction. Die App reicht die Schritte beim Rendern
+als Checkliste an das Bildmodell weiter (`withSteps(_:_:)` in `AgentView`) —
+sichtbar sind sie nirgends.
+
+**3. Denkreihenfolge im Prompt** („HOW YOU THINK — IN THIS ORDER"): Moment
+verstehen → Stärken sehen → Vision bilden → sichtbare Direction → *erst dann*
+Schäden. Mit ausdrücklicher Nennung von `mood`, `location`, `time_of_day`,
+`outfit` als Rohmaterial — die vier Felder, die vorher keine Regel hatten.
+
+**4. Eigene Namen erlaubt.** Der Director darf Directions erfinden und mit
+eigenem Slug versehen. Nichts hartcodiert.
+
+**5. Lead-Frage neu:** „If I could show the user only ONE finished version of
+this photo, which one would I choose?" Ein Cleanup darf Lead sein, wenn es
+wirklich das Problem ist — ein kleiner Defekt nie.
+
+**7. Eine Quelle für App und Director.** `loadTrends()` fällt jetzt auf
+`/templates.json` derselben Auslieferung zurück — genau die Datei, aus der die
+App ihre Kacheln lädt. `normalizeTrend` nimmt beide Formen an (gepflegte
+Trendform und App-Vorlagenform); `subtitle` dient als `spot`, wenn keiner
+gepflegt ist. Video-Vorlagen werden verworfen.
+
+**8. Trend darf Pick und Lead sein** — im Prompt ausdrücklich erlaubt.
+**Nachgewiesen:** bei `director_real_cafe` wurde „Pro-Look" aus `templates.json`
+zum LEAD.
+
+**9. Review kennt drei Fehlerarten:** `major` (Identität/Hände/neues Bild, bis
+zu zwei Anläufe), **`look`** (technisch sauber, Richtung verfehlt — GENAU EIN
+Anlauf), `minor` (kein Anlauf). iOS: `Review.Severity`, und
+`refineIfNeeded` bricht bei `isLookMiss` nach dem ersten Versuch ab. Credits
+weiterhin nur bei Erfolg.
+
+**Zwei Fehler, die der Testlauf aufgedeckt hat:**
+- `cleanOptions` verwarf Picks mit Prompt < 40 Zeichen. Seit es
+  `internal_steps` gibt, legt das Modell die Substanz manchmal dorthin — ein
+  Foto kam mit NULL Vorschlägen zurück. Jetzt werden Prompt und Schritte
+  zusammengesetzt, statt die Richtung zu verlieren.
+- Über das OpenAI-Protokoll lässt das Modell `picks` gelegentlich ganz weg
+  (`required` wird dort nicht erzwungen). Das ergibt in der App einen toten
+  Bildschirm. Jetzt GENAU EIN zweiter Anlauf, nur in diesem Fall.
+- Neu: `debug: true` im Anfragerumpf liefert die rohe Werkzeugeingabe. Nur für
+  die Fehlersuche, per Vorgabe aus.
+
+### Testlauf, 12 Fotos
+
+| lead-Modus | | Anzahl Picks | |
+|---|---|---|---|
+| retouch | 9 | 1 Pick | 1 |
+| grade | 3 | 2 Picks | 11 |
+| restage / generate | 0 | 3 Picks | 0 |
+
+Leere Antworten: 0. Ø `internal_steps` je Pick: 5,6 (zwei Fotos: 0).
+
+**Wichtig zur Deutung:** Der `retouch`-Anteil im MODUS ist geblieben — die
+sichtbare Ebene hat sich aber umgedreht. Vorher hiessen die Leads „Clear the
+flare", „Clean the neon mess", „Bring the skin back". Jetzt „Empty Alley Travel
+Editorial", „Blue Hour Rooftop Editorial", „Late-Night Street Flash", „Just Her
+And The Light". `mode` ist ein internes Etikett und steht auf keiner Karte.

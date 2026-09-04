@@ -53,6 +53,13 @@ enum DirectorAPI {
         let prompt: String
         /// Asset-Name, wenn es ein Look aus dem Hauskatalog ist.
         let preview: String?
+        /// DIE LEISE EBENE: die technische Arbeit, die diese Richtung braucht.
+        ///
+        /// Steht bewusst NICHT auf der Karte. Der Nutzer waehlt ein Ergebnis
+        /// („Natural Mountain Editorial"), nicht eine Liste von Handgriffen.
+        /// Beim Rendern gehen die Schritte als Checkliste an das Bildmodell —
+        /// dort entscheiden sie, ob aus der Vision ein gutes Bild wird.
+        var internalSteps: [String] = []
         /// Nur bei Trends: der eine, der zu DIESEM Foto herausragt. Der
         /// Director hat die Bildlesung — er kann das beurteilen, und genau
         /// dafuer ist er da. Der Nutzer soll keine Galerie durchsuchen.
@@ -179,6 +186,9 @@ enum DirectorAPI {
                     mode: Mode(rawValue: (o["mode"] as? String) ?? "") ?? .grade,
                     prompt: prompt,
                     preview: (o["preview"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                    internalSteps: (o["internal_steps"] as? [String])?
+                        .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                        .filter { !$0.isEmpty } ?? [],
                     isBestMatch: (o["fit"] as? String) == "best"
                 )
             }
@@ -211,18 +221,34 @@ enum DirectorAPI {
     /// heißt, Identität, Hände oder der „sieht aus wie ein neues Bild"-Test
     /// sind durchgefallen. Das sind die Fehler, die ein Mensch sofort sieht.
     struct Review {
+        /// Wie schwer der Fehler wiegt — und danach, wie oft nachgebessert wird.
+        enum Severity: String {
+            /// Kleinigkeiten, die niemand bemerkt. Kein zweiter Anlauf.
+            case minor
+            /// Technisch sauber und trotzdem falsch: die gewaehlte Richtung ist
+            /// nicht angekommen. GENAU EIN weiterer Anlauf — es ist ein echter
+            /// Fehler, aber keiner, fuer den man beliebig oft rendern darf.
+            case look
+            /// Identitaet, Haende oder „sieht aus wie ein neues Bild". Der
+            /// bestehende Weg mit bis zu zwei Anlaeufen.
+            case major
+        }
+
         let ok: Bool
         let issues: [String]
-        let isMajor: Bool
+        let severity: Severity
         let correctedPrompt: String?
 
         /// Nichts zu beanstanden — oder nichts, was man beanstanden konnte.
-        static let passed = Review(ok: true, issues: [], isMajor: false, correctedPrompt: nil)
+        static let passed = Review(ok: true, issues: [], severity: .minor, correctedPrompt: nil)
 
         /// Lohnt ein weiterer Anlauf?
         var worthRetrying: Bool {
-            !ok && isMajor && (correctedPrompt?.isEmpty == false)
+            !ok && severity != .minor && (correctedPrompt?.isEmpty == false)
         }
+
+        /// Ein verfehlter Look bekommt nur EINEN Versuch, kein zweites Rendern.
+        var isLookMiss: Bool { severity == .look }
     }
 
     private static var reviewURL: URL { URL(string: base + "/v1/director/review")! }
@@ -263,7 +289,7 @@ enum DirectorAPI {
         return Review(
             ok: (json["ok"] as? Bool) ?? true,
             issues: (json["issues"] as? [String]) ?? [],
-            isMajor: (json["severity"] as? String) == "major",
+            severity: Review.Severity(rawValue: (json["severity"] as? String) ?? "") ?? .minor,
             correctedPrompt: (corrected?.isEmpty == false) ? corrected : nil
         )
     }

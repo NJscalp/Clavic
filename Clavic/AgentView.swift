@@ -1038,30 +1038,43 @@ struct AgentView: View {
 
     /// Each path promises a different amount of change. Applying the strict
     /// "same pixels" contract to all three made the creative path impossible.
+    /// Haengt die leise Ebene an den Auftrag.
+    ///
+    /// Der Director hat beim Vorschlagen bereits entschieden, was diese
+    /// Richtung technisch braucht — die Fackel weg, das Gesicht aus dem
+    /// Gegenlicht holen, die Kleidung behalten. Ohne diese Zeilen geht das
+    /// Wissen zwischen Vorschlag und Rendern verloren, und das Bildmodell
+    /// muss es sich aus dem Fliesstext zusammenreimen.
+    private func withSteps(_ prompt: String, _ option: DirectorAPI.Option) -> String {
+        guard !option.internalSteps.isEmpty else { return prompt }
+        return prompt + "\n\nALSO DO ALL OF THIS, it is part of the same job:\n"
+            + option.internalSteps.map { "- \($0)" }.joined(separator: "\n")
+    }
+
     private func guidedDirectionPrompt(_ option: DirectorAPI.Option, index: Int) -> String {
         let label = option.label.lowercased()
         let isCreative = label.contains("new moment") || label.contains("reimagine") || (index == 2 && !label.contains("keep it real"))
         let isSocial = label.contains("post-ready") || label.contains("post ready") || (index == 1 && !isCreative)
 
         if isSocial {
-            return """
+            return withSteps("""
             SOCIAL EDIT CONTRACT:
             Keep the exact same person and identity: face geometry, skin tone, hair, body proportions, clothing and natural texture. Preserve the source photo as the base. You may improve light, color, detail, subject separation and perform only the crop or minor distraction cleanup explicitly required by the requested direction. Do not invent a new setting, pose, outfit or object. No beautification, body reshaping or plastic skin.
 
             REQUESTED DIRECTION:
             \(option.prompt)
-            """
+            """, option)
         }
         if !isCreative {
-            return compositionLockedPrompt(option.prompt)
+            return withSteps(compositionLockedPrompt(option.prompt), option)
         }
-        return """
+        return withSteps("""
         CREATIVE PHOTO CONTRACT:
         Use the source person as the exact identity reference: preserve recognizable face geometry, skin tone, hair characteristics and body proportions. This direction intentionally permits a new natural pose, crop, lighting and environment. Rebuild all perspective, contact shadows, reflections, anatomy and camera grain coherently so it looks like one real photograph captured in that moment—not a pasted subject or a filter. Do not beautify or change the person's identity.
 
         REQUESTED DIRECTION:
         \(option.prompt)
-        """
+        """, option)
     }
 
     private func runEdit(action: DirectorAPI.Action, sourceImages: [Data]) async {
@@ -1181,6 +1194,11 @@ struct AgentView: View {
 
         // Höchstens zwei Nachbesserungen — danach ist nicht der Prompt das
         // Problem, sondern der Auftrag, und weitere Anläufe kosten nur Zeit.
+        //
+        // EIN verfehlter LOOK bekommt davon nur den ersten. Er ist ein echter
+        // Fehler — das Bild ist nicht die versprochene Aufnahme —, aber ein
+        // milderer als eine verlorene Identität. Zweimal dafuer zu rendern
+        // waere Geld fuer eine Geschmacksfrage.
         for attempt in 1...2 {
             await setLoadingNote(attempt == 1 ? "Checking the result…" : "Checking again…")
 
@@ -1188,6 +1206,7 @@ struct AgentView: View {
                 originals: sourceImages, result: best, prompt: prompt, mode: action.mode
             )
             guard verdict.worthRetrying, let corrected = verdict.correctedPrompt else { return best }
+            if verdict.isLookMiss && attempt > 1 { return best }
 
             // Sagt, WAS er nachbessert — der Nutzer soll sehen, dass hier
             // wirklich jemand hinschaut, statt einen Spinner zu zählen.
