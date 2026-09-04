@@ -106,3 +106,33 @@ allen vier Seiten aus (oben 3 %, das liegt ueber dem Kopf: die Figur fuellt
 keinen Sprung mehr: 246 → 250 → 246 ueber die ganze Breite.
 
 Offen: `mascot_throw` driftet noch um 13. Er laeuft einmalig beim Start.
+
+## Nachtrag 04.09.2026 (6) — Dieselbe Leiste, weniger Text, eine Trendkarte
+
+**1. Die Regie-Leiste IST jetzt die Chat-Leiste.** Gleiches Glas, gleiche Ecke
+(26), gleiche Kurve (`composerMotion` = `.smooth(0,3)`), gleiche Abstaende
+(`inputFocused ? 2 : 82`), Textfeld bis acht Zeilen mit eigener Kurve auf
+`input`. Das deckende Tablett und die Kopfzeile sind weg.
+Weiterhin bewusst NICHT drin: Plus, Kamera, Bild/Video — der Director hat EIN
+Foto gelesen, ein Anhang-Knopf waere die Einladung, das zu verlassen.
+Die Schnellauftraege erscheinen wie die Einstellungs-Chips im Chat erst bei
+Fokus.
+Beim Oeffnen erst `showComposer`, dann im naechsten Zug der Laufschleife der
+Fokus — zusammen laeuft die Tastatur gegen die einlaufende Leiste an.
+
+**2. Das Blatt sagt jetzt, was ER MACHEN WUERDE.** Vorher stand dort ein ganzer
+Satz in 19 pt Serifen ueber zwei bis drei Zeilen; man musste ihn lesen, um zu
+wissen, was mit dem Foto passiert. Jetzt: „WHAT I'D DO" und je Anmerkung drei
+bis fuenf Woerter (`ReadMark.change`), mit einem Punkt in der Farbe ihres
+Striches auf dem Bild. Rot = stoert, gruen = sitzt. Markierung oben,
+dieselbe Farbe unten — man findet sie ohne zu suchen.
+**Bewusst entfernt:** der Satz aus `DirectorAPI.Reply.message` wird nicht mehr
+angezeigt. Er steht weiter in `messages` und ist Kontext fuer den Director.
+
+**3. Trends: eine Karte, ein Pop-up.** Der waagerechte Streifen nahm viel Hoehe
+und zeigte nur drei auf einmal. Die Karte („OUR TIKTOK TRENDS", vier
+Vorschaubilder, Zahl) oeffnet `DirectorTrendSheet` — ein Raster ohne Suche und
+ohne Filter. Inhalt: Vorschlaege des Directors zuerst, dahinter der Server.
+Neue Trends samt Bild und Name kommen ueber `templates.json`; `previewURL` wird
+per `AsyncImage` geladen. Die eigentliche Pflegeoberflaeche dafuer steht noch
+aus (Wunsch des Nutzers: erst wenn der Tab fertig entworfen ist).

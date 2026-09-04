@@ -10,13 +10,14 @@
 //       vier: ein Creative Director sagt „das sind meine zwei besten Ideen",
 //       er legt keinen Katalog hin.
 //
-//    2. Was gerade auf TikTok läuft — als Streifen, den man sieht, nicht als
-//       Zeile, die man erst antippen muss.
+//    2. Was gerade auf TikTok läuft — EINE Karte, die sich zu einer ruhigen
+//       Übersicht öffnet.
 //
-//       DAS WAR DER FEHLER DER VORVERSION: die Trends lagen hinter einer
-//       zugeklappten Zeile mit einem Pfeil. Wer nicht weiss, was dahinter
-//       liegt, klappt nicht auf — man kann sich nichts vorstellen, was man
-//       nicht sieht. Jetzt liegen die Vorschaubilder offen da.
+//       Vorher lag hier ein waagerechter Streifen. Der zeigte zwar Bilder,
+//       nahm aber viel Höhe und konnte immer nur drei auf einmal zeigen —
+//       bei zwanzig Trends wischt niemand bis zum Ende. Die Karte zeigt vier
+//       Vorschaubilder und die Zahl; alles Weitere liegt eine Berührung
+//       entfernt in einem Raster, das man in einem Blick überfliegt.
 //
 //    3. „…or tell me your own idea" — eine kleine Glasleiste, die nach
 //       unten wandert.
@@ -47,6 +48,8 @@ struct DirectorPicks: View {
     /// true, solange die grosse Leiste unten steht. Dann ist die kleine hier
     /// weg: sie ist ja nach unten gewandert.
     var composerOpen: Bool = false
+
+    @State private var trendsOffen = false
     /// false = der Wurf läuft noch.
     let landed: Bool
     let throwToken: Int
@@ -63,12 +66,22 @@ struct DirectorPicks: View {
             vorschlaege
 
             if landed {
-                if !alleTrends.isEmpty { trendStreifen }
+                if !alleTrends.isEmpty { trendKarte }
                 if !composerOpen { eigeneIdee }
             }
         }
         .animation(.easeOut(duration: 0.35), value: landed)
-        .animation(.spring(response: 0.42, dampingFraction: 0.9), value: composerOpen)
+        .animation(.smooth(duration: 0.3), value: composerOpen)
+        .sheet(isPresented: $trendsOffen) {
+            DirectorTrendSheet(
+                trends: alleTrends,
+                sourcePhoto: sourcePhoto,
+                onPick: { option in
+                    trendsOffen = false
+                    onPick(option)
+                }
+            )
+        }
     }
 
     /// Vorschlaege des Directors zuerst — sie sind auf DIESES Foto sortiert —,
@@ -97,65 +110,60 @@ struct DirectorPicks: View {
 
     // MARK: - Trends
 
-    private var trendStreifen: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            abschnitt("TRENDING ON TIKTOK", zusatz: "FOR YOU")
+    /// EINE Karte statt eines Streifens.
+    ///
+    /// Sie zeigt vier Vorschaubilder und die Zahl — genug, um zu wissen, was
+    /// dahinter liegt, und wenig genug, um nicht den halben Bildschirm zu
+    /// belegen. Der Rest steht im Pop-up, wo zwanzig Kacheln in einem Blick
+    /// liegen statt in zwanzig Wischern.
+    private var trendKarte: some View {
+        Button { trendsOffen = true } label: {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Text("OUR TIKTOK TRENDS")
+                        .font(.system(size: 10, weight: .black, design: .rounded))
+                        .tracking(1.7)
+                        .foregroundStyle(Theme.textTertiary)
+                        .lineLimit(1)
+                        .fixedSize()
+                    Rectangle()
+                        .fill(Theme.textPrimary.opacity(0.10))
+                        .frame(height: 1)
+                    Text("\(alleTrends.count)")
+                        .font(.system(size: 10, weight: .black, design: .rounded))
+                        .foregroundStyle(Theme.textTertiary)
+                        .fixedSize()
+                }
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    ForEach(Array(alleTrends.enumerated()), id: \.element.id) { rang, trend in
-                        Button { onPick(trend) } label: { trendKachel(trend, rang: rang) }
-                            .buttonStyle(.plain)
+                HStack(spacing: 6) {
+                    ForEach(Array(alleTrends.prefix(4).enumerated()), id: \.element.id) { _, trend in
+                        vorschau(trend)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 96)
+                            .clipped()
+                            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
                     }
                 }
-                // Der Streifen laeuft bis an den Bildrand und wieder heraus —
-                // die angeschnittene Kachel rechts sagt, dass es weitergeht.
-                .padding(.horizontal, Theme.screenPadding)
+
+                HStack(spacing: 6) {
+                    Text("Tap to see them all")
+                        .font(.system(size: 13.5, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Theme.textSecondary)
+                    Spacer(minLength: 0)
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundStyle(Theme.textTertiary)
+                }
             }
-            .padding(.horizontal, -Theme.screenPadding)
+            .padding(12)
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(Theme.textPrimary.opacity(0.08), lineWidth: 1)
+            )
+            .shadow(color: Theme.textPrimary.opacity(0.08), radius: 10, y: 5)
         }
-    }
-
-    private func trendKachel(_ trend: DirectorAPI.Option, rang: Int) -> some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ZStack(alignment: .topLeading) {
-                Rectangle().fill(Theme.surfaceHigh)
-                vorschau(trend)
-
-                // Der Rang ist nicht Zierrat: die Reihenfolge ist bereits nach
-                // Passung zu DIESEM Foto sortiert, und die Zahl sagt das.
-                Text("#\(rang + 1)")
-                    .font(.system(size: 11, weight: .black, design: .rounded))
-                    .foregroundStyle(.white)
-                    .padding(.horizontal, 7).padding(.vertical, 3)
-                    .background(.black.opacity(0.45), in: Capsule())
-                    .padding(7)
-            }
-            .frame(width: 128, height: 160)
-            .clipped()
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(trend.label)
-                    .font(.system(size: 13.5, weight: .bold, design: .rounded))
-                    .foregroundStyle(Theme.textPrimary)
-                    .lineLimit(1)
-                Text(trend.caption)
-                    .font(.system(size: 11.5, weight: .medium, design: .rounded))
-                    .foregroundStyle(Theme.textSecondary)
-                    .lineLimit(2, reservesSpace: true)
-            }
-            .frame(width: 128, alignment: .leading)
-            .padding(.horizontal, 9)
-            .padding(.top, 8)
-            .padding(.bottom, 10)
-        }
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                .strokeBorder(Theme.textPrimary.opacity(0.08), lineWidth: 1)
-        )
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-        .shadow(color: Theme.textPrimary.opacity(0.07), radius: 8, y: 4)
+        .buttonStyle(.plain)
     }
 
     /// Das Vorschaubild einer Kachel — aus dem Bundle ODER vom Server.
@@ -225,33 +233,6 @@ struct DirectorPicks: View {
 
     // MARK: - Bausteine
 
-    /// Dieselbe Typografie wie die Kopfzeile auf dem Blatt: winzige, weit
-    /// gesperrte Versalien und eine Linie, die den Rest der Breite nimmt.
-    /// Ein Bildschirm, eine Handschrift — sonst zerfaellt er in Bausteine aus
-    /// verschiedenen Apps.
-    private func abschnitt(_ titel: String, zusatz: String? = nil) -> some View {
-        HStack(spacing: 8) {
-            Text(titel)
-                .font(.system(size: 10, weight: .black, design: .rounded))
-                .tracking(1.7)
-                .foregroundStyle(Theme.textTertiary)
-                // Eine Ueberschrift, die umbricht, reisst die Linie daneben
-                // mit — im Simulator sah das aus wie ein Satzfehler.
-                .lineLimit(1)
-                .fixedSize()
-            Rectangle()
-                .fill(Theme.textPrimary.opacity(0.10))
-                .frame(height: 1)
-            if let zusatz {
-                Text(zusatz)
-                    .font(.system(size: 10, weight: .black, design: .rounded))
-                    .tracking(0.6)
-                    .foregroundStyle(Theme.textTertiary)
-                    .lineLimit(1)
-                    .fixedSize()
-            }
-        }
-    }
 }
 
 /// Eine Linie, die nichts darstellt — der Platzhalter fuer eine Idee, die
@@ -269,5 +250,107 @@ private struct KritzelLinie: Shape {
             if step == 0 { p.move(to: point) } else { p.addLine(to: point) }
         }
         return p
+    }
+}
+
+// MARK: - Alle Trends in einem Blick
+
+/// Das Pop-up hinter der Trend-Karte.
+///
+/// BEWUSST OHNE Suchzeile, Filter oder Kategorien. Bei zwanzig Kacheln ist
+/// Ueberfliegen schneller als Tippen, und jedes Bedienelement mehr macht aus
+/// einer Auswahl eine Verwaltung.
+///
+/// Der Inhalt kommt aus zwei Quellen und sieht gleich aus: die Vorschlaege des
+/// Directors fuer DIESES Foto zuerst, dahinter, was der Server gerade fuehrt
+/// (`templates.json`). Neuer Trend, Bild und Name hochgeladen — er steht hier,
+/// ohne App-Update. Genau dafuer laedt `vorschau(_:)` eine Adresse statt eines
+/// Asset-Namens.
+private struct DirectorTrendSheet: View {
+    let trends: [DirectorAPI.Option]
+    let sourcePhoto: Data?
+    let onPick: (DirectorAPI.Option) -> Void
+
+    @Environment(\.dismiss) private var dismiss
+
+    private let spalten = [GridItem(.flexible(), spacing: 12),
+                           GridItem(.flexible(), spacing: 12)]
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                LazyVGrid(columns: spalten, spacing: 14) {
+                    ForEach(trends) { trend in
+                        Button { onPick(trend) } label: { kachel(trend) }
+                            .buttonStyle(.plain)
+                    }
+                }
+                .padding(Theme.screenPadding)
+            }
+            .background(Theme.background.ignoresSafeArea())
+            .navigationTitle("Our TikTok trends")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundStyle(Theme.textPrimary)
+                    }
+                }
+            }
+        }
+        // Ruhig hereinkommen und sich zur Haelfte oeffnen lassen: das Foto
+        // darunter bleibt sichtbar, waehrend man waehlt.
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+    }
+
+    private func kachel(_ trend: DirectorAPI.Option) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            ZStack {
+                Rectangle().fill(Theme.surfaceHigh)
+                bild(trend)
+            }
+            .frame(height: 186)
+            .clipped()
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(trend.label)
+                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                    .foregroundStyle(Theme.textPrimary)
+                    .lineLimit(1)
+                Text(trend.caption)
+                    .font(.system(size: 11.5, weight: .medium, design: .rounded))
+                    .foregroundStyle(Theme.textSecondary)
+                    .lineLimit(2, reservesSpace: true)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 10)
+            .padding(.top, 8)
+            .padding(.bottom, 10)
+        }
+        .background(Theme.surface)
+        .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .strokeBorder(Theme.textPrimary.opacity(0.08), lineWidth: 1)
+        )
+        .shadow(color: Theme.textPrimary.opacity(0.06), radius: 8, y: 4)
+    }
+
+    /// Aus dem Bundle ODER vom Server — siehe Kopf.
+    @ViewBuilder
+    private func bild(_ trend: DirectorAPI.Option) -> some View {
+        if let name = trend.preview, name.hasPrefix("http"), let url = URL(string: name) {
+            AsyncImage(url: url) { phase in
+                if let bild = phase.image { bild.resizable().scaledToFill() }
+                else { Rectangle().fill(Theme.surfaceHigh) }
+            }
+        } else if let name = trend.preview, UIImage(named: name) != nil {
+            Image(name).resizable().scaledToFill()
+        } else if let data = sourcePhoto, trend.mode.keepsPhoto, let ui = UIImage(data: data) {
+            Image(uiImage: ui).resizable().scaledToFill()
+        }
     }
 }

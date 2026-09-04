@@ -103,8 +103,8 @@ struct DirectorWorkspace<Mascot: View>: View {
                 platzhalterVorschlaege
             } else {
                 ergebnisBuehne
-                if let verdict, !verdict.isEmpty {
-                    DirectorNote(text: verdict, markCount: marks.count)
+                if !marks.isEmpty {
+                    DirectorNote(marks: marks)
                 }
             }
 

@@ -60,6 +60,24 @@ struct ReadMark: Identifiable, Equatable {
     /// selbst, was sie ist, und die Tinte richtet sich danach.
     var isPraise: Bool { label == "this is the shot" }
 
+    /// Was er daran machen wuerde — drei bis fuenf Woerter.
+    ///
+    /// Getrennt von `request`: dort steht ein Satz, den man ABSCHICKT, hier
+    /// eine Zeile, die man LIEST. Wer eine Liste ueberfliegt, will keinen
+    /// vollstaendigen Auftrag lesen, sondern wissen, was passiert.
+    var change: String {
+        switch label {
+        case "light's blown out": return "Pull the light back"
+        case "you're in the dark": return "Lift the shadows"
+        case "light falls flat":   return "Give the light shape"
+        case "this is the shot":   return "Keep your face as it is"
+        case "dead space":         return "Fill the empty half"
+        case "nothing here":       return "Fix the black corner"
+        case "crop this off":      return "Crop the edge off"
+        default:                   return label
+        }
+    }
+
     /// Was man dazu sagen wuerde, wenn man den Director bittet, es zu
     /// beheben. Steht hier und nicht in der Leiste unten, damit Anmerkung und
     /// Auftrag NIE auseinanderlaufen: es ist ein Wortschatz, nicht zwei.

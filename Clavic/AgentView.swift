@@ -349,7 +349,14 @@ struct AgentView: View {
                     landed: optionsRevealed,
                     throwToken: throwToken,
                     onPick: { chooseOption($0) },
-                    onOwnIdea: { showComposer = true; inputFocused = true },
+                    onOwnIdea: {
+                        // Erst die Leiste einsetzen, DANN den Fokus. Beides im
+                        // selben Zug laesst die Tastatur gegen die einlaufende
+                        // Leiste anlaufen — sichtbar als Ruckler. Ein Zug der
+                        // Laufschleife dazwischen reicht.
+                        withAnimation(Self.composerMotion) { showComposer = true }
+                        Task { @MainActor in inputFocused = true }
+                    },
                     onCompare: {},
                     onMarks: { readMarks = $0 }
                 )
@@ -365,7 +372,7 @@ struct AgentView: View {
         .overlay(alignment: .bottom) {
             if showComposer { inputBar.transition(.move(edge: .bottom).combined(with: .opacity)) }
         }
-        .animation(.spring(response: 0.4, dampingFraction: 0.88), value: showComposer)
+        .animation(Self.composerMotion, value: showComposer)
         .overlay(alignment: .topTrailing) {
             if !isWorking {
                 Button { startNewChat() } label: {
@@ -698,27 +705,30 @@ struct AgentView: View {
 
     // MARK: - Eingabeleiste
 
-    /// DIE REGIE-LEISTE — nicht die Chat-Leiste noch einmal.
+    /// Dieselbe Leiste wie im Chat-Tab — nur ohne das, was hier nichts zu
+    /// suchen hat.
     ///
-    /// Im Chat-Tab kann man alles: Fotos anhängen, die Kamera öffnen, über
-    /// irgendetwas reden. Hier nicht, und zwar mit Absicht. Der Director hat
-    /// EIN Foto gelesen und angestrichen; alles, was hier gesagt wird, gehört
-    /// zu diesem Foto. Ein Plus-Knopf und eine Kamera wären die Einladung,
-    /// genau das zu verlassen — dann wäre es wieder ein Chat.
+    /// Sie war vorher ein Eigenbau mit deckendem Tablett und einer Kopfzeile.
+    /// Zwei Chats in derselben App sollen sich nicht unterschiedlich anfuehlen:
+    /// gleiches Glas, gleiche Ecke (26), gleiche Kurve (`composerMotion`,
+    /// `.smooth(0,3)`), gleiche Abstaende, Textfeld bis acht Zeilen.
     ///
-    /// Deshalb fehlen sie. Stattdessen stehen über dem Feld die Anmerkungen
-    /// als fertige Aufträge: was er angestrichen hat, kann man mit einem Tipp
-    /// beheben lassen. Das ist der Unterschied zwischen „schreib etwas" und
-    /// „hier ist, was du wollen könntest".
+    /// WAS FEHLT UND WARUM: kein Plus, keine Kamera, keine Bild/Video-Wahl.
+    /// Der Director hat EIN Foto gelesen und angestrichen; alles hier gehoert
+    /// zu diesem Foto. Ein Anhang-Knopf waere die Einladung, genau das zu
+    /// verlassen — dann waere es wieder der Chat.
+    ///
+    /// Dafuer stehen ueber dem Feld die Anmerkungen vom Bild als fertige
+    /// Auftraege — an derselben Stelle, an der im Chat die Einstellungs-Chips
+    /// auftauchen, und nach derselben Regel: erst wenn getippt wird.
     private var inputBar: some View {
-        VStack(alignment: .leading, spacing: 9) {
-            leistenKopf
-            if !schnellauftraege.isEmpty { schnellzeile }
+        VStack(alignment: .leading, spacing: 8) {
+            if inputFocused && !schnellauftraege.isEmpty { schnellzeile }
 
-            HStack(alignment: .bottom, spacing: 10) {
+            VStack(spacing: 10) {
                 TextField("Tell him what to change…", text: $input, axis: .vertical)
                     .font(.system(size: 16.5, weight: .medium, design: .rounded))
-                    .lineLimit(1...5)
+                    .lineLimit(1...8)
                     .focused($inputFocused)
                     .submitLabel(.send)
                     .onSubmit {
@@ -727,107 +737,67 @@ struct AgentView: View {
                     }
                     .foregroundStyle(Theme.textPrimary)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                    // Ohne eigene Kurve springt die Leiste bei jedem Umbruch
+                    // hart um. Ausloeser ist der Text, nicht der Fokus.
+                    .animation(Self.composerMotion, value: input)
 
-                Button {
-                    inputFocused = false
-                    Task { await send() }
-                } label: {
-                    // Weisses Glas auf weissem Feld war unsichtbar: solange
-                    // nichts getippt ist, sah man den Knopf gar nicht. Der
-                    // ausgeschaltete Zustand braucht deshalb eine eigene,
-                    // sichtbare Fuellung.
-                    Image(systemName: "arrow.up")
-                        .font(.system(size: 17, weight: .bold))
-                        .foregroundStyle(canSend ? .white : Theme.textTertiary)
-                        .frame(width: 36, height: 36)
-                        .background(canSend ? Theme.accent : Theme.surfaceHigh, in: Circle())
-                        .shadow(color: canSend ? Theme.accent.opacity(0.28) : .clear, radius: 8, y: 3)
+                HStack(spacing: 8) {
+                    Button {
+                        inputFocused = false
+                        withAnimation(Self.composerMotion) { showComposer = false }
+                    } label: {
+                        Image(systemName: "xmark")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(Theme.textPrimary)
+                            .frame(width: 34, height: 34)
+                            .glassEffect(.regular.interactive(), in: Circle())
+                    }
+                    .buttonStyle(.plain)
+
+                    Spacer(minLength: 0)
+
+                    Button {
+                        inputFocused = false
+                        Task { await send() }
+                    } label: {
+                        Image(systemName: "arrow.up")
+                            .font(.system(size: 17, weight: .bold))
+                            .foregroundStyle(.white)
+                            .frame(width: 36, height: 36)
+                            .glassEffect(
+                                canSend ? .regular.tint(Theme.accent).interactive() : .regular,
+                                in: Circle()
+                            )
+                            .shadow(color: canSend ? Theme.accent.opacity(0.28) : .clear, radius: 8, y: 3)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canSend)
+                    .animation(.spring(duration: 0.25), value: canSend)
                 }
-                .buttonStyle(.plain)
-                .disabled(!canSend)
-                .animation(.spring(duration: 0.25), value: canSend)
             }
             .padding(.horizontal, 14)
-            .padding(.vertical, 11)
-            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 24, style: .continuous)
-                    .strokeBorder(Theme.textPrimary.opacity(0.09), lineWidth: 1)
-            )
-            // Das Feld ist optisch geschlossen, hat aber durchsichtige Lücken.
-            // Ohne eigene Trefferfläche bekämen Karten dahinter den Tipp, der
-            // dem Senden galt.
-            .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+            .padding(.vertical, 12)
+            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
+            .shadow(color: .black.opacity(0.10), radius: 18, y: 8)
+            // Glas ist optisch geschlossen, hat aber durchsichtige Luecken —
+            // ohne eigene Trefferflaeche faellt der Tipp durch auf eine Karte.
+            .contentShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
         }
         .padding(.horizontal, Theme.screenPadding)
-        .padding(.top, 12)
-        // Über der Tableiste, wenn niemand tippt; direkt über der Tastatur,
-        // sobald jemand tippt.
-        .padding(.bottom, inputFocused ? 12 : 92)
-        // EIN DECKENDES TABLETT, KEIN SCHWEBENDES GLAS.
-        //
-        // Zuerst lag hier nur ein Glaseffekt um das Textfeld. Über den bunten
-        // Trendkacheln war das Ergebnis unlesbar: Gesichter schienen mitten
-        // durch die Leiste, die Kopfzeile verschwand im Bild darunter. Im
-        // Simulator genau so gesehen.
-        //
-        // Deshalb trägt jetzt die GANZE Leiste — Kopfzeile, Schnellaufträge,
-        // Feld — einen gemeinsamen, deckenden Untergrund, und darüber liegt
-        // eine kurze Blende, unter der der Inhalt weich verschwindet, statt
-        // an einer Kante abzureissen.
-        .background(alignment: .top) {
-            ZStack(alignment: .top) {
-                UnevenRoundedRectangle(
-                    topLeadingRadius: 26, bottomLeadingRadius: 0,
-                    bottomTrailingRadius: 0, topTrailingRadius: 26,
-                    style: .continuous
-                )
-                .fill(Theme.background)
-                .shadow(color: Theme.textPrimary.opacity(0.13), radius: 18, y: -6)
-
-                LinearGradient(colors: [Theme.background, Theme.background.opacity(0)],
-                               startPoint: .bottom, endPoint: .top)
-                    .frame(height: 26)
-                    .offset(y: -25)
-            }
-            .ignoresSafeArea(edges: .bottom)
-        }
-        .animation(.easeInOut(duration: 0.2), value: inputFocused)
+        .padding(.top, 8)
+        .padding(.bottom, inputFocused ? 2 : 82)
+        .animation(Self.composerMotion, value: inputFocused)
         .contentShape(Rectangle())
         .zIndex(100)
     }
 
-    /// Sagt, worüber hier gesprochen wird — und lässt es wieder schließen.
-    private var leistenKopf: some View {
-        HStack(spacing: 7) {
-            Image(systemName: "pencil.and.scribble")
-                .font(.system(size: 11, weight: .bold))
-            Text("ASK THE DIRECTOR")
-                .font(.system(size: 10, weight: .black, design: .rounded))
-                .tracking(1.4)
-            Spacer(minLength: 0)
-            Button {
-                inputFocused = false
-                withAnimation(.spring(response: 0.4, dampingFraction: 0.88)) {
-                    showComposer = false
-                }
-            } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: 11, weight: .bold))
-                    .foregroundStyle(Theme.textSecondary)
-                    .frame(width: 24, height: 24)
-                    .background(Theme.surface.opacity(0.8), in: Circle())
-            }
-            .buttonStyle(.plain)
-        }
-        .foregroundStyle(Theme.textTertiary)
-        .padding(.horizontal, 6)
-    }
+    /// Genau die Kurve des Chat-Composers.
+    private static let composerMotion: Animation = .smooth(duration: 0.3)
 
-    /// Die Anmerkungen vom Foto als fertige Aufträge, dazu ein allgemeiner.
+    /// Die Anmerkungen vom Foto als fertige Auftraege, dazu ein allgemeiner.
     ///
     /// Sie schreiben nur ins Feld, sie senden nicht. Jeder Zug kostet Credits —
-    /// ein Tipp, der sofort rendert, wäre eine Falle.
+    /// ein Tipp, der sofort rendert, waere eine Falle.
     private var schnellauftraege: [String] {
         var alle = readMarks.map(\.request)
         if alle.count < 3 { alle.append("Make it feel like a real camera shot") }
@@ -840,25 +810,23 @@ struct AgentView: View {
                 ForEach(schnellauftraege, id: \.self) { auftrag in
                     Button {
                         input = auftrag
-                        inputFocused = true
                     } label: {
                         Text(auftrag)
                             .font(.system(size: 13, weight: .semibold, design: .rounded))
                             .foregroundStyle(Theme.textPrimary)
                             .padding(.horizontal, 12)
                             .padding(.vertical, 8)
-                            .background(Theme.papier, in: Capsule())
-                            .overlay(
-                                Capsule().strokeBorder(Theme.textPrimary.opacity(0.09), lineWidth: 1)
-                            )
+                            .glassEffect(.regular.interactive(), in: Capsule())
                     }
                     .buttonStyle(.plain)
                 }
             }
             .padding(.horizontal, 4)
+            .padding(.vertical, 2)
         }
         .padding(.horizontal, -Theme.screenPadding)
         .padding(.leading, Theme.screenPadding)
+        .transition(.opacity.combined(with: .offset(y: 8)))
     }
 
     private var canSend: Bool {

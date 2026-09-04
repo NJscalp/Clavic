@@ -2,7 +2,14 @@
 //  DirectorNote.swift
 //  Clavic
 //
-//  Sein Urteil — als Blatt Papier, nicht als Textzeile.
+//  Was er machen wuerde — als Blatt Papier, in drei Zeilen.
+//
+//  HIER STAND EIN ABSATZ. Der Director sagte einen ganzen Satz, gesetzt in
+//  19 pt Serifen ueber zwei bis drei Zeilen. Schoen, aber man musste ihn LESEN,
+//  um zu erfahren, was mit dem Foto passiert. Jetzt stehen dort drei bis vier
+//  Woerter je Anmerkung, jede mit dem Punkt in der Farbe ihres Striches auf dem
+//  Bild — rot fuer das, was stoert, gruen fuer das, was sitzt. Man sieht die
+//  Markierung auf dem Foto und findet sie darunter wieder, ohne zu suchen.
 //
 //  Vorher stand hier eine Zeile mit einem blauen Balken davor. Inhaltlich
 //  richtig, aber es sah aus wie eine Fehlermeldung. Der eine Satz, den der
@@ -26,10 +33,8 @@
 import SwiftUI
 
 struct DirectorNote: View {
-    let text: String
-    /// Wie viele Anmerkungen auf dem Foto stehen — die Zeile darunter zaehlt
-    /// sie auf, damit Blatt und Bild zusammengehoeren.
-    var markCount: Int = 0
+    /// Die Anmerkungen vom Foto. Sie sind der Inhalt des Blattes.
+    let marks: [ReadMark]
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var shown = false
@@ -40,14 +45,23 @@ struct DirectorNote: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             kopf
-            Text(text)
-                // Serifen und grosszuegige Zeilen: das ist das Einzige, was er
-                // sagt, und es darf sich Zeit nehmen.
-                .font(.system(size: 19, weight: .regular, design: .serif))
-                .lineSpacing(4)
-                .foregroundStyle(Theme.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            VStack(alignment: .leading, spacing: 9) {
+                ForEach(marks) { mark in
+                    HStack(spacing: 9) {
+                        Circle()
+                            .fill(mark.isPraise ? Theme.go : Theme.danger)
+                            .frame(width: 7, height: 7)
+                        Text(mark.change)
+                            // Serifen halten das Blatt, aber kurz und gross
+                            // genug, um es im Vorbeigehen zu lesen.
+                            .font(.system(size: 17, weight: .regular, design: .serif))
+                            .foregroundStyle(Theme.textPrimary)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 0)
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
             unterschrift
         }
         .padding(.leading, 20)
@@ -71,15 +85,15 @@ struct DirectorNote: View {
 
     private var kopf: some View {
         HStack(spacing: 8) {
-            Text("THE READ")
+            Text("WHAT I'D DO")
                 .font(.system(size: 10, weight: .black, design: .rounded))
                 .tracking(1.7)
                 .foregroundStyle(Theme.danger.opacity(0.75))
             Rectangle()
                 .fill(Theme.textPrimary.opacity(0.10))
                 .frame(height: 1)
-            if markCount > 0 {
-                Text("\(markCount) note\(markCount == 1 ? "" : "s")")
+            if !marks.isEmpty {
+                Text("\(marks.count) note\(marks.count == 1 ? "" : "s")")
                     .font(.system(size: 10, weight: .bold, design: .rounded))
                     .tracking(0.6)
                     .foregroundStyle(Theme.textTertiary)
