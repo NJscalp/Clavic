@@ -136,3 +136,59 @@ ohne Filter. Inhalt: Vorschlaege des Directors zuerst, dahinter der Server.
 Neue Trends samt Bild und Name kommen ueber `templates.json`; `previewURL` wird
 per `AsyncImage` geladen. Die eigentliche Pflegeoberflaeche dafuer steht noch
 aus (Wunsch des Nutzers: erst wenn der Tab fertig entworfen ist).
+
+## Nachtrag 04.09.2026 (7) — 60 fps, kein Standbild, kein Hänger
+
+**Der „Cut am Schluss" war ein STANDBILD, und zwar meins.** Gemessen an der
+Bewegung je Bild: am Umlauf des Lese-Loops standen **24 Bilder lang exakt 0**,
+also 0,4 Sekunden Stillstand, dann lief es von vorn. Ursache war der
+Schweisspunkt aus Nachtrag (4): ich hatte die ersten und letzten fuenf Bilder
+jeder Pose auf ein gemeinsames Ankerbild geblendet. Die Naht war danach messbar
+perfekt (0,85 statt 2,5 von 255) — und die Figur stand.
+
+Der Fehler war die Zielgroesse: 2,5 von 255 ist weniger als bei `mascot_idle1`
+(2,2) und `mascot_scan` (2,3), die seit jeher laufen. Ich habe etwas
+Unsichtbares repariert und dabei etwas Sichtbares eingebaut.
+
+Neu gebaut ohne Schweisspunkt (`rebuild_loop.py`):
+`fw` = Bild 0…N-1, `rv` = rueckwaerts OHNE erstes und letztes Bild. Ein
+Abschnitt endet auf Bild 1, der naechste beginnt auf Bild 0 — keine Dopplung.
+Laengster Stillstand jetzt 15 Bilder bei 60 fps (0,25 s) und das mitten in
+einer Geste, nicht am Umlauf.
+
+**Die richtige Kennzahl fuer einen Ping-Pong-Loop ist NICHT „erstes gegen
+letztes Bild".** Bei sauberem Ping-Pong unterscheiden die sich um genau einen
+Bewegungsschritt. Verglichen wird der Umlaufschritt mit den Nachbarschritten:
+
+| Clip | Umlaufschritt | Median aller Schritte |
+|---|---|---|
+| read_loop neu | 2,76 | 0,76 |
+| mascot_idle1 (im Bestand) | 1,47 | 0,31 |
+
+**Alle sieben Clips laufen jetzt mit 60 fps**, mit echten Zwischenbildern
+(`minterpolate`, bidirektional, aobmc+vsbmc). Nicht doppelte Bilder — die
+machen die Datei groesser, ohne dass die Bewegung feiner wird. 7,1 → 8,5 MB.
+
+FUER SCHLEIFENDE CLIPS gilt `loop60.py` statt der einfachen Umrechnung: dem
+letzten Bild fehlt der rechte Nachbar, dort raet `minterpolate` und die Naht
+bricht (`mascot_scan`: 2,29 → 3,7). Der Clip wird deshalb ZWEIMAL hintereinander
+interpoliert und die mittlere Periode herausgeschnitten — jedes Bild hatte dann
+echte Nachbarn auf beiden Seiten. Ergebnis fuer `mascot_scan`: 2,29 → **0,88**.
+Die Periode dabei ZAEHLEN, nicht ausrechnen: `minterpolate` liefert nicht exakt
+fps×Dauer Bilder, und ein um zwei Bilder verschobener Schnitt zerstoert genau
+die Naht, die er retten soll.
+
+**Der App-Wechsel war ein echter Fehler.** `isActive` stand fest auf `true`, es
+gab NIRGENDS eine Reaktion auf den Lebenszyklus. iOS haelt beim Wechsel in den
+Hintergrund jeden `AVPlayer` an — zurueck im Vordergrund hat ihn niemand wieder
+gestartet. Jetzt horcht `MascotPlayerUIView` auf `didBecomeActive` /
+`willEnterForeground` und wirft wieder an; beim Verlassen haelt es ausdruecklich
+an. Im Simulator geprueft: HOME, vier Sekunden warten, zurueck — Bewegung ueber
+sechs Sekunden 19,1 / 19,7 / 14,4 / 4,2.
+
+**Wachhund:** alle zwei Sekunden wird geprueft, ob die Zeit vorangeht. Ein
+`AVPlayerLooper` kann mit leerer Warteschlange dastehen, ein Item fehlschlagen,
+eine abgeschnittene Blende `fading` haengen lassen — in allen drei Faellen steht
+das Bild und nichts meldet sich. Der Timer laeuft in `.common`, sonst stuende er
+genau beim Scrollen still. Dafuer merkt sich der Player in `currentSource` /
+`currentIsLoop`, was laufen SOLL.

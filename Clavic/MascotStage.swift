@@ -422,6 +422,19 @@ final class MascotPlayerUIView: UIView {
     private var holding = false
     private var fading = false
 
+    // MARK: Nie stehenbleiben
+
+    /// Was gerade laufen SOLL. Ohne das kann nach einer Unterbrechung niemand
+    /// entscheiden, was wieder anzuwerfen ist.
+    private var currentSource: URL?
+    /// true, wenn `currentSource` eine Endlosschleife ist (Looper statt Clip).
+    private var currentIsLoop = false
+    /// Anmeldungen beim App-Lebenszyklus. Muessen beim Abbau wieder weg.
+    private var lifecycleObservers: [NSObjectProtocol] = []
+    /// Prueft alle zwei Sekunden, ob die Zeit noch laeuft.
+    private var watchdog: Timer?
+    private var lastSeenTime: Double = -1
+
     private var front: AVPlayer { frontIsA ? playerA : playerB }
     private var back: AVPlayer { frontIsA ? playerB : playerA }
     private var frontLayer: AVPlayerLayer { frontIsA ? layerA : layerB }
@@ -458,6 +471,8 @@ final class MascotPlayerUIView: UIView {
 
         backgroundColor = .clear
         isUserInteractionEnabled = false
+        beobachteLebenszyklus()
+        starteWachhund()
 
         for (l, p) in [(layerA, playerA), (layerB, playerB)] {
             p.isMuted = true
@@ -593,6 +608,8 @@ final class MascotPlayerUIView: UIView {
         // AVPlayerLooper haengt das Item stattdessen nahtlos an sich selbst,
         // ohne Neustart und ohne Luecke.
         scanLooper = nil
+        currentSource = scanURL
+        currentIsLoop = true
         if let queue = front as? AVQueuePlayer {
             queue.removeAllItems()
             scanLooper = AVPlayerLooper(player: queue, templateItem: AVPlayerItem(url: scanURL))
@@ -620,6 +637,8 @@ final class MascotPlayerUIView: UIView {
     /// Weg HINEIN ist ein harter Schnitt — der Wurf endet in der Startpose und
     /// der Loop beginnt in derselben, da faellt nichts auf.
     func startLoop(_ url: URL) {
+        currentSource = url
+        currentIsLoop = true
         fading = false
         clearObservers()
         let visible = frontLayer, hidden = backLayer
@@ -755,6 +774,8 @@ final class MascotPlayerUIView: UIView {
             scanLooper?.disableLooping()
             scanLooper = nil
         }
+        currentSource = url
+        currentIsLoop = false
         player.replaceCurrentItem(with: AVPlayerItem(url: url))
         player.seek(to: .zero)
         if !paused { player.play() }
@@ -773,6 +794,88 @@ final class MascotPlayerUIView: UIView {
         observers.append((player, o))
     }
 
+    // MARK: Nie stehenbleiben
+
+    /// Zurueck aus dem Hintergrund — und zwar von selbst.
+    ///
+    /// DAS WAR EIN ECHTER FEHLER: `isActive` wurde vom Aufrufer fest auf
+    /// `true` gesetzt, es gab also NIRGENDS eine Reaktion auf den
+    /// App-Lebenszyklus. iOS haelt beim Wechsel in den Hintergrund jeden
+    /// `AVPlayer` an; zurueck im Vordergrund hat ihn niemand wieder gestartet.
+    /// Die Figur stand danach still, bis die Ansicht zufaellig neu aufgebaut
+    /// wurde. Genau so ist es gemeldet worden.
+    private func beobachteLebenszyklus() {
+        let mitte = NotificationCenter.default
+        for name in [UIApplication.didBecomeActiveNotification,
+                     UIApplication.willEnterForegroundNotification] {
+            lifecycleObservers.append(
+                mitte.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                    self?.wiederAnwerfen()
+                })
+        }
+        // Beim Verlassen ausdruecklich anhalten: sonst laeuft die Dekodierung
+        // im Hintergrund noch kurz weiter und kostet Strom ohne Bild.
+        lifecycleObservers.append(
+            mitte.addObserver(forName: UIApplication.didEnterBackgroundNotification,
+                              object: nil, queue: .main) { [weak self] _ in
+                self?.playerA.pause(); self?.playerB.pause()
+            })
+    }
+
+    /// Alle zwei Sekunden nachsehen, ob die Zeit vorangeht.
+    ///
+    /// Ein `AVPlayerLooper` kann nach einer Unterbrechung mit leerer
+    /// Warteschlange dastehen, ein Item kann fehlschlagen, und eine
+    /// abgeschnittene Blende kann `fading` haengen lassen. In allen drei Faellen
+    /// steht das Bild und NICHTS meldet sich. Zwei Sekunden Pruefintervall
+    /// kosten nichts und sind die einzige Stelle, die aus jedem dieser
+    /// Zustaende wieder herausfuehrt.
+    private func starteWachhund() {
+        watchdog?.invalidate()
+        let t = Timer(timeInterval: 2.0, repeats: true) { [weak self] _ in
+            self?.pruefeLauf()
+        }
+        // `.common`, sonst steht der Wachhund genau dann still, wenn gescrollt
+        // wird — also wenn ein Hänger am ehesten auffaellt.
+        RunLoop.main.add(t, forMode: .common)
+        watchdog = t
+    }
+
+    private func pruefeLauf() {
+        guard !paused, !holding, window != nil else { return }
+        let jetzt = front.currentTime().seconds
+        let laeuft = front.timeControlStatus == .playing
+        let fehler = front.currentItem?.status == .failed || front.currentItem == nil
+
+        if fehler {
+            wiederAnwerfen()
+        } else if !laeuft || (jetzt.isFinite && abs(jetzt - lastSeenTime) < 0.001) {
+            // Steht, obwohl es laufen soll. Erst sanft anstossen; hilft das
+            // beim naechsten Durchgang nicht, wird die Quelle neu gesetzt.
+            if laeuft { wiederAnwerfen() } else { front.play() }
+        }
+        lastSeenTime = jetzt.isFinite ? jetzt : -1
+    }
+
+    /// Setzt das, was laufen soll, neu auf — egal aus welchem Zustand heraus.
+    private func wiederAnwerfen() {
+        guard !paused, !holding else { return }
+        fading = false
+        guard let quelle = currentSource else {
+            if front.timeControlStatus != .playing { front.play() }
+            return
+        }
+        if currentIsLoop {
+            // Ein Looper mit leerer Warteschlange spielt nie wieder an. Neu
+            // aufsetzen ist billiger als zu pruefen, warum er leer ist.
+            startLoop(quelle)
+        } else if front.currentItem == nil || front.currentItem?.status == .failed {
+            play(quelle, on: front)
+        } else if front.timeControlStatus != .playing {
+            front.play()
+        }
+    }
+
     // MARK: Lebenszyklus
 
     func setActive(_ active: Bool) {
@@ -785,6 +888,10 @@ final class MascotPlayerUIView: UIView {
     }
 
     func teardown() {
+        watchdog?.invalidate()
+        watchdog = nil
+        lifecycleObservers.forEach { NotificationCenter.default.removeObserver($0) }
+        lifecycleObservers.removeAll()
         clearObservers()
         readyObservers.forEach { $0.invalidate() }
         readyObservers.removeAll()
