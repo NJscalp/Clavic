@@ -41,6 +41,8 @@ import SwiftUI
 
 struct DirectorPicks: View {
     let picks: [DirectorAPI.Option]
+    /// Die Richtung, die der Director selbst nehmen wuerde.
+    var lead: String? = nil
     let trends: [DirectorAPI.Option]
     /// Was der Server gerade als Trend fuehrt. Kommt aus `templates.json` und
     /// braucht kein App-Update — genau dafuer ist der Streifen da.
@@ -74,7 +76,8 @@ struct DirectorPicks: View {
         .animation(.smooth(duration: 0.3), value: composerOpen)
         .sheet(isPresented: $trendsOffen) {
             DirectorTrendSheet(
-                trends: alleTrends,
+                trends: besteWahl.map { b in [b] + alleTrends.filter { $0.id != b.id } } ?? alleTrends,
+                bestMatchID: besteWahl?.id,
                 sourcePhoto: sourcePhoto,
                 onPick: { option in
                     trendsOffen = false
@@ -96,7 +99,11 @@ struct DirectorPicks: View {
     private var vorschlaege: some View {
         VStack(alignment: .leading, spacing: 8) {
             DirectorPolaroids(
-                items: picks.map { PolaroidItem($0, sourcePhoto: sourcePhoto) },
+                items: picks.map {
+                    var item = PolaroidItem($0, sourcePhoto: sourcePhoto)
+                    item.isLead = ($0.id == lead)
+                    return item
+                },
                 landed: landed,
                 throwToken: throwToken,
                 onPick: { item in
@@ -110,22 +117,35 @@ struct DirectorPicks: View {
 
     // MARK: - Trends
 
-    /// EINE Karte statt eines Streifens.
+    /// Die beste Passung — falls der Director eine benennen konnte.
     ///
-    /// Sie zeigt vier Vorschaubilder und die Zahl — genug, um zu wissen, was
-    /// dahinter liegt, und wenig genug, um nicht den halben Bildschirm zu
-    /// belegen. Der Rest steht im Pop-up, wo zwanzig Kacheln in einem Blick
-    /// liegen statt in zwanzig Wischern.
+    /// NUR aus SEINEN Trends. Die Server-Trends hat er nie gesehen; sie eine
+    /// „beste Passung" zu nennen waere eine Behauptung ohne Grundlage.
+    private var besteWahl: DirectorAPI.Option? {
+        trends.first(where: { $0.isBestMatch }) ?? trends.first
+    }
+
+    private var uebrigeTrends: [DirectorAPI.Option] {
+        guard let besteWahl else { return alleTrends }
+        return alleTrends.filter { $0.id != besteWahl.id }
+    }
+
+    /// EINE Karte statt eines Streifens — mit der besten Passung obenauf.
+    ///
+    /// Der eigentliche Nutzen des Directors ist hier nicht die Galerie,
+    /// sondern dass er die Bildlesung kennt: Er kann sagen, WELCHER Trend zu
+    /// genau diesem Foto passt. Deshalb steht einer gross oben und der Rest
+    /// klein darunter — statt zwanzig gleichberechtigter Kacheln, die der
+    /// Nutzer selbst durchsehen muesste.
     private var trendKarte: some View {
         Button { trendsOffen = true } label: {
             VStack(alignment: .leading, spacing: 10) {
                 HStack(spacing: 8) {
-                    Text("OUR TIKTOK TRENDS")
+                    Text("TIKTOK TRENDS")
                         .font(.system(size: 10, weight: .black, design: .rounded))
                         .tracking(1.7)
                         .foregroundStyle(Theme.textTertiary)
-                        .lineLimit(1)
-                        .fixedSize()
+                        .lineLimit(1).fixedSize()
                     Rectangle()
                         .fill(Theme.textPrimary.opacity(0.10))
                         .frame(height: 1)
@@ -135,18 +155,43 @@ struct DirectorPicks: View {
                         .fixedSize()
                 }
 
-                HStack(spacing: 6) {
-                    ForEach(Array(alleTrends.prefix(4).enumerated()), id: \.element.id) { _, trend in
-                        vorschau(trend)
+                if let besteWahl {
+                    ZStack(alignment: .bottomLeading) {
+                        vorschau(besteWahl)
                             .frame(maxWidth: .infinity)
-                            .frame(height: 96)
+                            .frame(height: 168)
                             .clipped()
-                            .clipShape(RoundedRectangle(cornerRadius: 9, style: .continuous))
+                        LinearGradient(colors: [.clear, .black.opacity(0.72)],
+                                       startPoint: .center, endPoint: .bottom)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text("BEST MATCH FOR YOUR PHOTO")
+                                .font(.system(size: 9, weight: .black, design: .rounded))
+                                .tracking(1.2)
+                                .foregroundStyle(Theme.aiActive)
+                            Text(besteWahl.label)
+                                .font(.system(size: 20, weight: .black, design: .rounded))
+                                .foregroundStyle(.white)
+                                .lineLimit(1)
+                        }
+                        .padding(12)
+                    }
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                }
+
+                if !uebrigeTrends.isEmpty {
+                    HStack(spacing: 6) {
+                        ForEach(Array(uebrigeTrends.prefix(4).enumerated()), id: \.element.id) { _, trend in
+                            vorschau(trend)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 64)
+                                .clipped()
+                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                        }
                     }
                 }
 
                 HStack(spacing: 6) {
-                    Text("Tap to see them all")
+                    Text(uebrigeTrends.isEmpty ? "See the trend" : "See them all")
                         .font(.system(size: 13.5, weight: .semibold, design: .rounded))
                         .foregroundStyle(Theme.textSecondary)
                     Spacer(minLength: 0)
@@ -268,6 +313,8 @@ private struct KritzelLinie: Shape {
 /// Asset-Namens.
 private struct DirectorTrendSheet: View {
     let trends: [DirectorAPI.Option]
+    /// Der eine, den der Director fuer dieses Foto vorn sieht.
+    let bestMatchID: String?
     let sourcePhoto: Data?
     let onPick: (DirectorAPI.Option) -> Void
 
@@ -314,6 +361,17 @@ private struct DirectorTrendSheet: View {
             }
             .frame(height: 186)
             .clipped()
+            .overlay(alignment: .topLeading) {
+                if trend.id == bestMatchID {
+                    Text("BEST MATCH")
+                        .font(.system(size: 8.5, weight: .black, design: .rounded))
+                        .tracking(1.1)
+                        .foregroundStyle(Theme.textPrimary)
+                        .padding(.horizontal, 6).padding(.vertical, 3)
+                        .background(Theme.aiActive, in: Capsule())
+                        .padding(7)
+                }
+            }
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(trend.label)

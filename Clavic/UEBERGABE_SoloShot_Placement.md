@@ -192,3 +192,52 @@ eine abgeschnittene Blende `fading` haengen lassen — in allen drei Faellen ste
 das Bild und nichts meldet sich. Der Timer laeuft in `.common`, sonst stuende er
 genau beim Scrollen still. Dafuer merkt sich der Player in `currentSource` /
 `currentIsLoop`, was laufen SOLL.
+
+## Nachtrag 04.09.2026 (8) — Der Director bekommt ein Urteil statt eines Layouts
+
+Umsetzung der Produktlogik. Was GEBAUT ist:
+
+**§2 Kein starrer Flow.** Die harte Regel „EXACTLY TWO" ist raus — an drei
+Stellen: im Systemprompt, im Werkzeug-Schema (`minItems 1, maxItems 3`) und in
+`cleanOptions(...).slice(0, 3)`. Dazu ein neues Feld **`lead`**: die id des
+Vorschlags, den der Director selbst nehmen wuerde. Bei genau einem Vorschlag
+immer gesetzt. Der Prompt sagt jetzt ausdruecklich, WANN eins, zwei oder drei
+richtig sind — und dass eine feste Zahl keine Meinung ist, sondern ein Layout.
+
+**§3 Breitere Lesung.** Vier Felder ergaenzt, die vorher fehlten und ohne die
+zwei verschiedene Fotos zwangslaeufig aehnlich beantwortet wurden:
+`outfit`, `location`, `time_of_day`, `mood`. Dazu im Prompt eine ausdrueckliche
+Liste des Repertoires (Flash, editorial, cinematic, night, film stock, soft
+daylight, dramatic, paparazzi, disposable, dreamy, luxury, holiday …) und die
+Regel: zwei verschiedene Fotos duerfen nicht dieselbe Antwort bekommen.
+
+**§4 Director's Ideas.** `PolaroidCard` hat eine **Hero-Variante**: bei genau
+EINEM Vorschlag waechst das Foto von 88 auf 210 Punkte. Bei mehreren traegt der
+`lead` ein kleines **MY PICK**. Der Grid konnte 1–3 schon vorher.
+
+**§5 Choose a TikTok Trend.** Die beste Passung steht jetzt GROSS oben auf der
+Karte („BEST MATCH FOR YOUR PHOTO"), der Rest klein darunter; im Pop-up steht
+sie vorn und traegt ein Abzeichen. Die Bewertung kommt vom Director (`fit`),
+weil nur er die Bildlesung hat — **Server-Trends bekommen sie NICHT**, sie eine
+beste Passung zu nennen waere eine Behauptung ohne Grundlage.
+
+**§12 Result Screen.** `directorsCut(vorher:nachher:)` — der vorhandene
+`BeforeAfterSlider` interaktiv, ueber rund 46 % der Bildschirmhoehe, darunter
+„THE DIRECTOR'S CUT" und genau zwei Entscheidungen: **Keep it** (sichert in
+Fotos) und **Try another direction** (legt nur das Ergebnis beiseite, Foto und
+Lesung bleiben — ein neuer Zug wuerde den Nutzer sein Bild noch einmal
+aussuchen lassen). Der Schieber steht still, bis jemand zieht.
+
+Neue Debug-Haken: `UITEST_DIRECTOR_RESULT`, `UITEST_DIRECTOR_ONE`.
+
+**§8/§9 waren bereits gebaut** und bleiben unveraendert: `DirectorAPI.review`
+gegen `/v1/director/review`, `refineIfNeeded` mit hoechstens zwei
+Nachbesserungen, Credits nur bei Erfolg, blockiert nie.
+
+### Was NOCH NICHT gebaut ist
+- **§10 Maskottchen-Zustaende**: es haelt beim Lesen UND beim Pruefen dieselbe
+  Lupe. Eigene Regungen fuer „Idee gefunden", „praesentiert", „fertig" fehlen —
+  dafuer braucht es neue Clips.
+- **§6** funktioniert (freie Eingabe geht an den Director, der den technischen
+  Prompt baut), ist aber nicht gegen Beispielsaetze geprueft worden.
+- Das Backend ist **nicht deployt** — die Prompt-Aenderungen wirken erst danach.

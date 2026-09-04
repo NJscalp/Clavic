@@ -214,6 +214,34 @@ struct AgentView: View {
                 result.trends = Array(DigiCamStyles.all.dropFirst(2).prefix(3)).map { option($0, .grade) }
                 messages = [result]
                 revealPicksAnyway()
+            } else if environment["UITEST_DIRECTOR_RESULT"] != nil,
+               messages.isEmpty,
+               let vorher = UIImage(named: "director_real_party")?.jpegData(compressionQuality: 0.9),
+               let nachher = UIImage(named: "preview_look_vintage_beach")?.jpegData(compressionQuality: 0.9) {
+                // Der fertige Director's Cut, ohne einen Zug zu bezahlen.
+                lastImages = [vorher]
+                var result = AgentMessage(role: .assistant, text: "Here's what I'd do.")
+                result.beforeImage = vorher
+                result.resultImage = nachher
+                messages = [result]
+                revealPicksAnyway()
+            } else if environment["UITEST_DIRECTOR_ONE"] != nil,
+               messages.isEmpty,
+               let source = UIImage(named: "preview_look_vintage_beach")?.jpegData(compressionQuality: 0.9) {
+                // EIN Vorschlag: der Fall, in dem der Director sich festlegt.
+                lastImages = [source]
+                var result = AgentMessage(
+                    role: .assistant,
+                    text: "Flat ceiling light — this one needs flash."
+                )
+                let style = DigiCamStyles.all[5]
+                result.picks = [DirectorAPI.Option(
+                    id: style.id, label: style.title, caption: style.subtitle,
+                    mode: .grade, prompt: style.prompt, preview: style.previewAfter
+                )]
+                result.lead = style.id
+                messages = [result]
+                revealPicksAnyway()
             } else if environment["UITEST_DIRECTOR_ANALYZING"] != nil,
                messages.isEmpty,
                let first = UIImage(named: "director_real_party")?.jpegData(compressionQuality: 0.9),
@@ -343,6 +371,7 @@ struct AgentView: View {
                     note: letzter?.loadingNote,
                     verdict: letzter?.text,
                     picks: letzter?.picks ?? [],
+                    lead: letzter?.lead,
                     trends: letzter?.trends ?? [],
                     serverTrends: serverTrends,
                     composerOpen: showComposer,
@@ -358,6 +387,22 @@ struct AgentView: View {
                         Task { @MainActor in inputFocused = true }
                     },
                     onCompare: {},
+                    onKeep: {
+                        if let daten = letzter?.resultImage { saveImage(daten) }
+                    },
+                    onTryAnother: {
+                        // ZURUECK ZU DEN RICHTUNGEN, nicht zurueck auf null.
+                        // Das Foto und die Lesung bleiben — nur das Ergebnis
+                        // wird beiseitegelegt. Ein neuer Zug wuerde den Nutzer
+                        // sein Bild noch einmal aussuchen lassen.
+                        guard let letzter,
+                              let index = messages.lastIndex(where: { $0.id == letzter.id })
+                        else { return }
+                        withAnimation(.smooth(duration: 0.3)) {
+                            messages[index].resultImage = nil
+                            messages[index].beforeImage = nil
+                        }
+                    },
                     onMarks: { readMarks = $0 }
                 )
             }
@@ -927,6 +972,7 @@ struct AgentView: View {
                     // Was der Director vorschlägt, wird gezeigt — unverändert.
                     if reply.action == nil {
                         m.picks = reply.picks
+                        m.lead = reply.lead
                         m.trends = reply.trends
                     }
                     // Bei einem Bild-Auftrag Lupen-Ansicht halten, bis das Rendern startet.
@@ -1506,8 +1552,10 @@ struct AgentMessage: Identifiable {
     var loadingNote: String? = nil // Zwischenstatus beim Laden (z. B. „Checking realism…")
     var resultImage: Data? = nil   // vom Agenten erzeugtes Bild (bei .assistant)
     var beforeImage: Data? = nil   // Quellbild für Vorher/Nachher im Vollbild
-    /// Die zwei Vorschläge des Directors für dieses Foto.
+    /// Ein, zwei oder drei Vorschläge — so viele, wie das Foto verdient.
     var picks: [DirectorAPI.Option] = []
+    /// Der Vorschlag, den er selbst nehmen würde. Bei genau einem immer der.
+    var lead: String? = nil
     /// Aktuelle Trends, nach Passung sortiert. Öffnet der Nutzer selbst.
     var trends: [DirectorAPI.Option] = []
 

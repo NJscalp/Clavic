@@ -53,6 +53,10 @@ struct PolaroidItem: Identifiable {
     let asset: String
     /// Was beim Antippen an den Agenten geht.
     let prompt: String
+    /// Der Vorschlag, den der Director selbst nehmen wuerde. Wird nur
+    /// ausgewiesen, wenn es MEHRERE gibt — bei einem einzigen ist es ohnehin
+    /// seine Wahl, und ein Abzeichen daran waere Rauschen.
+    var isLead: Bool = false
     /// Zeichen, wenn es weder Asset noch Bild gibt. Eine leere graue Fläche
     /// auf einer Karte sagt dem Nutzer nichts.
     var icon: String? = nil
@@ -127,6 +131,12 @@ struct PolaroidCard: View {
     let tilt: Double
     /// Schmaler und flacher — für drei Karten nebeneinander.
     var compact: Bool = false
+    /// EIN Vorschlag, ueber die ganze Breite.
+    ///
+    /// Wenn der Director nur eine Richtung sieht, ist das seine Aussage — und
+    /// eine Aussage in einer 88 Punkt hohen Briefmarke liest sich wie ein
+    /// Restposten. Dann bekommt das Foto die Flaeche, die ihm zusteht.
+    var hero: Bool = false
     var onTap: () -> Void = {}
 
     /// Rahmenbreite des Polaroids. Unten breiter — das ist die Proportion, an
@@ -136,6 +146,7 @@ struct PolaroidCard: View {
     /// Höhe des Fotos.
     static let photoHeight: CGFloat = 88
     static let compactPhotoHeight: CGFloat = 64
+    static let heroPhotoHeight: CGFloat = 210
     /// Gesamthöhe einer Karte: Rand 8 + Foto + Streifen 50 + Rand 14.
     ///
     /// Die Zahl steht hier und NUR hier. Aus ihr rechnet `DirectorPolaroids`
@@ -143,6 +154,7 @@ struct PolaroidCard: View {
     /// Gruß an einer anderen Stelle als die Karten.
     static var totalHeight: CGFloat { 8 + photoHeight + 50 + 14 }
     static var compactTotalHeight: CGFloat { 6 + compactPhotoHeight + 36 + 10 }
+    static var heroTotalHeight: CGFloat { 10 + heroPhotoHeight + 58 + 16 }
     static func totalHeight(compact: Bool) -> CGFloat { compact ? compactTotalHeight : totalHeight }
 
     var body: some View {
@@ -165,8 +177,22 @@ struct PolaroidCard: View {
                             .foregroundStyle(Theme.accent.opacity(0.85))
                     }
                 }
-                .frame(height: compact ? Self.compactPhotoHeight : Self.photoHeight)
+                .frame(height: hero ? Self.heroPhotoHeight
+                                    : (compact ? Self.compactPhotoHeight : Self.photoHeight))
                 .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                // „Das ist meiner." Nur wenn es mehrere gibt — sonst sagt es
+                // nichts, was die Karte nicht schon durch ihr Alleinsein sagt.
+                .overlay(alignment: .topLeading) {
+                    if item.isLead && !hero {
+                        Text("MY PICK")
+                            .font(.system(size: 8.5, weight: .black, design: .rounded))
+                            .tracking(1.1)
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 6).padding(.vertical, 3)
+                            .background(Theme.accent, in: Capsule())
+                            .padding(6)
+                    }
+                }
                 // Feine Navy-Kante am Bild selbst — dieselbe Kontur wie am
                 // Maskottchen, damit Rahmen und Figur zur selben Zeichnung gehören.
                 .overlay(
@@ -177,11 +203,13 @@ struct PolaroidCard: View {
                 // Der beschriftete Streifen — das, was ein Polaroid ausmacht.
                 VStack(alignment: .leading, spacing: 2) {
                     Text(item.title)
-                        .font(.system(size: compact ? 11.5 : 14, weight: .bold, design: .rounded))
+                        .font(.system(size: hero ? 19 : (compact ? 11.5 : 14),
+                                      weight: .bold, design: .rounded))
                         .foregroundStyle(Theme.textPrimary)
                         .lineLimit(1)
                     Text(item.caption)
-                        .font(.system(size: compact ? 9.5 : 11.5, weight: .medium, design: .rounded))
+                        .font(.system(size: hero ? 13.5 : (compact ? 9.5 : 11.5),
+                                      weight: .medium, design: .rounded))
                         .foregroundStyle(Theme.textSecondary)
                         .lineLimit(1)
                 }
@@ -226,6 +254,8 @@ struct DirectorPolaroids: View {
     /// groß. Mehr als drei gibt es nicht mehr — der Director nennt zwei Ideen,
     /// der Auftakt wirft drei.
     private var isCompact: Bool { items.count >= 3 }
+    /// Genau eine Richtung → sie bekommt die ganze Flaeche.
+    private var isHero: Bool { items.count == 1 }
     private var columnCount: Int { min(max(items.count, 1), 3) }
     private var columns: [GridItem] {
         Array(repeating: GridItem(.flexible(), spacing: isCompact ? 10 : 14), count: columnCount)
@@ -250,7 +280,8 @@ struct DirectorPolaroids: View {
     static var blockHeight: CGFloat { PolaroidCard.totalHeight * 2 + 16 }
     /// Tatsächliche Höhe für die aktuelle Bestückung.
     private var currentBlockHeight: CGFloat {
-        PolaroidCard.totalHeight(compact: isCompact) * CGFloat(rowCount)
+        (isHero ? PolaroidCard.heroTotalHeight
+                : PolaroidCard.totalHeight(compact: isCompact)) * CGFloat(rowCount)
             + (rowCount > 1 ? 16 : 0)
     }
     /// Siehe `fogDepth`: so viel zeichnet der Block über sich hinaus.
@@ -281,6 +312,7 @@ struct DirectorPolaroids: View {
                             item: item,
                             tilt: Self.tilts[index % Self.tilts.count],
                             compact: isCompact,
+                            hero: isHero,
                             onTap: { onPick(item) }
                         )
                         // Nur Versatz, keine Skalierung und kein `.opacity`:

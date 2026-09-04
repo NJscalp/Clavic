@@ -53,6 +53,10 @@ enum DirectorAPI {
         let prompt: String
         /// Asset-Name, wenn es ein Look aus dem Hauskatalog ist.
         let preview: String?
+        /// Nur bei Trends: der eine, der zu DIESEM Foto herausragt. Der
+        /// Director hat die Bildlesung — er kann das beurteilen, und genau
+        /// dafuer ist er da. Der Nutzer soll keine Galerie durchsuchen.
+        var isBestMatch: Bool = false
     }
 
     /// Der Director will direkt rendern.
@@ -65,9 +69,17 @@ enum DirectorAPI {
     struct Reply {
         /// Eine Zeile, die den stärksten Befund aus dem Foto benennt.
         let message: String
-        /// GENAU ZWEI — die persönlich stärksten Ideen des Directors für
-        /// dieses Foto. Kein Menü, zwei Vorschläge.
+        /// EINE, ZWEI ODER DREI — so viele, wie dieses Foto verdient.
+        ///
+        /// Vorher stand hier „genau zwei". Zwei Antworten auf jedes Foto ist
+        /// aber keine Meinung, sondern ein Layout: man sieht sofort, dass das
+        /// System immer dasselbe tut. Wie viele es sind, ist selbst Teil des
+        /// Urteils — ein sicherer Einzelvorschlag ist stärker als zwei, von
+        /// denen einer nur die Zeile füllt.
         let picks: [Option]
+        /// Der Vorschlag, den er selbst nehmen würde, wenn einer klar vorn
+        /// liegt. Bei genau einem Vorschlag immer gesetzt.
+        let lead: String?
         /// Aktuelle Trends, nach Passung zu DIESEM Foto sortiert, bester
         /// zuerst. Darf leer sein — dann trägt das Foto gerade keinen.
         let trends: [Option]
@@ -158,7 +170,8 @@ enum DirectorAPI {
                     caption: (o["caption"] as? String) ?? "",
                     mode: Mode(rawValue: (o["mode"] as? String) ?? "") ?? .grade,
                     prompt: prompt,
-                    preview: (o["preview"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+                    preview: (o["preview"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+                    isBestMatch: (o["fit"] as? String) == "best"
                 )
             }
         }
@@ -175,7 +188,8 @@ enum DirectorAPI {
 
         return Reply(
             message: ((json["message"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
-            picks: Array(options("picks").prefix(2)),
+            picks: Array(options("picks").prefix(3)),
+            lead: (json["lead"] as? String).flatMap { $0.isEmpty ? nil : $0 },
             trends: options("trends"),
             action: action
         )

@@ -66,6 +66,8 @@ struct DirectorWorkspace<Mascot: View>: View {
     /// Seine eine Zeile.
     let verdict: String?
     let picks: [DirectorAPI.Option]
+    /// Die Richtung, die der Director selbst nehmen wuerde.
+    var lead: String? = nil
     let trends: [DirectorAPI.Option]
     /// Trends vom Server — kein App-Update noetig.
     var serverTrends: [DirectorAPI.Option] = []
@@ -76,6 +78,10 @@ struct DirectorWorkspace<Mascot: View>: View {
     var onPick: (DirectorAPI.Option) -> Void = { _ in }
     var onOwnIdea: () -> Void = {}
     var onCompare: () -> Void = {}
+    /// „Behalt ich" — sichert das Ergebnis.
+    var onKeep: () -> Void = {}
+    /// „Nochmal anders" — zurueck zu den Richtungen, ohne neues Foto.
+    var onTryAnother: () -> Void = {}
     /// Reicht die gemessenen Anmerkungen nach oben. Die Leiste unten baut ihre
     /// Schnellauftraege daraus — so redet sie ueber DIESES Foto und nicht
     /// ueber Fotos im Allgemeinen.
@@ -101,6 +107,10 @@ struct DirectorWorkspace<Mascot: View>: View {
                 // was gleich passiert — und der Sprung vom Lesen zum Ergebnis
                 // ist kleiner, weil die Form schon dasteht.
                 platzhalterVorschlaege
+            } else if let before, let photo {
+                // DAS ERGEBNIS IST DER MOMENT. Es bekommt die Flaeche, und
+                // darunter stehen zwei Entscheidungen — nicht zwoelf Werkzeuge.
+                directorsCut(vorher: before, nachher: photo)
             } else {
                 ergebnisBuehne
                 if !marks.isEmpty {
@@ -110,7 +120,7 @@ struct DirectorWorkspace<Mascot: View>: View {
 
             if !picks.isEmpty {
                 DirectorPicks(
-                    picks: picks, trends: trends,
+                    picks: picks, lead: lead, trends: trends,
                     serverTrends: serverTrends, composerOpen: composerOpen,
                     landed: landed, throwToken: throwToken,
                     sourcePhoto: before ?? photo,
@@ -259,6 +269,84 @@ struct DirectorWorkspace<Mascot: View>: View {
         .overlay(alignment: .bottomTrailing) {
             if before != nil && !isWorking {
                 vergleichKnopf
+            }
+        }
+    }
+
+    // MARK: - Der Director's Cut
+
+    /// Original und Ergebnis in EINEM Bild, mit der Trennlinie zum Ziehen.
+    ///
+    /// Warum ein Schieber und kein Umschalter: man sieht beide Zustaende
+    /// gleichzeitig und begreift die Veraenderung in einer Bewegung, ohne
+    /// etwas zu lesen. Das ist zugleich das, was eine stumme Bildschirmaufnahme
+    /// traegt — jemand, der nur zusieht, versteht in zwei Sekunden, was hier
+    /// passiert ist.
+    ///
+    /// Die Hoehe kommt aus dem Bildschirm, nicht aus einer festen Zahl: bei
+    /// 186 Punkten wie vorher war das Ergebnis eine Briefmarke unter einer
+    /// Liste. Es ist das Einzige, worauf es hier ankommt.
+    @ViewBuilder
+    private func directorsCut(vorher: Data, nachher: Data) -> some View {
+        if let vorherBild = UIImage(data: vorher), let nachherBild = UIImage(data: nachher) {
+            VStack(spacing: 14) {
+                // Platz fuer „Start over" oben rechts. Ohne den liegt der
+                // Knopf auf dem Bild — im Simulator genau so gesehen.
+                Color.clear.frame(height: 26)
+                GeometryReader { geo in
+                    BeforeAfterSlider(
+                        before: vorherBild,
+                        after: nachherBild,
+                        axis: .vertical,
+                        showLabels: true,
+                        showDivider: true,
+                        // Steht still, bis jemand zieht. Ein von selbst
+                        // wanderndes Bild waehrend man es ansieht ist
+                        // Unruhe, kein Vergleich.
+                        isAnimating: false,
+                        interactive: true,
+                        contentFill: false
+                    )
+                    .frame(width: geo.size.width, height: geo.size.height)
+                }
+                // Rund die halbe Bildschirmhoehe. Genug, dass ein Gesicht
+                // wirklich zu erkennen ist.
+                .frame(height: UIScreen.main.bounds.height * 0.46)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .shadow(color: Theme.textPrimary.opacity(0.14), radius: 16, y: 8)
+
+                HStack(spacing: 8) {
+                    Text("THE DIRECTOR'S CUT")
+                        .font(.system(size: 10, weight: .black, design: .rounded))
+                        .tracking(1.7)
+                        .foregroundStyle(Theme.textTertiary)
+                        .lineLimit(1).fixedSize()
+                    Rectangle().fill(Theme.textPrimary.opacity(0.10)).frame(height: 1)
+                }
+
+                HStack(spacing: 10) {
+                    Button(action: onKeep) {
+                        Label("Keep it", systemImage: "square.and.arrow.down")
+                            .font(.system(size: 15.5, weight: .bold, design: .rounded))
+                            .foregroundStyle(.white)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(Theme.accent, in: Capsule())
+                            .shadow(color: Theme.accent.opacity(0.28), radius: 10, y: 4)
+                    }
+                    .buttonStyle(.plain)
+
+                    Button(action: onTryAnother) {
+                        Text("Try another direction")
+                            .font(.system(size: 15.5, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Theme.textPrimary)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(Theme.surface, in: Capsule())
+                            .overlay(Capsule().strokeBorder(Theme.textPrimary.opacity(0.10), lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                }
             }
         }
     }
