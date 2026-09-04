@@ -241,3 +241,53 @@ Nachbesserungen, Credits nur bei Erfolg, blockiert nie.
 - **§6** funktioniert (freie Eingabe geht an den Director, der den technischen
   Prompt baut), ist aber nicht gegen Beispielsaetze geprueft worden.
 - Das Backend ist **nicht deployt** — die Prompt-Aenderungen wirken erst danach.
+
+## Nachtrag 04.09.2026 (9) — Deployt und mit sieben Fotos geprüft
+
+**Regel korrigiert (auf Zuruf).** „Zwei verschiedene Fotos duerfen nicht
+dieselbe Antwort bekommen" war eine harte Vielfalts-Vorgabe und damit falsch:
+sie haette den Director zwingen koennen, die richtige Antwort zurueckzuhalten,
+um abwechslungsreich auszusehen. Neu formuliert als **„Judge this photo on its
+own"** — Wiederholung ist ausdruecklich erlaubt, wenn sie stimmt; verboten ist
+die faule Variante. Der Pruefstein ist nicht „habe ich das schon gesagt",
+sondern „kann ich zeigen, was in DIESEM Bild mich dazu gebracht hat".
+Ebenfalls entfernt: „never make every pick a catalogue look" — mit nur EINEM
+Pick war das ein Widerspruch.
+
+**Deployt** auf `limitless-web` (production), Health gruen,
+`directorBrain: claude-opus-5`.
+
+**Testlauf, sieben verschiedene Fotos** (`probe.py`, Ergebnis in `probe.json`):
+
+| Foto | Picks | lead | Modus des lead |
+|---|---|---|---|
+| clubflash | 3 | Bring the skin back | retouch |
+| monowindow | 2 | Clear the crowd behind | retouch |
+| beach | 2 | Clear the stray light | retouch |
+| cafe | 3 | Clean the neon mess | retouch |
+| car | 1 | Clean the scan | retouch |
+| mirror | 3 | Clear the flare | retouch |
+| party | 2 | Clear the frame | retouch |
+
+Die Anzahl schwankt tatsaechlich (1 bis 3). Jede Zeile benennt etwas, das nur
+in DIESEM Bild steht. Sechs von sieben Leads sind ein `retouch` einer konkret
+benannten Stoerstelle — nicht ein Katalog-Look. Katalog-Looks tauchen nur als
+Zweit- und Drittvorschlag auf.
+
+**Nicht deterministisch:** derselbe Wagen-Clip lieferte in zwei Laeufen einmal
+1 und einmal 2 Picks. Das ist erwuenscht (ein Urteil, keine Tabelle), aber es
+heisst: ein einzelner Testlauf beweist nichts.
+
+**Gefunden und behoben:** Bildunterschriften wurden hart bei 90 Zeichen
+abgeschnitten, mitten im Wort („…their skin textu"). Jetzt `cut()` auf
+Wortgrenze mit Auslassungspunkt.
+
+**OFFEN — Trends sind leer.** `trendsSource: "none"`: weder `TRENDS_URL` noch
+`DIRECTOR_TRENDS` sind gesetzt. In allen sieben Laeufen kam
+`trends: []` zurueck. Die „BEST MATCH"-Auszeichnung hat damit nichts zu
+bewerten. Das ist eine Konfigurationsluecke, keine Codeluecke — die Mechanik
+steht (`director-trends.mjs`).
+
+**Warnung beim Deploy:** Node 20.x ist veraltet, Deployments ab 01.10.2026
+schlagen fehl. Fix waere `"engines": { "node": "24.x" }` in der `package.json`
+des Backends.
