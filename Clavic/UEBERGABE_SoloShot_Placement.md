@@ -331,3 +331,43 @@ Geprueft nach dem Deploy: 4/4 HTTP 200, `provider: "wavespeed"`.
   Abrechnung, aber fast immer zwei Vorschlaege.
 - Stufe 1 laeuft weiter ueber fal. Sie auf WaveSpeed zu holen ist eigene
   Arbeit: `readPhoto` haengt fest am fal-Vision-Endpunkt.
+
+## Nachtrag 04.09.2026 (11) — Alles über WaveSpeed
+
+Auf Ansage: **kein fal, kein Anthropic direkt.** Beide Modelle, ein Schlüssel.
+
+| Stufe | Modell | vorher | jetzt |
+|---|---|---|---|
+| 1 — Foto lesen | gemini-3.5-flash | `fal.run/openrouter/router/vision` | WaveSpeed |
+| 2 — entscheiden | claude-opus-5 | `api.anthropic.com` | WaveSpeed |
+| 3 — Ergebnis prüfen | claude-opus-5 | `api.anthropic.com` | WaveSpeed |
+
+Stufe 3 war die stillste Falle: die Qualitätsprüfung hing an derselben
+Anthropic-Rechnung, die leerlief. Sie schluckt Fehler absichtlich („eine
+gescheiterte Prüfung darf ein gutes Bild nicht aufhalten") — sie wäre also
+lautlos ausgefallen, ohne dass es jemand bemerkt hätte.
+
+`callWaveSpeed` nimmt `tools` jetzt OPTIONAL. Lesung und Prüfung wollen reinen
+JSON-Text; eine leere Werkzeugliste lehnen manche Modelle ab.
+
+`DIRECTOR_PROVIDER` steht per Vorgabe auf `wavespeed`. Der Anthropic-Weg bleibt
+im Code und ist über dieselbe Variable erreichbar — benutzt wird er nicht.
+
+**Nach dem Deploy gemessen:**
+
+| | Ergebnis | Dauer |
+|---|---|---|
+| Stufe 1, 3 Fotos | 3/3, je 26 Felder | 17–23 s |
+| Stufe 2, 3 Fotos | 3/3, je 2 Picks | 36–45 s |
+| Stufe 3, Gegenprobe | erkennt fremdes Bild: `major`, „Completely different person" | 9 s |
+| Stufe 3, Nullprobe | erkennt „no perceptible change" | 9 s |
+
+**Deshalb zwei Zeitlimits in `DirectorAPI.swift` angehoben:** Lesung 30 → 60 s
+(gemessen bis 23 s), Zug 90 → 150 s (gemessen bis 45 s). Mit den alten Werten
+wäre ein zäher Lauf kurz vor dem Ziel abgebrochen.
+
+**Preis der Umstellung, gemessen:** ein Zug dauert jetzt rund 60 s statt 25,
+und die Zahl der Vorschläge liegt fast immer bei 2 statt bei 1–3 — dem
+OpenAI-Protokoll fehlen `thinking` und `effort`. Die Vielfalt aus Nachtrag (8)
+ist damit teilweise wieder verloren; das ist der bewusst eingegangene Tausch
+für einen Schlüssel und eine Abrechnung.

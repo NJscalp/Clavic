@@ -119,7 +119,11 @@ enum DirectorAPI {
         var request = URLRequest(url: readURL)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 30
+        // 60 s, nicht 30. Seit die Lesung ueber WaveSpeed laeuft statt ueber
+        // fal, dauert sie GEMESSEN 17 bis 23 Sekunden — bei 30 waere jeder
+        // langsamere Lauf abgebrochen und der Nutzer haette ohne Lesung
+        // weitergemacht, also teurer und schlechter.
+        request.timeoutInterval = 60
         request.httpBody = try? JSONSerialization.data(withJSONObject: ["images": [b64]])
 
         guard let (data, response) = try? await URLSession.shared.data(for: request),
@@ -151,7 +155,11 @@ enum DirectorAPI {
         var request = URLRequest(url: chatURL)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 90
+        // 150 s. Der Entscheider braucht ueber WaveSpeed gemessen 36 bis 45 s,
+        // gegenueber 12 bis 15 direkt — das OpenAI-Protokoll ist langsamer.
+        // Reserve fuer einen zaehen Lauf, sonst bricht der Zug kurz vor dem
+        // Ziel ab und der Nutzer sieht nur einen Fehler.
+        request.timeoutInterval = 150
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
 
         let (data, response) = try await URLSession.shared.data(for: request)
