@@ -478,3 +478,51 @@ sichtbare Ebene hat sich aber umgedreht. Vorher hiessen die Leads „Clear the
 flare", „Clean the neon mess", „Bring the skin back". Jetzt „Empty Alley Travel
 Editorial", „Blue Hour Rooftop Editorial", „Late-Night Street Flash", „Just Her
 And The Light". `mode` ist ein internes Etikett und steht auf keiner Karte.
+
+## Nachtrag 04.09.2026 (14) — Form entscheiden, Formel verbieten
+
+Drei gezielte Eingriffe, keine Architekturänderung.
+
+**1. `decision_shape` wird VOR den Picks gesetzt.** Pflichtfeld im Werkzeug
+(`single` | `alternatives` | `explore`). Im Prompt steht ausdrücklich: „Two is
+not the safe middle" — wer aus Ausgewogenheit zu `alternatives` greift, hat
+nicht entschieden, sondern voreingestellt.
+
+Abgleich im Code, ohne Zusatzkosten und ohne Erfinden:
+- **zu viele** Picks → auf die erklärte Zahl kürzen, den Lead zuerst; er darf
+  nie der sein, der wegfällt
+- **zu wenige** → nicht auffüllen (das wäre genau das Füllmaterial, das weg
+  soll), stattdessen folgt die Form der Wirklichkeit
+- Nach dem Kürzen wird der Lead neu bestimmt
+
+GEMESSEN, 12 Fotos: **4× single / 8× alternatives / 0× explore** gegenüber
+1× / 11× / 0× davor. Die Entscheidung bewegt sich also wirklich.
+
+**2. Die Formel im Einzeiler.** Der erste Versuch („keine feste Konstruktion")
+hat NICHTS bewirkt: 5 von 12 sagten weiter „is the whole photograph", 12 von 12
+nutzten den Gedankenstrich-Pivot. Erst ein AUSDRÜCKLICHES VERBOT wirkte —
+die Wendung namentlich verboten, den Pivot verboten, „gut, dann schlecht" als
+Standardreihenfolge verboten, dazu Vorgaben zur Variation von Anfang und Länge.
+
+| | „whole X" | Gedankenstrich | Wörter min/med/max |
+|---|---|---|---|
+| v2 (weiche Bitte) | 5/12 | 12/12 | 30/34/44 |
+| v3 (Verbot) | 0/5 | 1/5 | 17/25/33 |
+
+Lehre: Bei einem eingefahrenen Sprachmuster hilft „variiere" nicht. Nur die
+Wendung beim Namen nennen und verbieten.
+
+**3. Leere `internal_steps` ausdrücklich erlaubt** — in Schema und Prompt, mit
+dem Prüfstein „würde das Weglassen diese Richtung sichtbar verschlechtern?".
+NICHT NACHGEWIESEN: in beiden Läufen kam kein einziges leeres Array vor. Ob die
+Regel greift, ist offen.
+
+**4./5.** Lead-Logik unverändert. Zusätzlich gegen erzwungene Exotik: „An exotic
+name on an ordinary decision is a costume."
+
+### Abbruch des Testlaufs
+Der dritte Durchlauf brach nach 5 von 12 Fotos ab — WaveSpeed-Guthaben leer
+(`director_http_403 · balance not enough`). Die v3-Zahlen beruhen deshalb auf
+5 Fotos, nicht auf 12. **Ursache waren meine eigenen Messläufe**: drei volle
+12-Foto-Durchgänge sind 36 Opus-Aufrufe mit rund 20k Token Systemprompt, an
+einem Tag, zusätzlich zu den Läufen aus Nachtrag (9)–(12).
