@@ -526,3 +526,58 @@ Der dritte Durchlauf brach nach 5 von 12 Fotos ab — WaveSpeed-Guthaben leer
 5 Fotos, nicht auf 12. **Ursache waren meine eigenen Messläufe**: drei volle
 12-Foto-Durchgänge sind 36 Opus-Aufrufe mit rund 20k Token Systemprompt, an
 einem Tag, zusätzlich zu den Läufen aus Nachtrag (9)–(12).
+
+## Nachtrag 04.09.2026 (15) — Anthropic direkt, und die Nachschlagetabelle raus
+
+**Opus 5 läuft wieder direkt über Anthropic** (`DIRECTOR_PROVIDER` Vorgabe
+`anthropic`). Grund ist der Cache, nicht der Preis — WaveSpeed berechnet
+dieselben Tarife, kennt aber kein Prompt-Caching:
+
+| | frisch je Zug | aus dem Cache | Kosten |
+|---|---|---|---|
+| direkt | 598 | 4.047 | **$0,029** |
+| WaveSpeed | 8.985 | 0 | **$0,096** |
+
+Neu **auch die Werkzeuge gecacht** (`cache_control` auf dem letzten Eintrag) —
+rund 2.000 Token, die sonst jeden Zug voll kosteten.
+
+Die **Ergebnisprüfung** läuft ebenfalls wieder direkt, mit Cache auf dem
+Regelwerk und WaveSpeed als Netz. **Stufe 1 (Gemini) bleibt auf WaveSpeed:**
+6,8 % der Kosten, 301 Token Prompt, jedes Bild ein anderes — nichts zu cachen.
+
+Die Antwort meldet jetzt das Modell, das die API SELBST genannt hat
+(`servedModel`), nicht unsere Konfiguration. Sonst liesse sich nie prüfen, ob
+wirklich Opus 5 geantwortet hat.
+
+### Die Nachschlagetabelle im Katalog
+
+Gefunden bei der Prüfung auf Verallgemeinerbarkeit: `director-looks.mjs` hatte
+je Look ein Feld `fits`, das als „Passt zu: …" in den Systemprompt ging —
+
+```
+nightflash   fits: 'Nachts draußen, Straße, Bar …'
+sunsetbeach  fits: 'Außenaufnahmen, offener Himmel … später Nachmittag.'
+cleangirl    fits: 'Porträts, Beauty …'
+```
+
+Das ist genau die Zuordnung Ort → Stil, die dafür sorgt, dass zwei völlig
+verschiedene Nachtfotos dieselbe Antwort bekommen. **Feld umbenannt in
+`condition` und inhaltlich umgeschrieben**: es steht jetzt, WORAN man im Bild
+erkennt, dass ein Look tragen kann („Hinter dem Motiv sind punktförmige
+Lichter, die zu Bokeh werden können, und die Umgebung ist dunkel genug für
+Blitzabfall"). Bedingungen übertragen sich auf ungesehene Fotos, Kategorien
+nicht. Dieselbe Umstellung bei den Trends.
+
+Dazu zwei neue Prompt-Abschnitte:
+- **„THE ONE MISTAKE THAT WOULD MAKE YOU USELESS"** — nie ein Attribut in einen
+  Stil übersetzen; ein Ort ist kein Grund, eine Bedingung im Bild schon.
+- **„HOW MUCH SHOULD CHANGE AT ALL"** — der Eingriffsumfang ist selbst Teil des
+  Urteils, von „fast nichts" bis „Restaging". Das fehlte bisher ganz.
+
+Ausserdem alle Beispiele entfernt, die aus dem 12-Foto-Testsatz stammten, plus
+die Regel: Beispielformulierungen im Prompt zeigen eine FORM, nie Wörter zum
+Übernehmen.
+
+**NICHT GEPRÜFT.** Beide Konten sind leer (Anthropic *und* WaveSpeed), es liess
+sich kein einziger Zug fahren. Syntax und Modulladen sind geprüft,
+`looksForPrompt()` wurde ausgeführt. Das Verhalten ist offen.
