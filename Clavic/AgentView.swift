@@ -250,12 +250,14 @@ struct AgentView: View {
 
     /// `height` nur setzen, wo die Figur NEBEN etwas steht — im Ergebnis
     /// steht sie klein rechts vom Foto statt breit darueber.
-    private func mascotBlock(height: CGFloat? = nil) -> some View {
+    private func mascotBlock(height: CGFloat? = nil,
+                            idleSet: [URL] = MascotStage.idleURLs) -> some View {
         MascotStage(
             act: mascotAct,
             throwToken: throwToken,
             expectsThrow: !didPlayWelcomeThrow && messages.isEmpty,
             height: height ?? mascotHeight,
+            idleSet: idleSet,
             isActive: true,
             showsHabitat: messages.isEmpty,
             // In der Werkbank erzählt die Zeile darunter den Stand — die
@@ -298,7 +300,10 @@ struct AgentView: View {
                             // Klein und ohne den negativen Rand: hier steht sie
                             // IM Textspiegel neben dem Bild, nicht über die
                             // ganze Breite.
-                            mascotBlock(height: 132)
+                            // Eigener Ruhe-Satz: hier zeigt, betrachtet und
+                            // billigt sie den Abzug — statt dasselbe zu tun
+                            // wie im Leerlauf auf dem Startbildschirm.
+                            mascotBlock(height: 132, idleSet: MascotStage.readIdleURLs)
                                 .frame(width: 132)
                         }
                     },

@@ -71,6 +71,9 @@ struct MascotStage: View {
     var expectsThrow: Bool = false
     /// Höhe des Blocks im Fluss.
     var height: CGFloat = 250
+    /// Welchen Ruhe-Satz die Figur spielt. Neben dem gelesenen Foto ein
+    /// eigener, der zum Bild gehoert — nicht derselbe wie im Leerlauf.
+    var idleSet: [URL] = MascotStage.idleURLs
     /// Nur der sichtbare Tab lässt die Videos laufen (Akku).
     var isActive: Bool = true
     /// true nur im leeren Auftakt: dann steht die Figur zwischen Blättern.
@@ -115,7 +118,7 @@ struct MascotStage: View {
     /// mit, sobald der Zähler stieg. Dann lagen die Karten schon da, bevor der
     /// Wurf begonnen hatte.
     private var canPlayVideos: Bool {
-        !reduceMotion && Self.throwURL != nil && !Self.idleURLs.isEmpty
+        !reduceMotion && Self.throwURL != nil && !idleSet.isEmpty
     }
 
     var body: some View {
@@ -139,7 +142,7 @@ struct MascotStage: View {
 
                 MascotPlayer(
                     throwURL: throwURL,
-                    idleURLs: Self.idleURLs,
+                    idleURLs: idleSet,
                     scanURL: Self.scanURL,
                     // Waehrend er das Foto liest, haelt er die Lupe darueber —
                     // statt danebenzustehen, als ginge ihn das nichts an.
@@ -265,13 +268,31 @@ struct MascotStage: View {
     /// treffen sich beide beim Betrachter. Das ist die charakteristischste
     /// Eigenschaft eines Chamäleons und im Zuhause-Loop kommt sie nicht vor.
     static var idleURLs: [URL] {
-        // `mascot_idle_present` ist neu: die Figur hebt den Abzug und zeigt
-        // ihn her. Sie entstand aus dem ERSTEN BILD von `mascot_idle1`, damit
-        // Koerperbau und Farben exakt dieselben bleiben, und laeuft hin und
-        // zurueck — der Clip endet deshalb genau auf seinem Anfangsbild und
-        // hat keine Naht (gemessen: 0,9 von 255 mittlere Abweichung).
-        ["mascot_idle_tab", "mascot_idle1", "mascot_idle_present",
-         "mascot_idle2", "mascot_idle3"].compactMap {
+        ["mascot_idle_tab", "mascot_idle1", "mascot_idle2", "mascot_idle3"].compactMap {
+            Bundle.main.url(forResource: $0, withExtension: "mp4")
+        }
+    }
+
+    /// DREI EIGENE POSEN fuer den Platz neben dem gelesenen Foto.
+    ///
+    /// Dort stand vorher derselbe Ruhe-Satz wie auf dem Startbildschirm. Das
+    /// war zweimal falsch: die Figur tat neben dem Abzug dasselbe wie im
+    /// Leerlauf, und der Wechsel zwischen den alten Clips war als Schnitt zu
+    /// sehen — sie enden in voellig verschiedenen Posen, und eine Blende
+    /// zwischen zwei verschiedenen Posen ist ein sichtbares Doppelbild.
+    ///
+    /// Diese drei sind darauf gebaut, ineinander zu laufen:
+    ///   • Alle drei entstanden aus DEMSELBEN Bild — dem ersten Bild von
+    ///     `mascot_idle1` — also aus derselben Pose.
+    ///   • Jeder Clip laeuft hin und zurueck und endet deshalb exakt auf
+    ///     seinem Anfangsbild. GEMESSEN: eigene Naht 0,9 bis 1,1 von 255.
+    ///   • Damit sind auch Ende und Anfang ZWEIER VERSCHIEDENER Clips fast
+    ///     deckungsgleich. GEMESSEN: 2,3 bis 2,5 von 255 im Mittel — was die
+    ///     kurze Blende vollstaendig verdeckt.
+    ///
+    /// Inhaltlich gehoeren sie zum Foto: zeigen, betrachten, gutheissen.
+    static var readIdleURLs: [URL] {
+        ["mascot_read_point", "mascot_read_study", "mascot_read_approve"].compactMap {
             Bundle.main.url(forResource: $0, withExtension: "mp4")
         }
     }
@@ -331,6 +352,11 @@ private struct MascotPlayer: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: MascotPlayerUIView, context: Context) {
+        // Der Ruhe-Satz kann sich unter der laufenden Ansicht aendern: dieselbe
+        // Buehne zeigt beim Lesen den einen und danach neben dem Foto den
+        // anderen. `configure` laeuft nur beim Aufbau — ohne diese Zeile
+        // spielte sie danach weiter die alten Clips.
+        uiView.setIdleSet(idleURLs)
         uiView.setActive(isActive)
         uiView.startThrow(token: throwToken)
         // Nach dem Wurf, sonst ueberschreibt der Wurf den Pruef-Loop sofort.
@@ -391,6 +417,17 @@ final class MascotPlayerUIView: UIView {
     private var backLayer: AVPlayerLayer { frontIsA ? layerB : layerA }
 
     // MARK: Aufbau
+
+    /// Tauscht den Ruhe-Satz im Betrieb.
+    ///
+    /// Der laufende Clip wird NICHT abgeschnitten — er spielt zu Ende, und
+    /// erst der naechste kommt aus dem neuen Satz. Ein harter Wechsel mitten
+    /// in einer Geste waere genau der Schnitt, den es hier zu vermeiden gilt.
+    func setIdleSet(_ urls: [URL]) {
+        guard urls != idleURLs, !urls.isEmpty else { return }
+        idleURLs = urls
+        idleIndex = urls.indices.randomElement() ?? 0
+    }
 
     func configure(throwURL: URL, idleURLs: [URL], scanURL: URL? = nil,
                    onHandoff: @escaping () -> Void, onThrowFinished: @escaping () -> Void,

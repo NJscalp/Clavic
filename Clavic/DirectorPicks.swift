@@ -18,14 +18,21 @@
 //       liegt, klappt nicht auf — man kann sich nichts vorstellen, was man
 //       nicht sieht. Jetzt liegen die Vorschaubilder offen da.
 //
-//    3. Der ganze Katalog. Eine Kachelwand hinter EINEM Knopf, der sagt, wie
-//       viele Looks es sind. Nicht der Hauptweg, aber sichtbar vorhanden —
-//       damit niemand denkt, das hier seien alle Möglichkeiten.
+//    3. Der ganze Katalog — als FILMSTREIFEN, nicht als Listenzeile.
 //
-//    4. „I want to make my own thing." Ein eigener, breiter Knopf, nicht
-//       mehr eine graue Fusszeile. Er ist die Antwort auf „und wenn ich
-//       etwas ganz anderes will?" und muss deshalb genauso laut sein wie
-//       die Vorschläge.
+//       Eine weisse Zeile mit einem Pfeil rechts ist das Bauteil, das in
+//       jeder App steht. Sie sagt nichts darüber, wo man ist. Der Streifen
+//       mit Perforation gehört dagegen auf denselben Tisch wie die Filmdose
+//       in der Kulisse und die Sofortbilder darüber — und man sieht sofort
+//       Bilder statt eines Versprechens.
+//
+//    4. „…or tell me your own idea" — als LEERER ABZUG.
+//
+//       Vorher war das ein Kasten mit gestrichelter Umrandung. Der liest sich
+//       als Ablagefeld für Dateien, und gestrichelte Kästen stehen in jeder
+//       zweiten App. Ein leerer Abzug mit einer Bleistiftlinie darauf sagt
+//       dasselbe in der Sprache dieses Bildschirms: der Director hat zwei
+//       Bilder hingelegt, und eins ist noch frei.
 //
 //  ES WIRD NICHTS GERENDERT, bevor hier etwas angetippt wurde. Jeder Tipp
 //  kostet Credits, deshalb ist jeder Tipp eine bewusste Entscheidung.
@@ -66,7 +73,7 @@ struct DirectorPicks: View {
 
             if landed {
                 if !trends.isEmpty { trendStreifen }
-                katalogZeile
+                katalogStreifen
                 eigeneIdee
             }
         }
@@ -104,7 +111,7 @@ struct DirectorPicks: View {
 
     private var trendStreifen: some View {
         VStack(alignment: .leading, spacing: 9) {
-            abschnitt("Trending on TikTok", zusatz: "sorted for your photo")
+            abschnitt("TRENDING ON TIKTOK", zusatz: "FOR YOU")
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
@@ -169,110 +176,162 @@ struct DirectorPicks: View {
 
     // MARK: - Der ganze Katalog
 
-    /// Sagt die Zahl. „Browse all looks" allein waere ein Versprechen ohne
-    /// Groesse — mit der Zahl weiss man vorher, was einen erwartet.
-    private var katalogZeile: some View {
+    /// Ein Filmstreifen statt einer Listenzeile.
+    ///
+    /// Die Perforation oben und unten ist der ganze Trick: sie macht aus einer
+    /// Reihe Bildchen ein Objekt, das auf diesem Tisch liegen kann. Sie ist
+    /// nicht gezeichnet, sondern eine Reihe kleiner Rechtecke im gleichen
+    /// Abstand — deshalb passt sie sich jeder Breite an.
+    private var katalogStreifen: some View {
         Button { katalogOffen = true } label: {
-            HStack(spacing: 11) {
-                stapelVorschau
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Every look we have")
-                        .font(.system(size: 15, weight: .bold, design: .rounded))
-                        .foregroundStyle(Theme.textPrimary)
-                    Text("\(Self.katalog.count) to pick from")
-                        .font(.system(size: 12.5, weight: .medium, design: .rounded))
-                        .foregroundStyle(Theme.textSecondary)
+            VStack(alignment: .leading, spacing: 7) {
+                abschnitt("EVERY LOOK WE HAVE", zusatz: "\(Self.katalog.count)")
+
+                ZStack {
+                    Theme.textPrimary
+                    VStack(spacing: 0) {
+                        perforation
+                        HStack(spacing: 3) {
+                            ForEach(Array(Self.katalog.prefix(6).enumerated()), id: \.offset) { _, look in
+                                Group {
+                                    if let name = look.preview, UIImage(named: name) != nil {
+                                        Image(name).resizable().scaledToFill()
+                                    } else {
+                                        Rectangle().fill(Theme.surfaceHigh)
+                                    }
+                                }
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 62)
+                                .clipped()
+                            }
+                        }
+                        .padding(.horizontal, 3)
+                        perforation
+                    }
+                    .padding(.vertical, 5)
                 }
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(Theme.textTertiary)
+                .frame(height: 88)
+                .clipShape(RoundedRectangle(cornerRadius: 5, style: .continuous))
+                // Er liegt leicht schief auf dem Tisch, wie alles hier.
+                .rotationEffect(.degrees(-0.6))
+                .shadow(color: Theme.textPrimary.opacity(0.16), radius: 10, y: 5)
             }
-            .padding(11)
-            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(Theme.textPrimary.opacity(0.08), lineWidth: 1)
-            )
         }
         .buttonStyle(.plain)
     }
 
-    /// Drei versetzte Vorschaubilder — man sieht, dass hinter dem Knopf
-    /// Bilder liegen, nicht eine Liste.
-    private var stapelVorschau: some View {
-        ZStack {
-            ForEach(Array(Self.katalog.prefix(3).enumerated()), id: \.offset) { index, look in
-                Group {
-                    if let name = look.preview, UIImage(named: name) != nil {
-                        Image(name).resizable().scaledToFill()
-                    } else {
-                        Rectangle().fill(Theme.surfaceHigh)
-                    }
-                }
-                .frame(width: 34, height: 44)
-                .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6, style: .continuous)
-                        .strokeBorder(Theme.surface, lineWidth: 1.5)
-                )
-                .rotationEffect(.degrees(Double(index - 1) * 8))
-                .offset(x: CGFloat(index - 1) * 11)
-                .zIndex(Double(index))
+    /// Eine Reihe Perforationslöcher.
+    private var perforation: some View {
+        HStack(spacing: 0) {
+            ForEach(0..<14, id: \.self) { _ in
+                RoundedRectangle(cornerRadius: 1.5, style: .continuous)
+                    .fill(Theme.background)
+                    .frame(width: 7, height: 5)
+                    .frame(maxWidth: .infinity)
             }
         }
-        .frame(width: 60, height: 46)
+        .padding(.horizontal, 4)
+        .padding(.vertical, 4)
     }
 
     // MARK: - Eigene Idee
 
-    /// Kein grauer Fusszeilentext mehr. Wer etwas anderes will, soll das
-    /// genauso laut angeboten bekommen wie die Vorschläge — sonst denkt er,
-    /// die Vorschläge seien alles, was geht.
+    /// Ein leerer Abzug. Kein gestrichelter Kasten.
+    ///
+    /// Er hat genau die Form der geworfenen Karten darüber — Bildfeld oben,
+    /// beschrifteter Streifen unten, leicht schief. Dadurch steht die eigene
+    /// Idee sichtbar AUF DERSELBEN STUFE wie die beiden Vorschläge, statt als
+    /// Notausgang darunter.
+    ///
+    /// Im Bildfeld liegt eine Bleistiftlinie, die nichts darstellt: sie sagt
+    /// „hier ist noch nichts", ohne ein Symbol zu bemühen.
     private var eigeneIdee: some View {
         Button(action: onOwnIdea) {
-            HStack(spacing: 11) {
-                Image(systemName: "pencil.and.scribble")
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundStyle(Theme.accent)
-                    .frame(width: 38, height: 38)
-                    .background(Theme.accentSoft, in: Circle())
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("I want to make my own thing")
-                        .font(.system(size: 15.5, weight: .bold, design: .rounded))
-                        .foregroundStyle(Theme.textPrimary)
-                    Text("Tell him in your words — he works from your photo")
-                        .font(.system(size: 12.5, weight: .medium, design: .rounded))
-                        .foregroundStyle(Theme.textSecondary)
-                        .lineLimit(2)
+            VStack(spacing: 0) {
+                ZStack {
+                    Theme.background
+                    KritzelLinie()
+                        .stroke(Theme.textTertiary.opacity(0.5),
+                                style: StrokeStyle(lineWidth: 1.8, lineCap: .round, lineJoin: .round))
+                        .padding(.horizontal, 34)
+                        .padding(.vertical, 22)
+                    Image(systemName: "pencil")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
+                        .frame(width: 34, height: 34)
+                        .background(Theme.surface, in: Circle())
+                        .shadow(color: Theme.textPrimary.opacity(0.10), radius: 5, y: 2)
                 }
-                Spacer(minLength: 0)
+                .frame(height: 74)
+                .clipShape(RoundedRectangle(cornerRadius: 3, style: .continuous))
+                .padding(9)
+                .padding(.bottom, 0)
+
+                HStack(spacing: 0) {
+                    Text("…or tell me your own idea")
+                        .font(.system(size: 14.5, weight: .semibold, design: .serif))
+                        .italic()
+                        .foregroundStyle(Theme.textPrimary)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 11)
+                .padding(.top, 8)
+                .padding(.bottom, 12)
             }
-            .padding(12)
-            .background(Theme.papier, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(Theme.accent.opacity(0.30), style: StrokeStyle(lineWidth: 1.4, dash: [5, 4]))
-            )
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+            .rotationEffect(.degrees(1.1))
+            .shadow(color: Theme.textPrimary.opacity(0.13), radius: 11, y: 6)
+            .padding(.horizontal, 2)
         }
         .buttonStyle(.plain)
     }
 
     // MARK: - Bausteine
 
+    /// Dieselbe Typografie wie die Kopfzeile auf dem Blatt: winzige, weit
+    /// gesperrte Versalien und eine Linie, die den Rest der Breite nimmt.
+    /// Ein Bildschirm, eine Handschrift — sonst zerfaellt er in Bausteine aus
+    /// verschiedenen Apps.
     private func abschnitt(_ titel: String, zusatz: String? = nil) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 7) {
+        HStack(spacing: 8) {
             Text(titel)
-                .font(.system(size: 15, weight: .bold, design: .rounded))
-                .foregroundStyle(Theme.textPrimary)
+                .font(.system(size: 10, weight: .black, design: .rounded))
+                .tracking(1.7)
+                .foregroundStyle(Theme.textTertiary)
+                // Eine Ueberschrift, die umbricht, reisst die Linie daneben
+                // mit — im Simulator sah das aus wie ein Satzfehler.
+                .lineLimit(1)
+                .fixedSize()
+            Rectangle()
+                .fill(Theme.textPrimary.opacity(0.10))
+                .frame(height: 1)
             if let zusatz {
                 Text(zusatz)
-                    .font(.system(size: 12, weight: .medium, design: .rounded))
+                    .font(.system(size: 10, weight: .black, design: .rounded))
+                    .tracking(0.6)
                     .foregroundStyle(Theme.textTertiary)
+                    .lineLimit(1)
+                    .fixedSize()
             }
-            Spacer(minLength: 0)
         }
+    }
+}
+
+/// Eine Linie, die nichts darstellt — der Platzhalter fuer eine Idee, die
+/// noch niemand aufgeschrieben hat. Zwei ungleiche Wellen uebereinander, damit
+/// sie nicht wie eine Sinuskurve aussieht.
+private struct KritzelLinie: Shape {
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        let steps = 60
+        for step in 0...steps {
+            let t = Double(step) / Double(steps)
+            let y = r.midY + sin(t * 2.4 * 2 * .pi) * r.height * 0.30
+                           + sin(t * 5.1 * 2 * .pi + 1.3) * r.height * 0.10
+            let point = CGPoint(x: r.minX + r.width * t, y: y)
+            if step == 0 { p.move(to: point) } else { p.addLine(to: point) }
+        }
+        return p
     }
 }
 
