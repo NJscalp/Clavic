@@ -1062,30 +1062,60 @@ struct AgentView: View {
             + option.internalSteps.map { "- \($0)" }.joined(separator: "\n")
     }
 
-    private func guidedDirectionPrompt(_ option: DirectorAPI.Option, index: Int) -> String {
-        let label = option.label.lowercased()
-        let isCreative = label.contains("new moment") || label.contains("reimagine") || (index == 2 && !label.contains("keep it real"))
-        let isSocial = label.contains("post-ready") || label.contains("post ready") || (index == 1 && !isCreative)
+    /// Welchen Vertrag ein Auftrag bekommt — entschieden am `mode`.
+    ///
+    /// HIER STAND EINE ALTLAST AUS DEM FRUEHEREN AGENTEN:
+    ///
+    ///     let isCreative = label.contains("new moment") || label.contains("reimagine")
+    ///                      || (index == 2 && !label.contains("keep it real"))
+    ///     let isSocial   = label.contains("post-ready") || (index == 1 && !isCreative)
+    ///
+    /// Die Bezeichnungen erfindet der Director heute frei — „post-ready" trifft
+    /// praktisch nie. Damit entschied faktisch die POSITION IM ARRAY: Vorschlag
+    /// 3 bekam den kreativen Vertrag, der ausdruecklich neue Pose, Ausschnitt
+    /// und Umgebung erlaubt. Ein reines Farbgrading auf Platz 3 durfte also die
+    /// Szene umbauen, nur weil es Platz 3 war.
+    ///
+    /// Der Director vergibt laengst genau die Angabe, die hier gebraucht wird.
+    /// Sie wurde nur nie gelesen.
+    private func renderContract(_ requested: String, mode: DirectorAPI.Mode) -> String {
+        switch mode {
+        case .grade:
+            // Nur Licht und Farbe. Der strengste Vertrag, und der richtige:
+            // ein Kamera-Look ist keine Erlaubnis, die Szene neu zu bauen.
+            return compositionLockedPrompt(requested)
 
-        if isSocial {
-            return withSteps("""
+        case .retouch:
+            // Gleiche Szene, gleicher Ausschnitt — aber etwas darf weg oder
+            // repariert werden.
+            return """
             SOCIAL EDIT CONTRACT:
             Keep the exact same person and identity: face geometry, skin tone, hair, body proportions, clothing and natural texture. Preserve the source photo as the base. You may improve light, color, detail, subject separation and perform only the crop or minor distraction cleanup explicitly required by the requested direction. Do not invent a new setting, pose, outfit or object. No beautification, body reshaping or plastic skin.
 
             REQUESTED DIRECTION:
-            \(option.prompt)
-            """, option)
-        }
-        if !isCreative {
-            return withSteps(compositionLockedPrompt(option.prompt), option)
-        }
-        return withSteps("""
-        CREATIVE PHOTO CONTRACT:
-        Use the source person as the exact identity reference: preserve recognizable face geometry, skin tone, hair characteristics and body proportions. This direction intentionally permits a new natural pose, crop, lighting and environment. Rebuild all perspective, contact shadows, reflections, anatomy and camera grain coherently so it looks like one real photograph captured in that moment—not a pasted subject or a filter. Do not beautify or change the person's identity.
+            \(requested)
+            """
 
-        REQUESTED DIRECTION:
-        \(option.prompt)
-        """, option)
+        case .restage:
+            // Ort, Kleidung, Pose duerfen sich aendern — die Identitaet nicht.
+            return """
+            CREATIVE PHOTO CONTRACT:
+            Use the source person as the exact identity reference: preserve recognizable face geometry, skin tone, hair characteristics and body proportions. This direction intentionally permits a new natural pose, crop, lighting and environment. Rebuild all perspective, contact shadows, reflections, anatomy and camera grain coherently so it looks like one real photograph captured in that moment—not a pasted subject or a filter. Do not beautify or change the person's identity.
+
+            REQUESTED DIRECTION:
+            \(requested)
+            """
+
+        case .generate:
+            // Etwas Neues. KEIN Personenvertrag: `generate` kommt nur auf
+            // ausdrueckliche Bitte und oft ohne Person im Bild — eine Klausel
+            // ueber „die Identitaet der Quellperson" waere dort schlicht falsch.
+            return requested
+        }
+    }
+
+    private func guidedDirectionPrompt(_ option: DirectorAPI.Option) -> String {
+        withSteps(renderContract(option.prompt, mode: option.mode), option)
     }
 
     private func runEdit(action: DirectorAPI.Action, sourceImages: [Data]) async {
@@ -1223,8 +1253,12 @@ struct AgentView: View {
             // wirklich jemand hinschaut, statt einen Spinner zu zählen.
             await setLoadingNote(verdict.issues.first.map { "Fixing: \($0.lowercased())" } ?? "Improving the result…")
 
+            // DERSELBE Vertrag wie beim ersten Versuch. Vorher stand hier
+            // fest `compositionLockedPrompt` — bei einem `restage` haette der
+            // zweite Anlauf also genau das verboten, was der Auftrag verlangt,
+            // und die Nachbesserung haette gegen sich selbst gearbeitet.
             let req = ImageEditRequest(
-                prompt: compositionLockedPrompt(corrected),
+                prompt: renderContract(corrected, mode: action.mode),
                 referenceImages: refs,
                 quality: quality.apiValue,
                 aspectRatio: "auto",
@@ -1381,7 +1415,7 @@ struct AgentView: View {
             }
 
             let request = ImageEditRequest(
-                prompt: guidedDirectionPrompt(option, index: index),
+                prompt: guidedDirectionPrompt(option),
                 referenceImages: sourceImages,
                 quality: quality.apiValue,
                 aspectRatio: "auto",
@@ -1391,7 +1425,26 @@ struct AgentView: View {
                 let taskID = try await ImageEditAPI.createTask(request)
                 switch try await pollTask(taskID) {
                 case .success(let data):
-                    completed.append((option, data))
+                    // DERSELBE Pruefweg wie beim direkten Auftrag.
+                    //
+                    // Er fehlte hier — und das ist der Weg, den fast jeder
+                    // Nutzer geht: Tippen auf eine Richtung. Identitaet,
+                    // Haende, „sieht aus wie ein neues Bild" und der verfehlte
+                    // Look wurden auf dem Hauptweg also nie geprueft, obwohl
+                    // die ganze Logik dafuer bereitstand.
+                    //
+                    // Kostet den Nutzer nichts: `store.consume` laeuft weiter
+                    // genau einmal je Bild, unten und erst bei Erfolg.
+                    let geprueft = await refineIfNeeded(
+                        data,
+                        action: DirectorAPI.Action(
+                            prompt: request.prompt, mode: option.mode, quality: quality.apiValue
+                        ),
+                        refs: sourceImages,
+                        sourceImages: sourceImages,
+                        quality: quality
+                    )
+                    completed.append((option, geprueft))
                 case .failure:
                     failures += 1
                 }

@@ -685,3 +685,48 @@ bleibt auswertbar.
 
 Das Wahl-Ereignis läuft VOR der Bildlesung im Handler — es darf unter keinen
 Umständen eine Analyse auslösen. Live geprüft: `{"ok":true}`, kein Modellaufruf.
+
+## Nachtrag 05.09.2026 (19) — Zwei Bugs vor den echten Tests
+
+**1. Die Qualitätsprüfung lief auf dem Hauptweg nicht.**
+`refineIfNeeded` wurde nur aus `runEdit` gerufen — dem Weg, den der Director
+selbst wählt und den der Prompt zur Ausnahme erklärt. Der Weg, den fast jeder
+Nutzer geht (Tap auf eine Richtung → `runDirectorSet`), enthielt **null**
+Vorkommen von `review` oder `refine`. Identität, Hände, „sieht aus wie ein neues
+Bild" und der verfehlte Look wurden dort nie geprüft, obwohl die ganze Logik
+bereitstand.
+
+Jetzt ruft `runDirectorSet` denselben `refineIfNeeded` auf, mit einer aus dem
+Pick gebauten `Action` (`prompt: request.prompt`, `mode: option.mode`).
+Retry-Grenzen unverändert: `for attempt in 1...2`, `isLookMiss` bricht nach dem
+ersten ab. `store.consume(costPerImage)` läuft weiter genau einmal je Bild,
+danach und nur bei Erfolg — interne Anläufe kosten den Nutzer nichts.
+
+**2. `option.mode` wurde beim Rendern weggeworfen.**
+Entfernt:
+```swift
+let isCreative = label.contains("new moment") || label.contains("reimagine")
+                 || (index == 2 && !label.contains("keep it real"))
+let isSocial   = label.contains("post-ready") || (index == 1 && !isCreative)
+```
+Die Bezeichnungen erfindet der Director frei, also traf die Textsuche nie —
+faktisch entschied die **Position im Array**. Vorschlag 3 bekam den kreativen
+Vertrag, der neue Pose, Ausschnitt und Umgebung erlaubt.
+
+Neu `renderContract(_:mode:)`:
+
+| mode | Vertrag |
+|---|---|
+| `grade` | `compositionLockedPrompt` — nur Licht und Farbe |
+| `retouch` | SOCIAL EDIT CONTRACT — gleiche Szene, Cleanup erlaubt |
+| `restage` | CREATIVE PHOTO CONTRACT — Pose/Ort frei, Identität gesperrt |
+| `generate` | kein Personenvertrag; der Auftrag steht allein |
+
+Die Vertragstexte sind **wörtlich unverändert** übernommen, nur die Auswahl ist
+neu. `withSteps(...)` umschliesst weiterhin alle vier Modi, `internal_steps`
+fliessen also überall ein.
+
+**Mitgezogen, weil sonst widersprüchlich:** die Nachbesserung in
+`refineIfNeeded` nutzte fest `compositionLockedPrompt`. Bei einem `restage`
+hätte der zweite Anlauf genau das verboten, was der Auftrag verlangt. Sie nutzt
+jetzt `renderContract(corrected, mode: action.mode)`.
