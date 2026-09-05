@@ -652,3 +652,36 @@ ANSWER` da. Der Nutzer kann weiterhin jeden Trend selbst wählen.
 
 **Modellentscheidung steht aus** — läuft vorerst auf dem bestehenden Pfad
 (Opus 5). Zahlen im Bericht an den Nutzer.
+
+## Nachtrag 05.09.2026 (18) — Telemetrie für die Trend-Empfehlung
+
+Modell bleibt `claude-opus-5`. Nichts umgestellt, nichts optimiert.
+
+**Zwei Ereignisse, je eine strukturierte Zeile, KEIN zusätzlicher Modellaufruf.**
+
+`phase: "ranked"` — beim Öffnen von „Choose a trend":
+`id` · `verdict` (one_fits | none_fit | no_answer) · `bestId` · `alsoIds` ·
+`why` (die Begründung des Directors) · `model` · `route` · `offered` (die
+angebotenen ids) · `reading` (die vollständige Bildlesung).
+
+`phase: "chosen"` — sobald der Nutzer im Fenster etwas wählt:
+`id` · `chosenId` · `bestId` · **`followed`** · `hadRecommendation` · `source`.
+
+`followed` ist die eine Zahl, an der sich die Qualität später ablesen lässt.
+Gemeldet wird JEDE Wahl im Fenster — Empfehlung, Alternative oder etwas ganz
+anderes aus der Liste; sonst liesse sich „übergangen" nicht von „nichts
+gewählt" unterscheiden.
+
+**Warum `console` und kein Speicher:** in dieser Auslieferung ist weder
+`BLOB_READ_WRITE_TOKEN` noch Supabase gesetzt (geprüft). Eine Logzeile kostet
+nichts und verzögert nichts. Nachteil: Vercel-Logs sind nur begrenzt haltbar.
+Für den späteren Vergleich Opus/Haiku/Gemini reicht die Zeile inhaltlich — sie
+enthält Lesung UND angebotene Liste, also denselben Fall — sie muss nur
+rechtzeitig abgegriffen werden.
+
+**Datenschutz:** die Bildlesung beschreibt einen Menschen (Kleidung, Ort,
+Aussehen). `DIRECTOR_LOG_READING=off` lässt genau dieses Feld weg, alles andere
+bleibt auswertbar.
+
+Das Wahl-Ereignis läuft VOR der Bildlesung im Handler — es darf unter keinen
+Umständen eine Analyse auslösen. Live geprüft: `{"ok":true}`, kein Modellaufruf.

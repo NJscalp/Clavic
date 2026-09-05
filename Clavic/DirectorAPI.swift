@@ -370,8 +370,11 @@ extension DirectorAPI {
         let why: String
         /// Bis zu zwei weitere, die auch gehen.
         let alsoIDs: [String]
+        /// Bindet die spätere Wahl des Nutzers an GENAU diese Empfehlung.
+        /// Ohne sie liesse sich nie sagen, ob jemand dem Director gefolgt ist.
+        let selectionID: String?
 
-        static let none = TrendVerdict(bestID: nil, why: "", alsoIDs: [])
+        static let none = TrendVerdict(bestID: nil, why: "", alsoIDs: [], selectionID: nil)
     }
 
     /// „Welcher dieser Trends passt zu DIESEM Foto?"
@@ -413,7 +416,33 @@ extension DirectorAPI {
         return TrendVerdict(
             bestID: (json["verdict"] as? String) == "one_fits" ? best : nil,
             why: ((json["why"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
-            alsoIDs: (json["alsoIds"] as? [String]) ?? []
+            alsoIDs: (json["alsoIds"] as? [String]) ?? [],
+            selectionID: (json["selectionId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         )
+    }
+
+    /// Meldet, welchen Trend der Nutzer wirklich genommen hat.
+    ///
+    /// Das zweite Ereignis zur Empfehlung — erst mit ihm laesst sich sagen, ob
+    /// jemand dem Director gefolgt ist oder ihn uebergangen hat. Ohne das
+    /// waeren alle Empfehlungen unbewertbar.
+    ///
+    /// KEIN Modellaufruf, keine Wartezeit: abgeschickt und vergessen. Ein
+    /// Fehlschlag darf den Nutzer nicht aufhalten — dann fehlt eine Logzeile,
+    /// mehr nicht.
+    static func reportTrendChoice(selectionID: String?, chosenID: String, bestID: String?) {
+        guard BackendConfiguration.isConfigured else { return }
+        var request = URLRequest(url: chatURL)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 10
+        request.httpBody = try? JSONSerialization.data(withJSONObject: [
+            "intent": "trend_choice",
+            "selectionId": selectionID as Any,
+            "chosenId": chosenID,
+            "bestId": bestID as Any,
+            "source": "trend_sheet",
+        ])
+        URLSession.shared.dataTask(with: request).resume()
     }
 }

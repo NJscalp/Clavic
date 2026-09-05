@@ -315,6 +315,7 @@ private struct KritzelLinie: Shape {
 /// ohne App-Update. Genau dafuer laedt `vorschau(_:)` eine Adresse statt eines
 /// Asset-Namens.
 private struct DirectorTrendSheet: View {
+
     let trends: [DirectorAPI.Option]
     /// Die Bildlesung. Ohne sie wird nicht gefragt — dann bleibt es die Liste.
     let reading: DirectorAPI.Reading?
@@ -341,6 +342,19 @@ private struct DirectorTrendSheet: View {
         return trends.filter { !oben.contains($0.id) }
     }
 
+    /// Jede Wahl im Fenster laeuft hier durch — die Empfehlung, eine
+    /// Alternative oder etwas ganz anderes aus der Liste. Nur so laesst sich
+    /// spaeter unterscheiden, ob jemand dem Director gefolgt ist oder ihn
+    /// uebergangen hat. Meldet und faehrt sofort fort.
+    private func waehle(_ trend: DirectorAPI.Option) {
+        DirectorAPI.reportTrendChoice(
+            selectionID: urteil?.selectionID,
+            chosenID: trend.id,
+            bestID: urteil?.bestID
+        )
+        onPick(trend)
+    }
+
     private let spalten = [GridItem(.flexible(), spacing: 12),
                            GridItem(.flexible(), spacing: 12)]
 
@@ -355,7 +369,7 @@ private struct DirectorTrendSheet: View {
                         abschnitt("OTHER GOOD MATCHES")
                         LazyVGrid(columns: spalten, spacing: 14) {
                             ForEach(weitere) { t in
-                                Button { onPick(t) } label: { kachel(t) }.buttonStyle(.plain)
+                                Button { waehle(t) } label: { kachel(t) }.buttonStyle(.plain)
                             }
                         }
                     }
@@ -363,7 +377,7 @@ private struct DirectorTrendSheet: View {
                         abschnitt(bestMatch == nil ? "ALL TRENDS" : "SEE ALL TRENDS")
                         LazyVGrid(columns: spalten, spacing: 14) {
                             ForEach(rest) { t in
-                                Button { onPick(t) } label: { kachel(t) }.buttonStyle(.plain)
+                                Button { waehle(t) } label: { kachel(t) }.buttonStyle(.plain)
                             }
                         }
                     }
@@ -461,7 +475,7 @@ private struct DirectorTrendSheet: View {
     private func empfehlung(_ trend: DirectorAPI.Option) -> some View {
         VStack(alignment: .leading, spacing: 10) {
             abschnitt("DIRECTOR'S TREND PICK")
-            Button { onPick(trend) } label: {
+            Button { waehle(trend) } label: {
                 VStack(alignment: .leading, spacing: 0) {
                     ZStack { Rectangle().fill(Theme.surfaceHigh); bild(trend) }
                         .frame(height: 300)
