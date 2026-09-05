@@ -102,65 +102,69 @@ struct DirectorPicks: View {
         return trends + serverTrends.filter { gesehen.insert($0.id).inserted }
     }
 
-    // MARK: - Seine zwei
+    // MARK: - Was man machen kann
 
+    /// KACHELN STATT SOFORTBILDER.
+    ///
+    /// Hier lagen geworfene Polaroids: 210 Punkt hohes Foto, Rand, Schraeglage,
+    /// Schatten, beschrifteter Streifen. Schoen — aber sie nahmen den halben
+    /// Bildschirm fuer zwei Waehlbare, und neben Kritzeln, Zettel, Sprechblase
+    /// und Trendkarte war das Bild optisch voll, ohne mehr zu sagen.
+    ///
+    /// Was hier gebraucht wird, ist eine Antwort auf „was kann ich machen":
+    /// ein Bild, damit man es sich vorstellen kann, und ein Name. Mehr nicht.
+    /// Die Erklaerung haengt an der Auswahl — in der Sprechblase der Figur,
+    /// dort wo sie gebraucht wird, und nicht vorsorglich an jeder Kachel.
     private var vorschlaege: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            DirectorPolaroids(
-                items: picks.map {
-                    var item = PolaroidItem($0, sourcePhoto: sourcePhoto)
-                    item.isLead = ($0.id == lead)
-                    return item
-                },
-                landed: landed,
-                throwToken: throwToken,
-                selectedID: selected?.id,
-                onPick: { item in
-                    guard let option = picks.first(where: { $0.id == item.id }) else { return }
-                    // WAEHLEN, NICHT RENDERN. Ein Tipp kostete vorher sofort
-                    // Credits, ohne dass jemand erklaert bekommen hatte, was
-                    // die Karte ueberhaupt bedeutet.
-                    onSelect(option.id == selected?.id ? nil : option)
+        VStack(alignment: .leading, spacing: 10) {
+            if landed {
+                abschnitt("WHAT I'D MAKE")
+                HStack(spacing: 10) {
+                    ForEach(picks) { pick in
+                        Button { onSelect(pick.id == selected?.id ? nil : pick) } label: {
+                            kachelKlein(pick)
+                        }
+                        .buttonStyle(.plain)
+                    }
                 }
-            )
-            .padding(.top, DirectorPolaroids.topOverhang)
 
-            if let selected, picks.contains(where: { $0.id == selected.id }) {
-                sprechblase(selected)
-                machDas(selected)
+                if let selected, picks.contains(where: { $0.id == selected.id }) {
+                    sprechblase(selected)
+                    machDas(selected)
+                }
+            } else {
+                // Waehrend des Wurfs steht hier sein Gruss — sonst springt die
+                // halbe Seite, wenn die Kacheln landen.
+                DirectorGreetingView(trigger: throwToken)
+                    .frame(height: bildHoehe + 26)
             }
         }
     }
 
-    /// Was die Figur zur gewaehlten Karte sagt.
+    /// Was die Figur zur gewaehlten Kachel sagt.
     ///
-    /// SIE STAND ZUERST OBEN AN DER FIGUR — und war damit unsichtbar: wer
-    /// Karten aussucht, hat weit heruntergescrollt, die Figur steht dann
-    /// laengst ausserhalb des Bildes. Im Simulator genau so gesehen. Also
-    /// spricht sie von dort, wo der Nutzer hinsieht: ein kleiner Kopf neben
-    /// der Blase, direkt ueber dem Knopf.
-    ///
-    /// KEIN zusaetzlicher Modellaufruf. Der Text steht schon in der Antwort —
+    /// KEIN zusaetzlicher Modellaufruf. Der Text steht schon in der Antwort:
     /// `caption` ist die Zeile, mit der der Director diese Richtung begruendet
-    /// hat. Bei einem Haus-Look kommt dessen Beschreibung davor: „Crisp Xenon
-    /// flash & warm skin" sagt in vier Woertern, WAS es ist, und genau das
-    /// fehlte.
+    /// hat. Bei einem Haus-Look kommt dessen Beschreibung davor — „Crisp Xenon
+    /// flash & warm skin" sagt in vier Woertern, WAS es ist.
+    ///
+    /// Sie haengt an der AUSWAHL, nicht an jeder Kachel: eine Erklaerung, wenn
+    /// sie gebraucht wird, statt drei vorsorglich nebeneinander.
     private func sprechblase(_ option: DirectorAPI.Option) -> some View {
         let hausLook = option.preview.flatMap { name -> DigiCamStyles.Style? in
             guard name.hasPrefix("card_look_") else { return nil }
             return DigiCamStyles.style(id: String(name.dropFirst("card_look_".count)))
         }
-        // Nur voranstellen, wenn es NICHT dasselbe ist. Bei einem Haus-Look
-        // kann die Begruendung des Directors woertlich die Beschreibung des
-        // Looks sein — dann stand der Satz zweimal da.
+        // Nur voranstellen, wenn es NICHT dasselbe ist — sonst stand der Satz
+        // zweimal da.
         let beschreibung = hausLook?.subtitle
         let satz = (beschreibung.map { $0.caseInsensitiveCompare(option.caption) == .orderedSame } ?? true)
             ? option.caption
             : [beschreibung, option.caption].compactMap { $0 }.joined(separator: ". ")
 
         return HStack(alignment: .top, spacing: 10) {
-            // Nur der KOPF. Das Bild zeigt die ganze Figur; rund
-            // ausgeschnitten sah man sonst den Bauch.
+            // Nur der KOPF. Das Bild zeigt die ganze Figur; rund ausgeschnitten
+            // saehe man sonst den Bauch.
             Image("clavic_mascot")
                 .resizable()
                 .scaledToFit()
@@ -169,7 +173,6 @@ struct DirectorPicks: View {
                 .frame(width: 44, height: 44)
                 .clipShape(Circle())
                 .background(Theme.papier, in: Circle())
-                .overlay(Circle().strokeBorder(Theme.textPrimary.opacity(0.10), lineWidth: 1))
 
             Text(satz.isEmpty ? option.caption : satz)
                 .font(.system(size: 14, weight: .medium, design: .rounded))
@@ -186,10 +189,8 @@ struct DirectorPicks: View {
         .transition(.opacity.combined(with: .offset(y: -6)))
     }
 
-    /// Der eine klare Knopf, wenn etwas ausgewaehlt ist.
-    ///
-    /// Erst hier kostet es Credits. Vorher hat die Figur gesagt, was es ist —
-    /// und wer nichts versteht, tippt nicht auf „Create".
+    /// Der eine klare Knopf. Erst HIER kostet es Credits — vorher hat die Figur
+    /// gesagt, was es ist.
     private func machDas(_ option: DirectorAPI.Option) -> some View {
         Button { onPick(option) } label: {
             HStack(spacing: 8) {
@@ -207,6 +208,64 @@ struct DirectorPicks: View {
         }
         .buttonStyle(.plain)
         .transition(.opacity.combined(with: .offset(y: 8)))
+    }
+
+    /// Winzige, weit gesperrte Versalien mit einer Linie — dieselbe Zeile wie
+    /// ueber der Trendzeile, damit der Bildschirm eine Handschrift hat.
+    private func abschnitt(_ titel: String) -> some View {
+        HStack(spacing: 8) {
+            Text(titel)
+                .font(.system(size: 10, weight: .black, design: .rounded))
+                .tracking(1.7)
+                .foregroundStyle(Theme.textTertiary)
+                .lineLimit(1).fixedSize()
+            Rectangle().fill(Theme.textPrimary.opacity(0.10)).frame(height: 1)
+        }
+    }
+
+    /// Bildhoehe nach Anzahl: eine Richtung darf gross sein, drei muessen
+    /// nebeneinander passen.
+    private var bildHoehe: CGFloat {
+        switch picks.count {
+        case 1:  return 168
+        case 2:  return 148
+        default: return 116
+        }
+    }
+
+    private func kachelKlein(_ option: DirectorAPI.Option) -> some View {
+        let gewaehlt = option.id == selected?.id
+        return VStack(alignment: .leading, spacing: 6) {
+            ZStack(alignment: .topLeading) {
+                Rectangle().fill(Theme.surfaceHigh)
+                vorschau(option)
+                if option.id == lead && picks.count > 1 {
+                    Text("MY PICK")
+                        .font(.system(size: 8.5, weight: .black, design: .rounded))
+                        .tracking(1.0)
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 6).padding(.vertical, 3)
+                        .background(Theme.accent, in: Capsule())
+                        .padding(6)
+                }
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: bildHoehe)
+            .clipped()
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .strokeBorder(gewaehlt ? Theme.accent : Theme.textPrimary.opacity(0.08),
+                                  lineWidth: gewaehlt ? 3 : 1)
+            )
+
+            Text(option.label)
+                .font(.system(size: 13.5, weight: .bold, design: .rounded))
+                .foregroundStyle(Theme.textPrimary)
+                .lineLimit(2)
+                .multilineTextAlignment(.leading)
+                .frame(maxWidth: .infinity, alignment: .leading)
+        }
     }
 
     // MARK: - Trends

@@ -830,3 +830,34 @@ ohnehin braucht.
 
 **Bewusst NICHT angefasst** (ausdruecklich so entschieden): die Kritzel auf
 dem Foto bleiben, ebenso Zettel, Polaroids, Sprechblase und Knopf.
+
+## Nachtrag 06.09.2026 (23) — Kein Zettel, keine Polaroids
+
+Gemeldet: „WHAT I SEE passt nicht, da steht immer irgendetwas und hilft nichts —
+man müsste direkt sehen, was kann ich machen." Und: die Polaroid-Karten nehmen
+zu viel Platz und stören.
+
+**Der Zettel ist weg.** `DirectorNote.swift` gelöscht, `verdict` aus
+`DirectorWorkspace` und dem Aufruf in `AgentView` entfernt. Er trug seinen
+einen Satz — aber die Frage des Nutzers ist nicht „was denkt er", sondern „was
+kann ich machen". Diese Frage beantworten die Kacheln, und die Begründung
+hängt an der Auswahl, wo sie gebraucht wird.
+**Bewusst in Kauf genommen:** seine Einschätzung zum UMFANG („ich würde hier
+kaum etwas anfassen") ist damit nicht mehr sichtbar.
+
+**Die Polaroids sind weg.** `DirectorPolaroids.swift` gelöscht. Sie brachten
+210 pt Foto, Rand, Schräglage, Schatten und beschrifteten Streifen für zwei
+Wählbare — zusammen mit Kritzeln, Sprechblase und Trendkarte war der Schirm
+voll, ohne mehr zu sagen.
+
+Stattdessen `kachelKlein`: Bild und Name, sonst nichts. Höhe nach Anzahl —
+168 pt bei einer Richtung, 148 bei zwei, 116 bei drei. Der `lead` trägt weiter
+„MY PICK". Der Gruss während des Wurfs (`DirectorGreetingView`) bleibt und hält
+dieselbe Höhe, sonst springt beim Landen die halbe Seite.
+
+**Ergebnis: der ganze Ergebnis-Bildschirm passt jetzt ohne Scrollen** —
+Foto mit Kritzeln + Figur · WHAT I'D MAKE + Kacheln · (gewählt) Sprechblase +
+Knopf · Trendzeile · Glasleiste.
+
+Beim Ersetzen sind mir Sprechblase und Knopf mit herausgerutscht; im Simulator
+gesehen (Ring da, Blase und Knopf fehlten) und wieder eingesetzt.

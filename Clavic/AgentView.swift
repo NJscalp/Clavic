@@ -378,7 +378,6 @@ struct AgentView: View {
                     before: letzter?.resultImage != nil ? lastImages.first : nil,
                     isWorking: letzter?.isLoading ?? false,
                     note: letzter?.loadingNote,
-                    verdict: letzter?.text,
                     picks: letzter?.picks ?? [],
                     lead: letzter?.lead,
                     trends: letzter?.trends ?? [],

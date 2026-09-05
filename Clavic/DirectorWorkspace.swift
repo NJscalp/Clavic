@@ -63,8 +63,6 @@ struct DirectorWorkspace<Mascot: View>: View {
     let isWorking: Bool
     /// Zwischenstand aus dem Renderpfad, etwa „Fixing: plastic skin".
     let note: String?
-    /// Seine eine Zeile.
-    let verdict: String?
     let picks: [DirectorAPI.Option]
     /// Die Richtung, die der Director selbst nehmen wuerde.
     var lead: String? = nil
@@ -119,9 +117,6 @@ struct DirectorWorkspace<Mascot: View>: View {
                 directorsCut(vorher: before, nachher: photo)
             } else {
                 ergebnisBuehne
-                if let verdict, !verdict.isEmpty {
-                    DirectorNote(text: verdict)
-                }
             }
 
             if !picks.isEmpty {
