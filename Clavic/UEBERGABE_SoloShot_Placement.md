@@ -809,3 +809,24 @@ Jetzt:
   Projekt ein. Der doppelte Bibliothekseintrag am Ende ist entfallen.
 
 Credits weiterhin nur bei Erfolg und genau einmal.
+
+## Nachtrag 05.09.2026 (22) — Die Trendkarte ist eine Zeile
+
+Gemeldet: der Bereich unter der Analyse sei grafisch ueberfuellt. Gezaehlt
+standen dort SIEBEN Bildsprachen uebereinander — Kritzel, Zettel, Polaroids,
+Sprechblase, Vollknopf, dunkle Trendkarte, Glaskapsel.
+
+Die Trendkarte war der groesste Posten: Ueberschrift mit Linie und Zaehler,
+ein 168 pt hohes Bild mit Verlauf und zwei Overlay-Texten, vier Miniaturen,
+eine Fusszeile mit Pfeil. Eine halbe Bildschirmseite fuer eine NEBENfunktion.
+
+Jetzt eine Zeile: drei versetzte Miniaturen, „TIKTOK TRENDS", darunter
+„Best match: <Name>" (oder die Anzahl, wenn der Director noch keine Passung
+genannt hat), rechts ein Pfeil. Sie leistet dasselbe — es gibt Trends, so
+viele, und der hier passt — und das grosse Bild steht im Pop-up, wo man es
+ohnehin braucht.
+
+`uebrigeTrends` wurde damit ueberfluessig und ist entfernt.
+
+**Bewusst NICHT angefasst** (ausdruecklich so entschieden): die Kritzel auf
+dem Foto bleiben, ebenso Zettel, Polaroids, Sprechblase und Knopf.

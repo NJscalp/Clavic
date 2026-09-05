@@ -219,90 +219,70 @@ struct DirectorPicks: View {
         trends.first(where: { $0.isBestMatch }) ?? trends.first
     }
 
-    private var uebrigeTrends: [DirectorAPI.Option] {
-        guard let besteWahl else { return alleTrends }
-        return alleTrends.filter { $0.id != besteWahl.id }
-    }
 
-    /// EINE Karte statt eines Streifens — mit der besten Passung obenauf.
+    /// EINE ZEILE. Der Trendbereich ist eine TUER, keine Auslage.
     ///
-    /// Der eigentliche Nutzen des Directors ist hier nicht die Galerie,
-    /// sondern dass er die Bildlesung kennt: Er kann sagen, WELCHER Trend zu
-    /// genau diesem Foto passt. Deshalb steht einer gross oben und der Rest
-    /// klein darunter — statt zwanzig gleichberechtigter Kacheln, die der
-    /// Nutzer selbst durchsehen muesste.
+    /// Hier stand eine halbe Bildschirmseite: Ueberschrift mit Linie und
+    /// Zaehler, ein 168 Punkt hohes Bild mit Verlauf und zwei Overlay-Texten,
+    /// darunter vier Miniaturen, darunter eine Fusszeile mit Pfeil. Sieben
+    /// Elemente fuer eine Nebenfunktion — und zusammen mit Kritzeln, Zettel,
+    /// Polaroids, Sprechblase und Glasleiste war der Bildschirm optisch voll,
+    /// ohne dadurch mehr zu sagen.
+    ///
+    /// Was die Zeile leistet, ist dasselbe: sie zeigt, dass es Trends gibt,
+    /// wie viele, und welchen der Director fuer dieses Foto vorn sieht. Das
+    /// grosse Bild dazu steht im Pop-up, wo man es auch braucht.
     private var trendKarte: some View {
         Button { trendsOffen = true } label: {
-            VStack(alignment: .leading, spacing: 10) {
-                HStack(spacing: 8) {
+            HStack(spacing: 12) {
+                stapel
+
+                VStack(alignment: .leading, spacing: 2) {
                     Text("TIKTOK TRENDS")
                         .font(.system(size: 10, weight: .black, design: .rounded))
-                        .tracking(1.7)
+                        .tracking(1.5)
                         .foregroundStyle(Theme.textTertiary)
-                        .lineLimit(1).fixedSize()
-                    Rectangle()
-                        .fill(Theme.textPrimary.opacity(0.10))
-                        .frame(height: 1)
-                    Text("\(alleTrends.count)")
-                        .font(.system(size: 10, weight: .black, design: .rounded))
-                        .foregroundStyle(Theme.textTertiary)
-                        .fixedSize()
+                    Text(besteWahl.map { "Best match: \($0.label)" }
+                         ?? "\(alleTrends.count) to look through")
+                        .font(.system(size: 15, weight: .bold, design: .rounded))
+                        .foregroundStyle(Theme.textPrimary)
+                        .lineLimit(1)
                 }
 
-                if let besteWahl {
-                    ZStack(alignment: .bottomLeading) {
-                        vorschau(besteWahl)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 168)
-                            .clipped()
-                        LinearGradient(colors: [.clear, .black.opacity(0.72)],
-                                       startPoint: .center, endPoint: .bottom)
-                        VStack(alignment: .leading, spacing: 3) {
-                            Text("BEST MATCH FOR YOUR PHOTO")
-                                .font(.system(size: 9, weight: .black, design: .rounded))
-                                .tracking(1.2)
-                                .foregroundStyle(Theme.aiActive)
-                            Text(besteWahl.label)
-                                .font(.system(size: 20, weight: .black, design: .rounded))
-                                .foregroundStyle(.white)
-                                .lineLimit(1)
-                        }
-                        .padding(12)
-                    }
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                }
-
-                if !uebrigeTrends.isEmpty {
-                    HStack(spacing: 6) {
-                        ForEach(Array(uebrigeTrends.prefix(4).enumerated()), id: \.element.id) { _, trend in
-                            vorschau(trend)
-                                .frame(maxWidth: .infinity)
-                                .frame(height: 64)
-                                .clipped()
-                                .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                        }
-                    }
-                }
-
-                HStack(spacing: 6) {
-                    Text(uebrigeTrends.isEmpty ? "See the trend" : "See them all")
-                        .font(.system(size: 13.5, weight: .semibold, design: .rounded))
-                        .foregroundStyle(Theme.textSecondary)
-                    Spacer(minLength: 0)
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundStyle(Theme.textTertiary)
-                }
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundStyle(Theme.textTertiary)
             }
-            .padding(12)
-            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .padding(11)
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
             .overlay(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
                     .strokeBorder(Theme.textPrimary.opacity(0.08), lineWidth: 1)
             )
-            .shadow(color: Theme.textPrimary.opacity(0.08), radius: 10, y: 5)
         }
         .buttonStyle(.plain)
+    }
+
+    /// Drei versetzte Vorschauen — man sieht, dass dahinter Bilder liegen,
+    /// ohne dass sie den Platz einer eigenen Karte brauchen.
+    private var stapel: some View {
+        ZStack {
+            ForEach(Array(alleTrends.prefix(3).enumerated()), id: \.element.id) { index, trend in
+                vorschau(trend)
+                    .frame(width: 32, height: 42)
+                    .clipped()
+                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6, style: .continuous)
+                            .strokeBorder(Theme.surface, lineWidth: 1.5)
+                    )
+                    .rotationEffect(.degrees(Double(index - 1) * 7))
+                    .offset(x: CGFloat(index - 1) * 10)
+                    .zIndex(Double(index))
+            }
+        }
+        .frame(width: 56, height: 44)
     }
 
     /// Das Vorschaubild einer Kachel — aus dem Bundle ODER vom Server.
