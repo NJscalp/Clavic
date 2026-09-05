@@ -11,10 +11,12 @@ import SwiftData
 struct LibraryView: View {
     @Query(sort: \VideoProject.createdAt, order: .reverse) private var projects: [VideoProject]
 
-    private let columns = [
-        GridItem(.flexible(), spacing: 12),
-        GridItem(.flexible(), spacing: 12)
-    ]
+    @Environment(\.dynamicTypeSize) private var dynamicTypeSize
+
+    private var columns: [GridItem] {
+        Array(repeating: GridItem(.flexible(), spacing: 12),
+              count: dynamicTypeSize.isAccessibilitySize ? 1 : 2)
+    }
 
     var body: some View {
         Group {
@@ -31,11 +33,10 @@ struct LibraryView: View {
                     .padding(.horizontal, Theme.screenPadding)
                     .padding(.top, 8)
 
-                    LazyVGrid(columns: columns, alignment: .center, spacing: 12) {
-                        ForEach(Array(projects.enumerated()), id: \.element.id) { index, project in
+                    LazyVGrid(columns: columns, alignment: .center, spacing: 14) {
+                        ForEach(projects) { project in
                             NavigationLink(value: project) {
-                                // Nummerierung chronologisch: älteste = #1.
-                                ProjectCard(project: project, number: projects.count - index)
+                                ProjectCard(project: project)
                             }
                             .buttonStyle(.plain)
                         }
@@ -75,53 +76,48 @@ struct LibraryView: View {
 
 struct ProjectCard: View {
     let project: VideoProject
-    var number: Int = 1
 
     /// Name des genutzten Templates (Fallback für freie Generierungen).
     private var displayName: String {
-        project.templateTitle.isEmpty ? "Custom video" : project.templateTitle
+        project.templateTitle.isEmpty ? (project.isImageOutput ? "Custom photo" : "Custom video") : project.templateTitle
+    }
+
+    private var dateLabel: String {
+        let calendar = Calendar.current
+        if calendar.isDateInToday(project.createdAt) { return String(localized: "Today") }
+        if calendar.isDateInYesterday(project.createdAt) { return String(localized: "Yesterday") }
+        return project.createdAt.formatted(.dateTime.month(.abbreviated).day())
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(alignment: .leading, spacing: 8) {
             thumbnail
-            // Feste Höhe → alle Karten sind gleich hoch, auch bei langen Namen
-            // (verhindert ungleiche/überlappende Container im Raster).
-            VStack(alignment: .leading, spacing: 4) {
-                Text(displayName)
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundStyle(Theme.textPrimary)
+                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+
+            Text(displayName)
+                .font(.system(size: 14, weight: .bold, design: .rounded))
+                .foregroundStyle(Theme.textPrimary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+
+            HStack(spacing: 6) {
+                Text(dateLabel)
+                    .font(.system(size: 11, weight: .medium, design: .rounded))
+                    .foregroundStyle(Theme.textSecondary)
                     .lineLimit(1)
-                    .truncationMode(.tail)
-                Text("Creation #\(number)")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundStyle(Theme.textTertiary)
-                    .lineLimit(1)
-                HStack(spacing: 6) {
-                    statusBadge
-                    Spacer()
-                    Text(project.createdAt, format: .relative(presentation: .named))
-                        .font(.system(size: 11))
-                        .foregroundStyle(Theme.textTertiary)
-                        .lineLimit(1)
-                }
-                .padding(.top, 2)
+                Spacer(minLength: 2)
+                statusBadge
             }
-            .frame(height: 78, alignment: .top)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(10)
         }
-        .cardStyle()
-        .clipShape(RoundedRectangle(cornerRadius: Theme.cornerMedium, style: .continuous))
+        .padding(9)
+        .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 23, style: .continuous))
     }
 
     private var thumbnail: some View {
-        // Feste 4:3-Kachel, deren Größe von Color.clear (nicht vom Bild) bestimmt
-        // wird. So werden ALLE Creations im Raster in der gleichen Standardgröße
-        // angezeigt – egal welches Seitenverhältnis das Video hat. Das echte
-        // Format sieht man erst beim Öffnen.
+        // The chosen portrait grid keeps every card aligned. The detail view
+        // retains the original aspect ratio and the existing image/video actions.
         Color.clear
-            .aspectRatio(4.0 / 3.0, contentMode: .fit)
+            .aspectRatio(0.86, contentMode: .fit)
             .frame(maxWidth: .infinity)
             .overlay {
                 ZStack {
@@ -176,20 +172,26 @@ struct ProjectCard: View {
         }
     }
 
+    @ViewBuilder
     private var statusBadge: some View {
-        let (color, text): (Color, String) = {
-            switch project.status {
-            case .queued, .running: return (Theme.warning, project.status.label)
-            case .succeeded: return (Theme.success, project.isImageOutput ? "Image" : "\(project.duration)s · \(project.resolution.rawValue)")
-            case .failed: return (Theme.danger, "Error")
-            case .cancelled: return (Theme.textTertiary, "Cancelled")
-            }
-        }()
-
-        return HStack(spacing: 4) {
-            Circle().fill(color).frame(width: 6, height: 6)
-            Text(text)
-                .font(.system(size: 11, weight: .medium))
+        switch project.status {
+        case .succeeded:
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 12))
+                .foregroundStyle(Theme.success)
+                .accessibilityLabel(project.isImageOutput ? "Photo ready" : "Video ready")
+        case .queued, .running:
+            Text(project.status.label)
+                .font(.system(size: 11, weight: .medium, design: .rounded))
+                .foregroundStyle(Theme.warning)
+                .lineLimit(1)
+        case .failed:
+            Label("Error", systemImage: "exclamationmark.circle.fill")
+                .font(.system(size: 11, weight: .medium, design: .rounded))
+                .foregroundStyle(Theme.danger)
+        case .cancelled:
+            Text("Cancelled")
+                .font(.system(size: 11, weight: .medium, design: .rounded))
                 .foregroundStyle(Theme.textSecondary)
         }
     }

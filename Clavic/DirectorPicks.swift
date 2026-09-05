@@ -62,9 +62,13 @@ struct DirectorPicks: View {
     let sourcePhoto: Data?
     var onPick: (DirectorAPI.Option) -> Void = { _ in }
     var onOwnIdea: () -> Void = {}
+    /// Was gerade angesehen wird — der Aufrufer haelt es, weil die Figur oben
+    /// darueber spricht und die steht nicht hier drin.
+    var selected: DirectorAPI.Option? = nil
+    var onSelect: (DirectorAPI.Option?) -> Void = { _ in }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
+        VStack(alignment: .leading, spacing: 26) {
             // Der Kartenblock zeichnet über seine Layouthöhe hinaus nach oben
             // (der Nebelstreifen, aus dem sie kommen). Ohne Ausgleich schöben
             // sich die Karten über das, was darüber steht.
@@ -76,6 +80,7 @@ struct DirectorPicks: View {
             }
         }
         .animation(.easeOut(duration: 0.35), value: landed)
+        .animation(.smooth(duration: 0.28), value: selected?.id)
         .animation(.smooth(duration: 0.3), value: composerOpen)
         .sheet(isPresented: $trendsOffen) {
             DirectorTrendSheet(
@@ -109,13 +114,99 @@ struct DirectorPicks: View {
                 },
                 landed: landed,
                 throwToken: throwToken,
+                selectedID: selected?.id,
                 onPick: { item in
                     guard let option = picks.first(where: { $0.id == item.id }) else { return }
-                    onPick(option)
+                    // WAEHLEN, NICHT RENDERN. Ein Tipp kostete vorher sofort
+                    // Credits, ohne dass jemand erklaert bekommen hatte, was
+                    // die Karte ueberhaupt bedeutet.
+                    onSelect(option.id == selected?.id ? nil : option)
                 }
             )
             .padding(.top, DirectorPolaroids.topOverhang)
+
+            if let selected, picks.contains(where: { $0.id == selected.id }) {
+                sprechblase(selected)
+                machDas(selected)
+            }
         }
+    }
+
+    /// Was die Figur zur gewaehlten Karte sagt.
+    ///
+    /// SIE STAND ZUERST OBEN AN DER FIGUR — und war damit unsichtbar: wer
+    /// Karten aussucht, hat weit heruntergescrollt, die Figur steht dann
+    /// laengst ausserhalb des Bildes. Im Simulator genau so gesehen. Also
+    /// spricht sie von dort, wo der Nutzer hinsieht: ein kleiner Kopf neben
+    /// der Blase, direkt ueber dem Knopf.
+    ///
+    /// KEIN zusaetzlicher Modellaufruf. Der Text steht schon in der Antwort —
+    /// `caption` ist die Zeile, mit der der Director diese Richtung begruendet
+    /// hat. Bei einem Haus-Look kommt dessen Beschreibung davor: „Crisp Xenon
+    /// flash & warm skin" sagt in vier Woertern, WAS es ist, und genau das
+    /// fehlte.
+    private func sprechblase(_ option: DirectorAPI.Option) -> some View {
+        let hausLook = option.preview.flatMap { name -> DigiCamStyles.Style? in
+            guard name.hasPrefix("card_look_") else { return nil }
+            return DigiCamStyles.style(id: String(name.dropFirst("card_look_".count)))
+        }
+        // Nur voranstellen, wenn es NICHT dasselbe ist. Bei einem Haus-Look
+        // kann die Begruendung des Directors woertlich die Beschreibung des
+        // Looks sein — dann stand der Satz zweimal da.
+        let beschreibung = hausLook?.subtitle
+        let satz = (beschreibung.map { $0.caseInsensitiveCompare(option.caption) == .orderedSame } ?? true)
+            ? option.caption
+            : [beschreibung, option.caption].compactMap { $0 }.joined(separator: ". ")
+
+        return HStack(alignment: .top, spacing: 10) {
+            // Nur der KOPF. Das Bild zeigt die ganze Figur; rund
+            // ausgeschnitten sah man sonst den Bauch.
+            Image("clavic_mascot")
+                .resizable()
+                .scaledToFit()
+                .frame(width: 86, height: 86)
+                .offset(y: 20)
+                .frame(width: 44, height: 44)
+                .clipShape(Circle())
+                .background(Theme.papier, in: Circle())
+                .overlay(Circle().strokeBorder(Theme.textPrimary.opacity(0.10), lineWidth: 1))
+
+            Text(satz.isEmpty ? option.caption : satz)
+                .font(.system(size: 14, weight: .medium, design: .rounded))
+                .foregroundStyle(Theme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 13)
+                .padding(.vertical, 11)
+                .background(Theme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(Theme.textPrimary.opacity(0.08), lineWidth: 1))
+                .shadow(color: Theme.textPrimary.opacity(0.08), radius: 10, y: 4)
+        }
+        .transition(.opacity.combined(with: .offset(y: -6)))
+    }
+
+    /// Der eine klare Knopf, wenn etwas ausgewaehlt ist.
+    ///
+    /// Erst hier kostet es Credits. Vorher hat die Figur gesagt, was es ist —
+    /// und wer nichts versteht, tippt nicht auf „Create".
+    private func machDas(_ option: DirectorAPI.Option) -> some View {
+        Button { onPick(option) } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "wand.and.sparkles")
+                    .font(.system(size: 15, weight: .bold))
+                Text("Make it \(option.label)")
+                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                    .lineLimit(1)
+            }
+            .foregroundStyle(.white)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 15)
+            .background(Theme.accent, in: Capsule())
+            .shadow(color: Theme.accent.opacity(0.30), radius: 12, y: 5)
+        }
+        .buttonStyle(.plain)
+        .transition(.opacity.combined(with: .offset(y: 8)))
     }
 
     // MARK: - Trends

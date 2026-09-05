@@ -730,3 +730,39 @@ fliessen also überall ein.
 `refineIfNeeded` nutzte fest `compositionLockedPrompt`. Bei einem `restage`
 hätte der zweite Anlauf genau das verboten, was der Auftrag verlangt. Sie nutzt
 jetzt `renderContract(corrected, mode: action.mode)`.
+
+## Nachtrag 05.09.2026 (20) — Der Nutzer verstand nicht, was der Director tut
+
+Gemeldet vom Erbauer selbst: „ich checke nicht, was er macht."
+
+**Ursache: auf dem Schirm standen zwei Systeme nebeneinander, die nichts
+miteinander zu tun hatten.**
+- Der Zettel „WHAT I'D DO" kam aus `DirectorReadMarks` — einer lokalen
+  Helligkeitsrechnung auf einem 48x48-Raster, aus sieben festen Textbausteinen.
+  Nicht der Director. Und dieselbe Messung zeichnet schon die Kritzel auf dem
+  Foto, es stand also zweimal dasselbe da.
+- **Der eine Satz, den der Director wirklich sagt, wurde nirgends angezeigt.**
+  `verdict: letzter?.text` wurde an die Werkbank uebergeben und dort genau
+  einmal erwaehnt: in der Deklaration.
+
+Behoben: der Zettel heisst `WHAT I SEE` und zeigt seinen Satz.
+
+**Auswahl statt Sofortrendern.** Ein Tipp auf eine Karte WAEHLT sie jetzt
+(Ring in Akzentfarbe) — er kostet keine Credits mehr. Darunter erscheinen:
+- eine **Sprechblase mit dem Kopf der Figur**, die in einem Satz sagt, was das
+  ist. Text aus vorhandenen Daten, KEIN zusaetzlicher Modellaufruf: die
+  Beschreibung des Haus-Looks plus die Begruendung des Directors.
+- ein einziger klarer Knopf **„Make it <Name>"**. Erst der rendert.
+
+**Zwei Fehler dabei, im Simulator gesehen und behoben:**
+1. Die Blase hing zuerst AN der Figur — und war damit unsichtbar: wer Karten
+   aussucht, hat weit heruntergescrollt, die Figur steht dann ausserhalb des
+   Bildes. Jetzt spricht sie von dort, wo der Nutzer hinsieht.
+2. Der Satz stand doppelt, wenn die Begruendung des Directors woertlich die
+   Beschreibung des Looks ist. Jetzt wird nur vorangestellt, was sich
+   unterscheidet.
+
+Dazu mehr Luft: Abstand zwischen den Bloecken von 18 auf 26.
+
+**Kosten fuer den Nutzer sinken:** vorher konnte ein versehentlicher Tipp
+sofort Credits ausgeben, ohne dass jemand wusste, was die Karte bedeutet.

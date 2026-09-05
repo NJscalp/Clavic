@@ -75,6 +75,10 @@ struct DirectorWorkspace<Mascot: View>: View {
     var composerOpen: Bool = false
     /// Die Bildlesung, damit die Trend-Auswahl das Foto nicht neu analysiert.
     var reading: DirectorAPI.Reading? = nil
+
+    /// Was der Nutzer gerade ansieht. Ein Tipp auf eine Karte WAEHLT sie —
+    /// die Figur erklaert sie dann, und erst der Knopf darunter rendert.
+    @State private var gewaehlt: DirectorAPI.Option?
     let landed: Bool
     let throwToken: Int
     var onPick: (DirectorAPI.Option) -> Void = { _ in }
@@ -115,8 +119,8 @@ struct DirectorWorkspace<Mascot: View>: View {
                 directorsCut(vorher: before, nachher: photo)
             } else {
                 ergebnisBuehne
-                if !marks.isEmpty {
-                    DirectorNote(marks: marks)
+                if let verdict, !verdict.isEmpty {
+                    DirectorNote(text: verdict)
                 }
             }
 
@@ -127,7 +131,11 @@ struct DirectorWorkspace<Mascot: View>: View {
                     reading: reading,
                     landed: landed, throwToken: throwToken,
                     sourcePhoto: before ?? photo,
-                    onPick: onPick, onOwnIdea: onOwnIdea
+                    onPick: onPick, onOwnIdea: onOwnIdea,
+                    selected: gewaehlt,
+                    onSelect: { neu in
+                        withAnimation(.smooth(duration: 0.28)) { gewaehlt = neu }
+                    }
                 )
             }
         }
@@ -372,6 +380,46 @@ struct DirectorWorkspace<Mascot: View>: View {
                 .frame(maxWidth: .infinity)
             mascot(.nebenDemFoto)
         }
+    }
+
+
+    /// Was die Figur zur gerade gewaehlten Karte sagt.
+    ///
+    /// KEIN zusaetzlicher Modellaufruf. Der Text steht bereits in der Antwort:
+    /// `caption` ist die eine Zeile, mit der der Director diese Richtung
+    /// begruendet hat. Fuer Katalog-Looks kommt die Beschreibung des Looks
+    /// dazu — „Crisp Xenon flash & warm skin" sagt in vier Woertern, WAS es
+    /// technisch ist, und genau das fehlte dem Nutzer.
+    private func sprechblase(fuer option: DirectorAPI.Option) -> some View {
+        let hausLook = option.preview.flatMap { name -> DigiCamStyles.Style? in
+            guard name.hasPrefix("card_look_") else { return nil }
+            return DigiCamStyles.style(id: String(name.dropFirst("card_look_".count)))
+        }
+        let satz = [hausLook?.subtitle, option.caption]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+            .joined(separator: " · ")
+
+        return VStack(alignment: .leading, spacing: 3) {
+            Text(option.label)
+                .font(.system(size: 12.5, weight: .black, design: .rounded))
+                .foregroundStyle(Theme.textPrimary)
+            Text(satz.isEmpty ? option.caption : satz)
+                .font(.system(size: 12, weight: .medium, design: .rounded))
+                .foregroundStyle(Theme.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+        .frame(width: 190, alignment: .leading)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: 14, style: .continuous)
+            .strokeBorder(Theme.textPrimary.opacity(0.09), lineWidth: 1))
+        .shadow(color: Theme.textPrimary.opacity(0.14), radius: 12, y: 5)
+        // Nach links aus der Figur heraus, damit sie am Bildrand nicht
+        // abgeschnitten wird.
+        .offset(x: -118, y: -6)
+        .transition(.opacity.combined(with: .scale(scale: 0.92, anchor: .bottomTrailing)))
     }
 
     /// Nur neu messen, wenn sich wirklich das Foto oder der Zustand aendert.

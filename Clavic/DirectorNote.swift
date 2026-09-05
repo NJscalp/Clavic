@@ -2,14 +2,22 @@
 //  DirectorNote.swift
 //  Clavic
 //
-//  Was er machen wuerde — als Blatt Papier, in drei Zeilen.
+//  Was ER sagt — als Blatt Papier.
 //
-//  HIER STAND EIN ABSATZ. Der Director sagte einen ganzen Satz, gesetzt in
-//  19 pt Serifen ueber zwei bis drei Zeilen. Schoen, aber man musste ihn LESEN,
-//  um zu erfahren, was mit dem Foto passiert. Jetzt stehen dort drei bis vier
-//  Woerter je Anmerkung, jede mit dem Punkt in der Farbe ihres Striches auf dem
-//  Bild — rot fuer das, was stoert, gruen fuer das, was sitzt. Man sieht die
-//  Markierung auf dem Foto und findet sie darunter wieder, ohne zu suchen.
+//  HIER STAND EINE MESSLISTE, und das war ein Fehler. Der Zettel hiess
+//  „WHAT I'D DO", zeigte aber die lokal gemessenen Anmerkungen aus
+//  `DirectorReadMarks` — eine Helligkeitsrechnung auf einem 48x48-Raster, aus
+//  sieben festen Textbausteinen. Nicht der Director. Und dieselbe Messung
+//  zeichnet schon die Kritzel auf dem Foto, es stand also zweimal dasselbe da.
+//
+//  Der eine Satz, den der Director wirklich sagt, wurde derweil GAR NICHT
+//  angezeigt — obwohl er das Einzige ist, was die Karten darunter erklaert:
+//  „The window bar slicing across her neck is the one thing hurting this —
+//  everything else, especially the light on her freckles, I'd leave alone."
+//
+//  Mit dem Satz ergeben zwei Karten sofort Sinn. Ohne ihn steht der Nutzer vor
+//  Namen wie „35mm Mono" und weiss nicht, warum. Gemessen ist der Satz 17 bis
+//  33 Woerter lang — kurz genug.
 //
 //  Vorher stand hier eine Zeile mit einem blauen Balken davor. Inhaltlich
 //  richtig, aber es sah aus wie eine Fehlermeldung. Der eine Satz, den der
@@ -33,8 +41,8 @@
 import SwiftUI
 
 struct DirectorNote: View {
-    /// Die Anmerkungen vom Foto. Sie sind der Inhalt des Blattes.
-    let marks: [ReadMark]
+    /// Sein Satz. Das Einzige, was er selbst sagt.
+    let text: String
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var shown = false
@@ -45,23 +53,13 @@ struct DirectorNote: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             kopf
-            VStack(alignment: .leading, spacing: 9) {
-                ForEach(marks) { mark in
-                    HStack(spacing: 9) {
-                        Circle()
-                            .fill(mark.isPraise ? Theme.go : Theme.danger)
-                            .frame(width: 7, height: 7)
-                        Text(mark.change)
-                            // Serifen halten das Blatt, aber kurz und gross
-                            // genug, um es im Vorbeigehen zu lesen.
-                            .font(.system(size: 17, weight: .regular, design: .serif))
-                            .foregroundStyle(Theme.textPrimary)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Spacer(minLength: 0)
-                    }
-                }
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
+            Text(text)
+                // Serifen, ruhig gesetzt. Es ist das Einzige, was er sagt.
+                .font(.system(size: 17.5, weight: .regular, design: .serif))
+                .lineSpacing(3)
+                .foregroundStyle(Theme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
             unterschrift
         }
         .padding(.leading, 20)
@@ -85,19 +83,13 @@ struct DirectorNote: View {
 
     private var kopf: some View {
         HStack(spacing: 8) {
-            Text("WHAT I'D DO")
+            Text("WHAT I SEE")
                 .font(.system(size: 10, weight: .black, design: .rounded))
                 .tracking(1.7)
                 .foregroundStyle(Theme.danger.opacity(0.75))
             Rectangle()
                 .fill(Theme.textPrimary.opacity(0.10))
                 .frame(height: 1)
-            if !marks.isEmpty {
-                Text("\(marks.count) note\(marks.count == 1 ? "" : "s")")
-                    .font(.system(size: 10, weight: .bold, design: .rounded))
-                    .tracking(0.6)
-                    .foregroundStyle(Theme.textTertiary)
-            }
         }
         // Platz fuer das Eselsohr, sonst laeuft die Linie darunter durch.
         .padding(.trailing, Self.dogEar - 4)

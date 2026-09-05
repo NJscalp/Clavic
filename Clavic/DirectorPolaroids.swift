@@ -137,6 +137,8 @@ struct PolaroidCard: View {
     /// eine Aussage in einer 88 Punkt hohen Briefmarke liest sich wie ein
     /// Restposten. Dann bekommt das Foto die Flaeche, die ihm zusteht.
     var hero: Bool = false
+    /// true = gerade ausgewaehlt. Die Figur erklaert sie dann in ihrer Blase.
+    var selected: Bool = false
     var onTap: () -> Void = {}
 
     /// Rahmenbreite des Polaroids. Unten breiter — das ist die Proportion, an
@@ -180,6 +182,12 @@ struct PolaroidCard: View {
                 .frame(height: hero ? Self.heroPhotoHeight
                                     : (compact ? Self.compactPhotoHeight : Self.photoHeight))
                 .clipShape(RoundedRectangle(cornerRadius: 4, style: .continuous))
+                // Ein Ring, kein Haken: der Nutzer soll SEHEN, worueber die
+                // Figur gerade spricht, ohne dass es nach Formular aussieht.
+                .overlay(
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .strokeBorder(Theme.accent, lineWidth: selected ? 3 : 0)
+                )
                 // „Das ist meiner." Nur wenn es mehrere gibt — sonst sagt es
                 // nichts, was die Karte nicht schon durch ihr Alleinsein sagt.
                 .overlay(alignment: .topLeading) {
@@ -248,6 +256,8 @@ struct DirectorPolaroids: View {
     /// Zählt bei jedem Wurf hoch — erst dann läuft die Gruß-Animation. Siehe
     /// die Warnung in `DirectorGreeting.swift`.
     let throwToken: Int
+    /// Welche Karte gerade angesehen wird. Ein Tipp WAEHLT — er rendert nicht.
+    var selectedID: String? = nil
     var onPick: (PolaroidItem) -> Void = { _ in }
 
     /// Drei Karten stehen nebeneinander und werden dafür kleiner, zwei bleiben
@@ -313,6 +323,7 @@ struct DirectorPolaroids: View {
                             tilt: Self.tilts[index % Self.tilts.count],
                             compact: isCompact,
                             hero: isHero,
+                            selected: item.id == selectedID,
                             onTap: { onPick(item) }
                         )
                         // Nur Versatz, keine Skalierung und kein `.opacity`:
