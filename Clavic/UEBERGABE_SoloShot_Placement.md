@@ -766,3 +766,46 @@ Dazu mehr Luft: Abstand zwischen den Bloecken von 18 auf 26.
 
 **Kosten fuer den Nutzer sinken:** vorher konnte ein versehentlicher Tipp
 sofort Credits ausgeben, ohne dass jemand wusste, was die Karte bedeutet.
+
+## Nachtrag 05.09.2026 (21) — Ladeanzeige und nichts geht mehr verloren
+
+**1. Die Anzeige erzählt jetzt, was passiert.** Waehrend des Erstellens stand
+minutenlang „AI rendering" — und ein Bildschirm, der sich nicht bewegt, sieht
+aus wie ein Absturz. Jetzt meldet `pollTask` ueber `onTick` die vergangenen
+Sekunden, und `renderNote(seconds:)` macht daraus eine Zeile mit laufender Uhr:
+
+```
+Setting up your image            0:04
+Painting the light and colour    0:18
+Working on the detail            0:52
+Almost there — this one's taking its time   1:40
+```
+
+Danach uebernehmen die vorhandenen Zeilen der Pruefung („Checking the result…",
+„Fixing: …"). Erstellen und Pruefen sprechen damit dieselbe Sprache, und der
+Nutzer sieht, WARUM es laenger dauert. Die Uhr ist kein Fortschritt — den gibt
+der Dienst nicht her — sondern ein Lebenszeichen.
+
+**2. Ein Auftrag geht nicht mehr verloren.**
+
+Der Befund: `GenerationManager` kann das alles laengst — Bildaufgaben ueber
+`ImageEditAPI`, Hintergrundzeit ueber `beginBackgroundTask`, Fortsetzen ueber
+`resumePendingProjects()` beim Start, Bibliothek, Credit-Erstattung. **Der
+Director benutzte ihn nur nicht:** er pollte in einer Ansicht-`Task` mit
+lokaler Aufgaben-Nummer und legte den Bibliothekseintrag erst NACH dem Erfolg
+an. Wer die App waehrend des Rechnens verliess, hatte danach nichts — obwohl
+der Dienst weiterrechnete.
+
+Jetzt:
+- `startProject(...)` legt das Projekt an, BEVOR gerendert wird, mit Status
+  `.running`; die Aufgaben-Nummer wird eingetragen, sobald sie da ist.
+- `generationManager.claimExternal(id)` haelt die Hintergrundzeit offen —
+  aber der Manager pollt NICHT mit. Zwei Schleifen auf derselben Aufgabe
+  wuerden das Projekt doppelt abschliessen.
+- Stirbt der Prozess, ist `externallyDriven` beim naechsten Start leer →
+  `resumePendingProjects()` findet ein laufendes Bild mit Nummer und zieht es
+  zu Ende. Genau dafuer ist es da.
+- `finishProject` / `abortProject` tragen Ergebnis oder Fehler in DASSELBE
+  Projekt ein. Der doppelte Bibliothekseintrag am Ende ist entfallen.
+
+Credits weiterhin nur bei Erfolg und genau einmal.

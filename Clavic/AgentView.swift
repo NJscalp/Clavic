@@ -47,6 +47,9 @@ struct AgentView: View {
     /// hat — etwa in einer Vorschau oder einem Test. Der Streifen faellt dann
     /// auf die Vorschlaege des Directors zurueck, statt die App mitzureissen.
     @Environment(TemplateStore.self) private var templateStore: TemplateStore?
+    /// Haelt die App im Hintergrund am Leben, solange ein Bild rechnet, und
+    /// zieht ein unterbrochenes Projekt nach einem Neustart zu Ende.
+    @Environment(GenerationManager.self) private var generationManager
     @State private var photoSelections: [PhotosPickerItem] = []
     @AppStorage("acceptedContentPolicy") private var acceptedContentPolicy = false
     @State private var showConsent = false
@@ -1166,9 +1169,17 @@ struct AgentView: View {
             model: ImageEditAPI.defaultModel
         )
 
+        let projekt = startProject(
+            prompt: action.prompt, cost: cost, quality: quality.apiValue
+        )
         do {
             let taskID = try await ImageEditAPI.createTask(request)
-            let result = try await pollTask(taskID)
+            projekt.taskID = taskID
+            try? modelContext.save()
+            let result = try await pollTask(taskID, onTick: { sekunden in
+                guard let last = messages.indices.last, messages[last].isLoading else { return }
+                messages[last].loadingNote = Self.renderNote(seconds: sekunden)
+            })
             switch result {
             case .success(let imageData):
                 // Realism-QA: Ergebnis prüfen und bei Bedarf EINMAL korrigiert neu
@@ -1186,10 +1197,11 @@ struct AgentView: View {
                     }
                     lastResult = finalData   // impliziter Input für den nächsten Folge-Edit
                     isWorking = false
-                    persistToLibrary(finalData, prompt: protectedAction.prompt, cost: cost, quality: quality.apiValue)
+                    finishProject(projekt, data: finalData)
                 }
             case .failure(let reason):
                 await MainActor.run {
+                    abortProject(projekt, reason: reason)
                     if let last = messages.indices.last {
                         messages[last] = AgentMessage(role: .assistant, text: "Error: \(reason)", isLoading: false)
                     }
@@ -1198,6 +1210,7 @@ struct AgentView: View {
             }
         } catch {
             await MainActor.run {
+                abortProject(projekt, reason: error.localizedDescription)
                 if let last = messages.indices.last {
                     messages[last] = AgentMessage(role: .assistant, text: "Error: \(error.localizedDescription)", isLoading: false)
                 }
@@ -1274,6 +1287,26 @@ struct AgentView: View {
         return best
     }
 
+    /// Was gerade passiert, in einer Zeile — mit laufender Uhr.
+    ///
+    /// Die Stufen sind nicht erfunden: sie entsprechen genau dem, was die App
+    /// in diesem Moment tut. Der Nutzer soll sehen, WARUM es laenger dauert —
+    /// zuerst wird gerechnet, dann sieht der Director selbst nach, und wenn er
+    /// etwas findet, bessert er nach. Ohne das ist eine Minute Stillstand von
+    /// einem Absturz nicht zu unterscheiden.
+    private static func renderNote(seconds: Int, of index: Int? = nil, total: Int = 1) -> String {
+        let uhr = String(format: "%d:%02d", seconds / 60, seconds % 60)
+        let phase: String
+        switch seconds {
+        case ..<8:   phase = "Setting up your image"
+        case ..<30:  phase = "Painting the light and colour"
+        case ..<70:  phase = "Working on the detail"
+        default:     phase = "Almost there — this one's taking its time"
+        }
+        let zaehler = (index != nil && total > 1) ? " · \(index! + 1) of \(total)" : ""
+        return "\(phase)\(zaehler)  \(uhr)"
+    }
+
     private func setLoadingNote(_ note: String) async {
         await MainActor.run {
             if let last = messages.indices.last, messages[last].isLoading {
@@ -1284,7 +1317,14 @@ struct AgentView: View {
 
     private enum PollResult { case success(Data); case failure(String) }
 
-    private func pollTask(_ taskID: String) async throws -> PollResult {
+    /// `onTick` meldet die vergangenen Sekunden bei jedem Durchlauf.
+    ///
+    /// Ohne das stand waehrend des Erstellens minutenlang derselbe Text —
+    /// und ein Bildschirm, der sich nicht bewegt, sieht aus wie ein Absturz.
+    /// Die Zahl ist keine Fortschrittsanzeige (die gibt der Dienst nicht her),
+    /// sondern ein Lebenszeichen: es laeuft, und es laeuft seit soundso lange.
+    private func pollTask(_ taskID: String, onTick: (@MainActor (Int) -> Void)? = nil) async throws -> PollResult {
+        let start = Date()
         var consecutiveErrors = 0
         // 200 × 3 s = 10 Minuten. Vorher waren es 80 (= 4 Minuten) — GEMESSEN
         // braucht GPT Image 2 bei 4K/high rund 282 s, also MEHR als das alte
@@ -1293,6 +1333,10 @@ struct AgentView: View {
         for _ in 0..<200 {
             try? await Task.sleep(nanoseconds: 3_000_000_000)
             if Task.isCancelled { return .failure("Cancelled.") }
+            if let onTick {
+                let sekunden = Int(Date().timeIntervalSince(start))
+                await MainActor.run { onTick(sekunden) }
+            }
             let state: ImageEditTaskState
             do {
                 state = try await ImageEditAPI.fetchTask(id: taskID)
@@ -1421,9 +1465,20 @@ struct AgentView: View {
                 aspectRatio: "auto",
                 model: ImageEditAPI.defaultModel
             )
+            // Ab hier existiert das Projekt — auch wenn die App gleich stirbt.
+            let projekt = startProject(
+                prompt: option.prompt, cost: costPerImage, quality: quality.apiValue
+            )
             do {
                 let taskID = try await ImageEditAPI.createTask(request)
-                switch try await pollTask(taskID) {
+                projekt.taskID = taskID
+                try? modelContext.save()
+                switch try await pollTask(taskID, onTick: { sekunden in
+                    guard let mi = messages.firstIndex(where: { $0.id == loadingID }) else { return }
+                    messages[mi].loadingNote = Self.renderNote(
+                        seconds: sekunden, of: index, total: options.count
+                    )
+                }) {
                 case .success(let data):
                     // DERSELBE Pruefweg wie beim direkten Auftrag.
                     //
@@ -1444,11 +1499,14 @@ struct AgentView: View {
                         sourceImages: sourceImages,
                         quality: quality
                     )
+                    finishProject(projekt, data: geprueft)
                     completed.append((option, geprueft))
-                case .failure:
+                case .failure(let grund):
+                    abortProject(projekt, reason: grund)
                     failures += 1
                 }
             } catch {
+                abortProject(projekt, reason: error.localizedDescription)
                 failures += 1
             }
         }
@@ -1464,8 +1522,9 @@ struct AgentView: View {
         }
 
         for (index, item) in completed.enumerated() {
+            // Das Projekt liegt bereits in der Bibliothek — angelegt, bevor
+            // gerendert wurde, und oben mit dem Bild gefuellt.
             store.consume(costPerImage)
-            persistToLibrary(item.data, prompt: item.option.prompt, cost: costPerImage, quality: quality.apiValue)
             var resultMessage = AgentMessage(
                 role: .assistant,
                 text: index == 0
@@ -1505,8 +1564,18 @@ struct AgentView: View {
         lastImages = []
     }
 
-    private func persistToLibrary(_ data: Data, prompt: String, cost: Int, quality: String) {
-        let ext = (data.starts(with: [0x89, 0x50, 0x4E, 0x47])) ? "png" : "jpg"
+    /// Legt das Projekt an, BEVOR gerendert wird.
+    ///
+    /// Vorher entstand der Eintrag erst NACH dem Erfolg. Wer die App waehrend
+    /// des Rechnens verliess oder wem sie abstuerzte, hatte danach nichts —
+    /// obwohl der Dienst weiterrechnete und das Bild fertig wurde. Es war
+    /// bezahlt und unauffindbar.
+    ///
+    /// Jetzt liegt es ab der ersten Sekunde in der Bibliothek, mit Status
+    /// `.running`. Stirbt der Prozess, findet `GenerationManager`
+    /// `.resumePendingProjects()` beim naechsten Start ein laufendes Bild mit
+    /// Aufgaben-Nummer und zieht es zu Ende.
+    private func startProject(prompt: String, cost: Int, quality: String) -> VideoProject {
         let project = VideoProject(
             prompt: prompt,
             templateTitle: "Photo Director",
@@ -1516,9 +1585,26 @@ struct AgentView: View {
             isImageOutput: true, useKie: false,
             creditCost: cost, imageQuality: quality
         )
+        project.status = .running
+        modelContext.insert(project)
+        try? modelContext.save()
+        // Der Manager haelt uns im Hintergrund am Leben, pollt aber NICHT mit —
+        // das macht diese Ansicht, weil danach noch die Pruefung kommt.
+        generationManager.claimExternal(project.id)
+        return project
+    }
+
+    /// Traegt das fertige Bild in das bereits angelegte Projekt ein.
+    private func finishProject(_ project: VideoProject, data: Data) {
+        let ext = (data.starts(with: [0x89, 0x50, 0x4E, 0x47])) ? "png" : "jpg"
         let filename = "\(project.id.uuidString).\(ext)"
         let dest = URL.documentsDirectory.appending(path: filename)
-        do { try data.write(to: dest) } catch { return }
+        do { try data.write(to: dest) } catch {
+            project.status = .failed
+            generationManager.releaseExternal(project.id)
+            try? modelContext.save()
+            return
+        }
         project.localVideoFilename = filename
         if let img = UIImage(data: data),
            let thumb = img.preparingThumbnail(of: CGSize(width: 600, height: 600 * img.size.height / max(img.size.width, 1))) {
@@ -1527,7 +1613,16 @@ struct AgentView: View {
             project.thumbnailData = data
         }
         project.status = .succeeded
-        modelContext.insert(project)
+        generationManager.releaseExternal(project.id)
+        try? modelContext.save()
+    }
+
+    /// Der Versuch ist gescheitert. Credits wurden noch keine abgezogen —
+    /// das passiert erst beim Erfolg —, also gibt es nichts zu erstatten.
+    private func abortProject(_ project: VideoProject, reason: String) {
+        project.status = .failed
+        project.errorMessage = reason
+        generationManager.releaseExternal(project.id)
         try? modelContext.save()
     }
 

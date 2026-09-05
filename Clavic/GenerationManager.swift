@@ -20,6 +20,18 @@ final class GenerationManager {
     private var liveMonitors: Set<UUID> = []
     /// Projekte, deren initialer Einreich-Aufruf gerade läuft (noch keine Task-ID)
     private var submitting: Set<UUID> = []
+    /// Projekte, die eine ANSICHT gerade selbst faehrt.
+    ///
+    /// Der Director pollt seinen Render in der Ansicht, weil er danach noch
+    /// die Qualitaetspruefung fahren und das Ergebnis im Gespraech zeigen
+    /// muss. Sein Projekt liegt trotzdem ab der ersten Sekunde in der
+    /// Datenbank — sonst waere es weg, wenn die App stirbt.
+    ///
+    /// Solange dieser Prozess lebt, darf der Manager nicht MIT pollen: zwei
+    /// Schleifen auf derselben Aufgabe wuerden das Projekt doppelt abschliessen.
+    /// Nach einem Neustart ist die Menge leer — dann uebernimmt er, und genau
+    /// dafuer ist das Ganze da.
+    private var externallyDriven: Set<UUID> = []
 
     private var modelContext: ModelContext?
     /// Für Credit-Rückerstattung bei Fehlern
@@ -31,6 +43,20 @@ final class GenerationManager {
 
     func configure(context: ModelContext) {
         self.modelContext = context
+    }
+
+    /// Eine Ansicht uebernimmt das Pollen selbst — der Manager haelt nur die
+    /// Hintergrundzeit offen und laesst die Finger vom Status.
+    func claimExternal(_ id: UUID) {
+        externallyDriven.insert(id)
+        activeProjectIDs.insert(id)
+    }
+
+    /// Die Ansicht ist fertig (oder gescheitert).
+    func releaseExternal(_ id: UUID) {
+        externallyDriven.remove(id)
+        activeProjectIDs.remove(id)
+        endBackgroundTaskIfIdle()
     }
 
     // MARK: - App-Lebenszyklus
@@ -78,6 +104,9 @@ final class GenerationManager {
         guard let projects = try? modelContext.fetch(descriptor) else { return }
 
         for project in projects where project.status.isActive {
+            // Faehrt eine Ansicht das Projekt in DIESEM Prozess selbst, nicht
+            // dazwischenfunken. Nach einem Neustart ist die Menge leer.
+            if externallyDriven.contains(project.id) { continue }
             if project.taskID != nil {
                 monitor(project: project)
             } else {
