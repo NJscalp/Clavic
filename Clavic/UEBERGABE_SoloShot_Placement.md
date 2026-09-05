@@ -581,3 +581,40 @@ die Regel: Beispielformulierungen im Prompt zeigen eine FORM, nie Wörter zum
 **NICHT GEPRÜFT.** Beide Konten sind leer (Anthropic *und* WaveSpeed), es liess
 sich kein einziger Zug fahren. Syntax und Modulladen sind geprüft,
 `looksForPrompt()` wurde ausgeführt. Das Verhalten ist offen.
+
+## Nachtrag 05.09.2026 (16) — Der Katalog ist eine Ausführungs-, keine Entscheidungsbibliothek
+
+Befund vorher: der Katalog **erzeugte** Ideen. Vier Ursachen, alle behoben.
+
+**a) Position.** Die sieben Rezepte standen bei Zeichen ~3.400, die
+Denkreihenfolge erst bei ~4.900 — das Modell las das Regal, bevor es erfuhr,
+wie es denken soll. Jetzt: Denkreihenfolge @4.871, Bibliothek @13.093.
+
+**b) Schritt 6** ergänzt: „Only after the photographic direction has been formed,
+inspect the execution library … Never derive the vision from the existence of a
+recipe."
+
+**c) Frageichtung umgedreht.** `condition` → **`realizes`** (welche Vision das
+Rezept bauen kann) plus **`requires`** (nachrangige technische Voraussetzung).
+Im Prompt ausdrücklich: *„A satisfied Requires is never on its own a reason to
+recommend a look."*
+
+**d) Wissenshierarchie neu** — vorher „THE THREE THINGS YOU KNOW" mit Trends auf
+Platz 1 und Katalog auf 2. Jetzt:
+1. eigenes fotografisches Urteil über dieses Bild
+2. allgemeines Foto-/Editing-Wissen
+3. Hauskatalog als Ausführungsbibliothek
+4. Trends als weitere verfügbare Ausführung
+
+Dazu wörtlich: *„Neither 3 nor 4 is a starting point for an idea."* Und für die
+Trend-Systemnachricht, die aus **Cache-Gründen** am Ende der Nachrichtenkette
+steht: *„That is a technical detail of how they are delivered — it carries no
+creative priority whatsoever."* Die technische Position bleibt unverändert.
+
+**Ausnahme sauber getrennt:** fragt der Nutzer ausdrücklich nach einem Trend,
+kippt die Rangfolge und die Aufgabe IST, den besten Trend für dieses Bild zu
+finden — samt der Freiheit zu sagen, dass keiner passt.
+
+Systemprompt jetzt 19.762 Zeichen ≈ 5.200 Token (vorher 4.675).
+**Keine Modellaufrufe gemacht.** Verhalten weiterhin ungeprüft — beide Konten
+sind leer.
