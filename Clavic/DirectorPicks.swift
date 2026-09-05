@@ -50,6 +50,9 @@ struct DirectorPicks: View {
     /// true, solange die grosse Leiste unten steht. Dann ist die kleine hier
     /// weg: sie ist ja nach unten gewandert.
     var composerOpen: Bool = false
+    /// Die Bildlesung. Liegt sie vor, kann der Director die angebotenen Trends
+    /// gegen DIESES Foto beurteilen, ohne es noch einmal zu analysieren.
+    var reading: DirectorAPI.Reading? = nil
 
     @State private var trendsOffen = false
     /// false = der Wurf läuft noch.
@@ -76,8 +79,8 @@ struct DirectorPicks: View {
         .animation(.smooth(duration: 0.3), value: composerOpen)
         .sheet(isPresented: $trendsOffen) {
             DirectorTrendSheet(
-                trends: besteWahl.map { b in [b] + alleTrends.filter { $0.id != b.id } } ?? alleTrends,
-                bestMatchID: besteWahl?.id,
+                trends: alleTrends,
+                reading: reading,
                 sourcePhoto: sourcePhoto,
                 onPick: { option in
                     trendsOffen = false
@@ -313,12 +316,30 @@ private struct KritzelLinie: Shape {
 /// Asset-Namens.
 private struct DirectorTrendSheet: View {
     let trends: [DirectorAPI.Option]
-    /// Der eine, den der Director fuer dieses Foto vorn sieht.
-    let bestMatchID: String?
+    /// Die Bildlesung. Ohne sie wird nicht gefragt — dann bleibt es die Liste.
+    let reading: DirectorAPI.Reading?
     let sourcePhoto: Data?
     let onPick: (DirectorAPI.Option) -> Void
 
     @Environment(\.dismiss) private var dismiss
+
+    /// Das Urteil des Directors ueber GENAU DIESE Liste.
+    @State private var urteil: DirectorAPI.TrendVerdict?
+    @State private var laeuft = false
+
+    private var bestMatch: DirectorAPI.Option? {
+        guard let id = urteil?.bestID else { return nil }
+        return trends.first { $0.id == id }
+    }
+    private var weitere: [DirectorAPI.Option] {
+        let ids = urteil?.alsoIDs ?? []
+        return ids.compactMap { id in trends.first { $0.id == id } }
+    }
+    /// Alles, was nicht schon oben steht.
+    private var rest: [DirectorAPI.Option] {
+        let oben = Set([bestMatch?.id].compactMap { $0} + weitere.map(\.id))
+        return trends.filter { !oben.contains($0.id) }
+    }
 
     private let spalten = [GridItem(.flexible(), spacing: 12),
                            GridItem(.flexible(), spacing: 12)]
@@ -326,13 +347,37 @@ private struct DirectorTrendSheet: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                LazyVGrid(columns: spalten, spacing: 14) {
-                    ForEach(trends) { trend in
-                        Button { onPick(trend) } label: { kachel(trend) }
-                            .buttonStyle(.plain)
+                VStack(alignment: .leading, spacing: 18) {
+                    if laeuft { sucht }
+                    if let bestMatch { empfehlung(bestMatch) }
+                    if let urteil, urteil.bestID == nil, !urteil.why.isEmpty { keinerPasst(urteil.why) }
+                    if !weitere.isEmpty {
+                        abschnitt("OTHER GOOD MATCHES")
+                        LazyVGrid(columns: spalten, spacing: 14) {
+                            ForEach(weitere) { t in
+                                Button { onPick(t) } label: { kachel(t) }.buttonStyle(.plain)
+                            }
+                        }
+                    }
+                    if !rest.isEmpty {
+                        abschnitt(bestMatch == nil ? "ALL TRENDS" : "SEE ALL TRENDS")
+                        LazyVGrid(columns: spalten, spacing: 14) {
+                            ForEach(rest) { t in
+                                Button { onPick(t) } label: { kachel(t) }.buttonStyle(.plain)
+                            }
+                        }
                     }
                 }
                 .padding(Theme.screenPadding)
+            }
+            .task {
+                // NUR mit vorhandener Lesung. Ohne sie muesste das Foto neu
+                // analysiert werden — dafuer ist eine Trendliste kein Grund.
+                guard urteil == nil, let reading, !trends.isEmpty else { return }
+                laeuft = true
+                let ergebnis = await DirectorAPI.rankTrends(reading: reading, offered: trends)
+                laeuft = false
+                withAnimation(.smooth(duration: 0.3)) { urteil = ergebnis }
             }
             .background(Theme.background.ignoresSafeArea())
             .navigationTitle("Our TikTok trends")
@@ -361,17 +406,7 @@ private struct DirectorTrendSheet: View {
             }
             .frame(height: 186)
             .clipped()
-            .overlay(alignment: .topLeading) {
-                if trend.id == bestMatchID {
-                    Text("BEST MATCH")
-                        .font(.system(size: 8.5, weight: .black, design: .rounded))
-                        .tracking(1.1)
-                        .foregroundStyle(Theme.textPrimary)
-                        .padding(.horizontal, 6).padding(.vertical, 3)
-                        .background(Theme.aiActive, in: Capsule())
-                        .padding(7)
-                }
-            }
+
 
             VStack(alignment: .leading, spacing: 2) {
                 Text(trend.label)
@@ -395,6 +430,78 @@ private struct DirectorTrendSheet: View {
                 .strokeBorder(Theme.textPrimary.opacity(0.08), lineWidth: 1)
         )
         .shadow(color: Theme.textPrimary.opacity(0.06), radius: 8, y: 4)
+    }
+
+    private func abschnitt(_ titel: String) -> some View {
+        HStack(spacing: 8) {
+            Text(titel)
+                .font(.system(size: 10, weight: .black, design: .rounded))
+                .tracking(1.7)
+                .foregroundStyle(Theme.textTertiary)
+                .lineLimit(1).fixedSize()
+            Rectangle().fill(Theme.textPrimary.opacity(0.10)).frame(height: 1)
+        }
+    }
+
+    /// Waehrend er urteilt. Kein Kreisel: dieselbe Sprache wie beim Lesen.
+    private var sucht: some View {
+        HStack(spacing: 9) {
+            Image(systemName: "sparkle.magnifyingglass")
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundStyle(Theme.accent)
+            Text("Checking which of these suits your photo…")
+                .font(.system(size: 14.5, weight: .medium, design: .rounded))
+                .foregroundStyle(Theme.textSecondary)
+            Spacer(minLength: 0)
+        }
+        .padding(.vertical, 4)
+    }
+
+    /// DIRECTOR'S TREND PICK — gross, mit einem Satz warum.
+    private func empfehlung(_ trend: DirectorAPI.Option) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            abschnitt("DIRECTOR'S TREND PICK")
+            Button { onPick(trend) } label: {
+                VStack(alignment: .leading, spacing: 0) {
+                    ZStack { Rectangle().fill(Theme.surfaceHigh); bild(trend) }
+                        .frame(height: 300)
+                        .clipped()
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(trend.label)
+                            .font(.system(size: 20, weight: .black, design: .rounded))
+                            .foregroundStyle(Theme.textPrimary)
+                        if let why = urteil?.why, !why.isEmpty {
+                            Text(why)
+                                .font(.system(size: 14, weight: .medium, design: .rounded))
+                                .foregroundStyle(Theme.textSecondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(12)
+                }
+                .background(Theme.surface)
+                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .strokeBorder(Theme.textPrimary.opacity(0.08), lineWidth: 1))
+                .shadow(color: Theme.textPrimary.opacity(0.10), radius: 12, y: 6)
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    /// „Keiner passt" ist eine echte Antwort und wird auch so gezeigt.
+    private func keinerPasst(_ why: String) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            abschnitt("MY HONEST ANSWER")
+            Text(why)
+                .font(.system(size: 16, weight: .regular, design: .serif))
+                .foregroundStyle(Theme.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Theme.papier, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
     }
 
     /// Aus dem Bundle ODER vom Server — siehe Kopf.

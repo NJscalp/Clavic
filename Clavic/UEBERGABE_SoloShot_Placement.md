@@ -618,3 +618,37 @@ finden — samt der Freiheit zu sagen, dass keiner passt.
 Systemprompt jetzt 19.762 Zeichen ≈ 5.200 Token (vorher 4.675).
 **Keine Modellaufrufe gemacht.** Verhalten weiterhin ungeprüft — beide Konten
 sind leer.
+
+## Nachtrag 05.09.2026 (17) — „Choose a trend" ist ein eigener Auftrag
+
+Vorher rendete ein Tipp auf einen Trend direkt — der Director wurde nie gefragt.
+
+**Zwei Aufgaben, zwei Prompts, bewusst getrennt.** Der normale Zug bildet erst
+eine eigene Vision und prüft Trends danach als Ausführung. Die Trend-Auswahl
+dreht das um, aber NUR weil der Nutzer ausdrücklich danach gefragt hat. Beides
+in einen Prompt zu mischen hätte den normalen Director dazu gebracht, generell
+Trends zu bevorzugen — deshalb `trendSelectionSystem()` mit eigenem, kurzem
+Prompt (354 Token gegen 5.201 des grossen) und eigenem Werkzeug `rank_trends`.
+
+**Die Bildlesung wurde bisher weggeworfen.** `DirectorAPI.read()` existiert,
+wird aber nirgends aufgerufen; das Backend liefert `reading` in JEDER
+Chat-Antwort mit, und die App hat sie ignoriert. Jetzt wird sie in
+`AgentView.photoReading` behalten — gebunden ans FOTO, nicht an die Vorschläge:
+sie fällt weg bei neuem Anhang und bei „Start over", nicht schon beim Wählen
+einer Richtung. Damit kostet „nicht neu analysieren" nichts.
+
+**Es geht kein Bild mit** und **es wird nichts gerendert.** Ohne vorhandene
+Lesung wird gar nicht erst gefragt — dann bleibt es die Liste wie bisher.
+
+**Der Director bewertet die Liste, die der NUTZER SIEHT.** Die App schickt ihre
+`alleTrends` mit (id, label, caption); das Backend ergänzt Rezept und
+Bedingung, wo eine id serverseitig bekannt ist. Sonst wäre „beste Passung"
+wieder eine Behauptung über eine andere Liste.
+
+UI im Sheet: `DIRECTOR'S TREND PICK` (grosse Vorschau + ein Satz warum) ·
+`OTHER GOOD MATCHES` · `SEE ALL TRENDS`. Das alte Abzeichen auf der Kachel ist
+entfallen. Sagt der Director, dass keiner passt, steht das als `MY HONEST
+ANSWER` da. Der Nutzer kann weiterhin jeden Trend selbst wählen.
+
+**Modellentscheidung steht aus** — läuft vorerst auf dem bestehenden Pfad
+(Opus 5). Zahlen im Bericht an den Nutzer.

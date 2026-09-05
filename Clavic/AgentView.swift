@@ -33,6 +33,12 @@ struct AgentView: View {
     /// Was auf dem Foto angestrichen wurde. Füttert die Schnellaufträge der
     /// Regie-Leiste — sie soll über DIESES Bild reden, nicht über Fotos.
     @State private var readMarks: [ReadMark] = []
+    /// Die Bildlesung des aktuellen Fotos, aufgehoben aus dem letzten Zug.
+    ///
+    /// Sie kam schon immer mit der Antwort zurück und wurde weggeworfen. Wer
+    /// sie behält, kann weitere Fragen zu DEMSELBEN Foto stellen, ohne es noch
+    /// einmal analysieren zu lassen — die Trend-Auswahl tut genau das.
+    @State private var photoReading: DirectorAPI.Reading?
     /// Was der Server gerade als Trend führt. Kommt aus `templates.json` und
     /// braucht kein App-Update: neuer Trend samt Bild hochgeladen, sofort im
     /// Streifen. Genau dafür wurde der eingebaute Katalog hier entfernt.
@@ -375,6 +381,7 @@ struct AgentView: View {
                     trends: letzter?.trends ?? [],
                     serverTrends: serverTrends,
                     composerOpen: showComposer,
+                    reading: photoReading,
                     landed: optionsRevealed,
                     throwToken: throwToken,
                     onPick: { chooseOption($0) },
@@ -893,6 +900,8 @@ struct AgentView: View {
             }
         }
         await MainActor.run {
+            // Ein neues Foto macht die alte Lesung ungueltig.
+            if !loaded.isEmpty { photoReading = nil }
             attachments.append(contentsOf: loaded)
             if attachments.count > 6 { attachments = Array(attachments.suffix(6)) }
             photoSelections = []
@@ -976,6 +985,8 @@ struct AgentView: View {
                         m.trends = reply.trends
                     }
                     // Bei einem Bild-Auftrag Lupen-Ansicht halten, bis das Rendern startet.
+                    // Die Lesung aufheben, solange dasselbe Foto im Spiel ist.
+                    if let gelesen = reply.reading { photoReading = gelesen }
                     m.isAnalyzing = (reply.action != nil) && hasImageContext
                     messages[last] = m
 
@@ -1430,6 +1441,10 @@ struct AgentView: View {
     }
 
     private func startNewChat() {
+        // Die Lesung gehoert zum FOTO, nicht zu den Vorschlaegen. Sie faellt
+        // weg, wenn das Foto weg ist — nicht schon, wenn jemand eine Richtung
+        // gewaehlt hat. Sonst waere sie beim Trend-Fenster nie mehr da.
+        photoReading = nil
         messages = []
         input = ""
         attachments = []

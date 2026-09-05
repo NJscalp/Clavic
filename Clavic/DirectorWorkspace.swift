@@ -73,6 +73,8 @@ struct DirectorWorkspace<Mascot: View>: View {
     var serverTrends: [DirectorAPI.Option] = []
     /// true, solange die Regie-Leiste unten steht.
     var composerOpen: Bool = false
+    /// Die Bildlesung, damit die Trend-Auswahl das Foto nicht neu analysiert.
+    var reading: DirectorAPI.Reading? = nil
     let landed: Bool
     let throwToken: Int
     var onPick: (DirectorAPI.Option) -> Void = { _ in }
@@ -122,6 +124,7 @@ struct DirectorWorkspace<Mascot: View>: View {
                 DirectorPicks(
                     picks: picks, lead: lead, trends: trends,
                     serverTrends: serverTrends, composerOpen: composerOpen,
+                    reading: reading,
                     landed: landed, throwToken: throwToken,
                     sourcePhoto: before ?? photo,
                     onPick: onPick, onOwnIdea: onOwnIdea

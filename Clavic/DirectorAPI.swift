@@ -87,6 +87,13 @@ enum DirectorAPI {
         /// Der Vorschlag, den er selbst nehmen würde, wenn einer klar vorn
         /// liegt. Bei genau einem Vorschlag immer gesetzt.
         let lead: String?
+        /// DIE BILDLESUNG AUS STUFE 1.
+        ///
+        /// Das Backend hat sie schon immer mitgeliefert und die App hat sie
+        /// weggeworfen. Wer sie behält, kann später weitere Fragen zu
+        /// demselben Foto stellen, ohne es noch einmal analysieren zu lassen —
+        /// die Trend-Auswahl tut genau das.
+        let reading: Reading?
         /// Aktuelle Trends, nach Passung zu DIESEM Foto sortiert, bester
         /// zuerst. Darf leer sein — dann trägt das Foto gerade keinen.
         let trends: [Option]
@@ -208,6 +215,7 @@ enum DirectorAPI {
             message: ((json["message"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
             picks: Array(options("picks").prefix(3)),
             lead: (json["lead"] as? String).flatMap { $0.isEmpty ? nil : $0 },
+            reading: json["reading"] as? Reading,
             trends: options("trends"),
             action: action
         )
@@ -346,5 +354,66 @@ enum DirectorAPI {
                 ask: (c["ask"] as? String) ?? "I want the \(label) look on my photo."
             )
         }
+    }
+}
+
+
+// MARK: - Trend-Auswahl
+
+extension DirectorAPI {
+
+    /// Was der Director über die angebotenen Trends sagt.
+    struct TrendVerdict {
+        /// Die id des Trends, den er nehmen würde. `nil` heißt: keiner passt.
+        let bestID: String?
+        /// Ein Satz. Bei `bestID == nil` steht hier, warum keiner passt.
+        let why: String
+        /// Bis zu zwei weitere, die auch gehen.
+        let alsoIDs: [String]
+
+        static let none = TrendVerdict(bestID: nil, why: "", alsoIDs: [])
+    }
+
+    /// „Welcher dieser Trends passt zu DIESEM Foto?"
+    ///
+    /// EIN EIGENER AUFTRAG, nicht der normale Zug. Der normale Director bildet
+    /// erst eine eigene Vision und prüft Trends danach als Ausführung; hier hat
+    /// der Nutzer ausdrücklich nach Trends gefragt, also ist das die Aufgabe.
+    ///
+    /// ES GEHT KEIN BILD MIT. Die Lesung liegt aus dem letzten Zug vor und
+    /// beantwortet die Frage vollständig — ein zweites Mal sehen kostet Geld
+    /// und bringt nichts. Ohne Lesung wird gar nicht erst gefragt.
+    ///
+    /// ES WIRD NICHTS GERENDERT. Der Nutzer bekommt eine Empfehlung und
+    /// entscheidet selbst; Credits fließen erst, wenn er einen Trend bestätigt.
+    ///
+    /// Wirft nie: ohne Urteil zeigt die Liste sich wie bisher.
+    static func rankTrends(reading: Reading, offered: [Option]) async -> TrendVerdict {
+        guard BackendConfiguration.isConfigured, !offered.isEmpty else { return .none }
+
+        let body: [String: Any] = [
+            "intent": "trend_selection",
+            "reading": reading,
+            "trends": offered.prefix(24).map {
+                ["id": $0.id, "label": $0.label, "caption": $0.caption]
+            },
+        ]
+        var request = URLRequest(url: chatURL)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 60
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+
+        guard let (data, response) = try? await URLSession.shared.data(for: request),
+              (200..<300).contains((response as? HTTPURLResponse)?.statusCode ?? 0),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
+        else { return .none }
+
+        let best = (json["bestId"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+        return TrendVerdict(
+            bestID: (json["verdict"] as? String) == "one_fits" ? best : nil,
+            why: ((json["why"] as? String) ?? "").trimmingCharacters(in: .whitespacesAndNewlines),
+            alsoIDs: (json["alsoIds"] as? [String]) ?? []
+        )
     }
 }
