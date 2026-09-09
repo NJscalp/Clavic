@@ -118,11 +118,40 @@ enum ImageEditAPI {
         //  - GPT Image 2 kennt 1k/2k/4k UND ein eigenes `quality`-Feld
         //    (bestimmt den Preis) → low→1k, medium→2k, high→4k + quality.
         let isGPTImage = model.contains("gpt-image")
-        let resolution: String
+        var resolution: String
         switch request.quality.lowercased() {
         case "high": resolution = isGPTImage ? "4k" : "2k"
         case "medium": resolution = isGPTImage ? "2k" : "1k"
         default: resolution = "1k"
+        }
+
+        // NIE ÜBER DIE QUELLE HINAUS RENDERN.
+        //
+        // GEMESSEN am 09.09.2026: dasselbe Foto (736 px), derselbe Prompt,
+        // dasselbe Modell. Bei 2K fiel das Ergebnis durch die QA in
+        // `/v1/agent/qa` — „face appears redrawn", „skin looks smoothed and
+        // grain lost", „clouds completely reconstructed", und ein runder
+        // Kettenanhänger wurde zu einem herzförmigen. Bei 1K bestand es. Der
+        // Effekt trat bei ALLEN drei verfügbaren Modellen auf.
+        //
+        // Der Grund ist kein Prompt-Problem: Wer aus 736 Pixeln 4096 verlangt,
+        // bittet das Modell um Details, die in der Vorlage nicht existieren. Es
+        // erfindet sie dann — und erfindet dabei Hauttextur, Augenbrauen und
+        // Schmuck gleich mit. Das ist genau der Fehler, gegen den der Identity
+        // Lock steht und mit dessen Abwesenheit die App wirbt.
+        //
+        // Wer wirklich mehr Auflösung braucht, rendert klein und schickt das
+        // Ergebnis danach durch `UpscaleAPI`. Dafür ist der Upscaler da.
+        if let longestSourceEdge = Self.longestEdge(of: request.referenceImages) {
+            let cap: String
+            switch longestSourceEdge {
+            case ..<1600: cap = "1k"
+            case ..<3200: cap = "2k"
+            default: cap = "4k"
+            }
+            if Self.resolutionRank(resolution) > Self.resolutionRank(cap) {
+                resolution = cap
+            }
         }
         var body: [String: Any] = [
             "prompt": request.prompt,
@@ -151,6 +180,31 @@ enum ImageEditAPI {
             return taskID
         }
         throw SeedanceError.invalidResponse
+    }
+
+    /// Die laengste Kante ueber alle Referenzbilder, in Pixeln.
+    ///
+    /// Entscheidet, wie hoch ueberhaupt gerendert werden darf. Liefert `nil`,
+    /// wenn keine Referenz vorliegt (reines Text-zu-Bild) — dann gibt es keine
+    /// Quelle, an der man sich orientieren koennte, und die gewaehlte Qualitaet
+    /// bleibt unangetastet.
+    private static func longestEdge(of images: [Data]) -> Int? {
+        let edges = images.compactMap { data -> Int? in
+            guard let image = UIImage(data: data) else { return nil }
+            let pixelWidth = image.size.width * image.scale
+            let pixelHeight = image.size.height * image.scale
+            return Int(max(pixelWidth, pixelHeight).rounded())
+        }
+        return edges.max()
+    }
+
+    /// Ordnet die Aufloesungsstufen, damit sie vergleichbar sind.
+    private static func resolutionRank(_ resolution: String) -> Int {
+        switch resolution.lowercased() {
+        case "4k": return 3
+        case "2k": return 2
+        default:   return 1
+        }
     }
 
     /// Einmalige Upload-Kodierung. Im High-Fidelity-Pfad wird das gemeinsame
