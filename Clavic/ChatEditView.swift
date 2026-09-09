@@ -77,7 +77,7 @@ struct ChatEditView: View {
     /// Eine einzige Kurve fuer alles, was sich beim Auf- und Zuklappen der
     /// Eingabe bewegt. `.smooth` schwingt nicht ueber — mit einer federnden
     /// Kurve schoben sich Bild und Textfeld gegeneinander und es wirkte hakelig.
-    private static let composerMotion: Animation = .smooth(duration: 0.3)
+    private static var composerMotion: Animation { ClavicComposer<EmptyView>.motion }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -210,7 +210,7 @@ struct ChatEditView: View {
                 saveImage(data)
             }
         }
-        .sheet(isPresented: $showSubscriptionGate) {
+        .fullScreenCover(isPresented: $showSubscriptionGate) {
             PaywallView()
         }
         .fullScreenCover(isPresented: $showPoseCamera) {
@@ -825,39 +825,25 @@ struct ChatEditView: View {
     /// nicht bzw. als wären sie tot. Sie stehen jetzt dauerhaft da; nur die
     /// Format-Chips klappen bei Fokus zusätzlich auf.
     private var composerCard: some View {
-        VStack(spacing: 10) {
-            TextField(placeholder, text: $input, axis: .vertical)
-                .font(.system(size: 16.5, weight: .medium, design: .rounded))
-                // Waechst mit dem Text mit — bis zu acht Zeilen statt fuenf.
-                // Bei fuenf war schon Schluss, obwohl darueber genug Platz ist;
-                // laengere Anweisungen liefen dann in ein winziges Scrollfeld.
-                .lineLimit(1...8)
-                .focused($inputFocused)
-                .submitLabel(.send)
-                .onSubmit {
-                    inputFocused = false
-                    if canSend && !isWorking { Task { await send() } }
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                // Ohne eigene Kurve springt die Leiste bei jedem Zeilenumbruch
-                // hart um. `input` ist der Ausloeser, nicht der Fokus.
-                .animation(Self.composerMotion, value: input)
-
-            HStack(spacing: 8) {
-                plusButton
-                cameraButton
-                Spacer(minLength: 0)
-                modeToggle
-                applyButton
+        // EINE Leiste fuer die ganze App — siehe `ClavicComposer`. Hier stand
+        // dieselbe Leiste ein zweites Mal, Zeile fuer Zeile identisch mit der
+        // im Director. Zwei Kopien einer absichtlich gleichen Sache driften
+        // auseinander, sobald jemand nur eine anfasst.
+        ClavicComposer(
+            text: $input,
+            placeholder: placeholder,
+            fokus: $inputFocused,
+            onSubmit: {
+                inputFocused = false
+                if canSend && !isWorking { Task { await send() } }
             }
+        ) {
+            plusButton
+            cameraButton
+            Spacer(minLength: 0)
+            modeToggle
+            applyButton
         }
-        .padding(.horizontal, 14)
-        .padding(.vertical, 12)
-        // Liquid Glass (iOS 26): die Leiste bricht und beugt das, was darunter
-        // durchscrollt, statt eine deckende Fläche zu sein.
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-        .shadow(color: .black.opacity(0.10), radius: 18, y: 8)
-        .contentShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
     }
 
     private var placeholder: String {
@@ -1961,6 +1947,16 @@ struct BlurLoadingCard: View {
     /// bleibt die Karte wie vorher (z. B. in Vorschauen).
     var startedAt: Date? = nil
     var estimate: TimeInterval = 60
+    /// Leichter Schleier: das Foto soll noch als DEIN Foto zu erkennen sein.
+    ///
+    /// Voll geblurt (30 + Frost über die ganze Fläche) blieb von jedem Bild
+    /// nur eine graue Fläche übrig — man sah nicht mehr, dass da überhaupt ein
+    /// Foto liegt. Der Frost hat aber einen echten Grund: das dunkle Logo muss
+    /// auf JEDEM Untergrund lesen. Also bleibt er — nur nicht mehr über die
+    /// ganze Karte, sondern weich auslaufend unter dem Logo.
+    ///
+    /// Standard ist AUS, damit der Chat-Tab unverändert bleibt.
+    var leicht: Bool = false
 
     var body: some View {
         ZStack {
@@ -1972,8 +1968,24 @@ struct BlurLoadingCard: View {
                 .frame(maxWidth: .infinity)
                 .frame(minHeight: 240, maxHeight: 340)
                 .clipped()
-                .blur(radius: 30)
-                .overlay(.ultraThinMaterial)
+                // `opaque: true`: ohne das saugt der Blur die durchsichtigen
+                // Ränder hinter dem Zuschnitt mit ein und legt einen blassen
+                // Saum um die Karte.
+                .blur(radius: leicht ? 14 : 30, opaque: leicht)
+                .overlay {
+                    if leicht {
+                        Rectangle()
+                            .fill(.ultraThinMaterial)
+                            .mask(
+                                RadialGradient(
+                                    gradient: Gradient(colors: [.black, .black.opacity(0.8), .clear]),
+                                    center: .center, startRadius: 34, endRadius: 155
+                                )
+                            )
+                    } else {
+                        Rectangle().fill(.ultraThinMaterial)
+                    }
+                }
 
             // Clavic-Animation — heller Hintergrund raus: (1) multiply lässt den
             // hellen Video-Grund verschwinden, (2) die radiale Maske blendet die

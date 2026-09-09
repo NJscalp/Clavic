@@ -304,7 +304,7 @@ struct SoloShotView: View {
             }
         }
         .animation(.easeInOut(duration: 0.2), value: errorText)
-        .sheet(isPresented: $showSubscriptionGate) { PaywallView() }
+        .fullScreenCover(isPresented: $showSubscriptionGate) { PaywallView() }
     }
 
     private var header: some View {
@@ -661,7 +661,7 @@ struct SoloShotView: View {
             // geladen: reden (Chat) oder selbst Hand anlegen (Studio).
             HStack(spacing: 10) {
                 Button {
-                    editHandoff.pendingChatImage = resultData
+                    if let resultData { editHandoff.sendToChat(resultData) }
                     onCancel()
                 } label: {
                     Text("Keep editing in Chat")
@@ -675,10 +675,12 @@ struct SoloShotView: View {
                 .disabled(resultData == nil)
 
                 Button {
-                    editHandoff.pendingStudioImage = resultData
+                    // Ging frueher ins Studio. Das gibt es nicht mehr — und
+                    // der Chat kann alles, was man hier anschliessend will.
+                    if let resultData { editHandoff.sendToChat(resultData) }
                     onCancel()
                 } label: {
-                    Text("Open in Studio")
+                    Text("Open in Chat")
                         .font(.system(size: 14, weight: .bold, design: .rounded))
                         .foregroundStyle(.white)
                         .frame(maxWidth: .infinity)

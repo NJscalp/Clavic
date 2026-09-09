@@ -18,7 +18,7 @@ struct SettingsView: View {
     @Environment(\.modelContext) private var modelContext
     @Environment(Store.self) private var store
 
-    @AppStorage("hasSignedIn") private var hasSignedIn = false
+    @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding = false
     @AppStorage("hasSeenWelcomeOffer") private var hasSeenWelcomeOffer = false
     @AppStorage("acceptedContentPolicy") private var acceptedContentPolicy = false
 
@@ -197,10 +197,11 @@ struct SettingsView: View {
         // 3) Guthaben + Kauf-Gutschriften zurücksetzen.
         store.credits = 0
         UserDefaults.standard.removeObject(forKey: Store.grantedTxKey)
-        // 4) Lokalen Anmelde-/Onboarding-Status zurücksetzen → zurück zum Sign-in.
+        // 4) Onboarding-Status zurücksetzen → zurück zum Onboarding.
+        //    (Frueher fuehrte der Reset zum Sign-in-Screen; den gibt es nicht mehr.)
         acceptedContentPolicy = false
         hasSeenWelcomeOffer = false
-        hasSignedIn = false
+        hasSeenOnboarding = false
         dismiss()
     }
 

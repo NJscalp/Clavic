@@ -37,6 +37,71 @@ struct PoseCameraResult {
     var instruction: String
     /// Fertiger, ausformulierter Prompt für das Modell.
     var prompt: String
+    /// Seitenverhältnis des Ergebnisses. `"auto"` heißt: das Modell übernimmt
+    /// das der Vorlage — bei einem Nachstellen fast immer richtig, weil der
+    /// Bildaufbau ja mitkommen soll.
+    var aspectRatio: String = "auto"
+    /// Auflösungsstufe (`low`/`medium`/`high` → 1K/2K/4K).
+    var quality: String = "high"
+}
+
+/// Die Seitenverhältnisse, die zur Auswahl stehen.
+///
+/// Bewusst kurz: bei einem Nachstellen ist „wie die Vorlage" fast immer die
+/// richtige Antwort, und jede weitere Wahl ist eine Frage mehr, die niemand
+/// stellen wollte. Die drei anderen decken ab, wofür man das Ergebnis
+/// üblicherweise braucht.
+enum PoseAspect: String, CaseIterable, Identifiable {
+    case auto = "auto"
+    case portrait45 = "4:5"
+    case story916 = "9:16"
+    case square11 = "1:1"
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .auto:       return "Auto"
+        case .portrait45: return "4:5"
+        case .story916:   return "9:16"
+        case .square11:   return "1:1"
+        }
+    }
+
+    /// Zweite Zeile auf dem Knopf. Nur `auto` braucht eine — die anderen sagen
+    /// sich selbst. „Like reference" als einzeilige Beschriftung brach um und
+    /// machte den einen Knopf hoeher als die drei daneben.
+    var hint: String? {
+        self == .auto ? "like ref" : nil
+    }
+}
+
+/// Auflösung, in der Sprache des Nutzers — und mit dem, was sie kostet.
+///
+/// GEMESSEN: 2K braucht rund 59 s, 4K rund 282 s. Das ist keine Kleinigkeit,
+/// deshalb steht die Dauer mit an der Auswahl. Voreinstellung ist 4K: bei
+/// einem Swap ist der einzige Gegenwert, dass das Ergebnis nicht nach KI
+/// aussieht, und genau daran gewinnt die hohe Stufe.
+enum PoseResolution: String, CaseIterable, Identifiable {
+    case low, medium, high
+
+    var id: String { rawValue }
+
+    var label: String {
+        switch self {
+        case .low:    return "1K"
+        case .medium: return "2K"
+        case .high:   return "4K"
+        }
+    }
+
+    var hint: String {
+        switch self {
+        case .low:    return "~35 s"
+        case .medium: return "~1 min"
+        case .high:   return "~5 min"
+        }
+    }
 }
 
 // MARK: - Absichten

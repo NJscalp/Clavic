@@ -2,90 +2,140 @@
 //  DirectorPicks.swift
 //  Clavic
 //
-//  Was der Director nach dem Blick aufs Foto anbietet.
+//  Die Buehne, auf der der Director seine Ideen ablegt.
 //
-//  VIER WEGE, VON ENG NACH WEIT — und jeder ist SICHTBAR.
+//  DREI WEGE, VON OBEN NACH UNTEN NACH WICHTIGKEIT:
 //
-//    1. Seine zwei Vorschläge. Groß, offen, ohne Aufklappen. Zwei und nicht
-//       vier: ein Creative Director sagt „das sind meine zwei besten Ideen",
-//       er legt keinen Katalog hin.
+//    1. SEINE IDEEN — ein Kartenstapel (`DirectorDeck`). Eine liegt vorn, die
+//       anderen sichtbar darunter. Wischen oder eine hintere Karte antippen
+//       tauscht sie; der Stapel ist der Waehler.
+//    2. DIE EIGENE IDEE — ein Knopf, der die Buehne raeumt und die Textleiste
+//       aus dem Chat-Tab hereinholt (`ClavicComposer`). Kein Verlauf, keine
+//       Blasen: der Text geht in denselben Zug wie ein Vorschlags-Chip.
+//    3. DIE TRENDS — ein drehbarer Kartenkranz (`DirectorTrendRing`), ganz
+//       unten und offen sichtbar.
 //
-//    2. Was gerade auf TikTok läuft — EINE Karte, die sich zu einer ruhigen
-//       Übersicht öffnet.
+//  DIE TRENDS WAREN EIN KNOPF. „Find a TikTok trend ›", dahinter ein zweiter
+//  Zustand mit eigenem Stapel. Das war ehrlich sekundaer, zeigte aber nichts:
+//  Trends SIND Bilder, und ein Wort darueber macht niemanden neugierig. Der
+//  Zustand ist ersatzlos weg, die Karten liegen jetzt offen da.
 //
-//       Vorher lag hier ein waagerechter Streifen. Der zeigte zwar Bilder,
-//       nahm aber viel Höhe und konnte immer nur drei auf einmal zeigen —
-//       bei zwanzig Trends wischt niemand bis zum Ende. Die Karte zeigt vier
-//       Vorschaubilder und die Zahl; alles Weitere liegt eine Berührung
-//       entfernt in einem Raster, das man in einem Blick überfliegt.
+//  Sekundaer bleiben sie trotzdem, und zwar an drei Stellen: sie stehen ganz
+//  unten, ihre Karten sind klein, und einen blauen Knopf bekommt der Kranz
+//  erst, wenn ihn jemand angefasst hat. Bis dahin ist „Make it" auf der
+//  Director-Karte der einzige blaue Knopf des Bildschirms.
 //
-//    3. „…or tell me your own idea" — eine kleine Glasleiste, die nach
-//       unten wandert.
+//  DAS TRENDURTEIL HAENGT AN DIESER BERUEHRUNG. Frueher lief es beim Betreten
+//  des Trendmodus. Ohne Modus braucht es ein anderes Signal, und Anfassen ist
+//  genau eines — sonst liefe bei jeder Analyse ein Modellaufruf mit, den
+//  niemand bestellt hat.
 //
-//       Sie liegt zuerst klein im Fluss, dort wo man sie braucht. Beim
-//       Antippen verschwindet sie hier und die grosse Regie-Leiste steht
-//       unten am Bildschirmrand — dieselbe Bewegung, die man aus dem
-//       Chat-Tab kennt. Kein zweiter Ort zum Suchen.
-//
-//  KEIN KATALOG-KNOPF MEHR. Hier stand „Every look we have" mit allem, was
-//  im Bundle liegt. Das war eine Liste, die nur ein App-Update aendern kann —
-//  und Trends kommen nicht im Rhythmus von App-Updates. Was der Streifen
-//  zeigt, kommt deshalb VOM SERVER (`TemplateStore`, `templates.json`):
-//  neuer Trend, Bild dazu, hochgeladen, sofort drin.
-//
-//  ES WIRD NICHTS GERENDERT, bevor hier etwas angetippt wurde. Jeder Tipp
+//  ES WIRD NICHTS GERENDERT, bevor „Make it" angetippt wurde. Jeder Tipp
 //  kostet Credits, deshalb ist jeder Tipp eine bewusste Entscheidung.
 //
 
 import SwiftUI
+
+/// Was gerade auf der Buehne liegt. Reicht bis zu `AgentView` hoch, weil die
+/// Figur daneben ihren Ruhe-Loop danach waehlt — sie soll zeigen, wovon
+/// gerade die Rede ist.
+enum DirectorBuehne: Equatable {
+    case picks
+    case trends
+    case eigeneIdee
+}
 
 struct DirectorPicks: View {
     let picks: [DirectorAPI.Option]
     /// Die Richtung, die der Director selbst nehmen wuerde.
     var lead: String? = nil
     let trends: [DirectorAPI.Option]
-    /// Was der Server gerade als Trend fuehrt. Kommt aus `templates.json` und
-    /// braucht kein App-Update — genau dafuer ist der Streifen da.
+    /// Additional candidates, filtered against the reviewed TikTok catalog.
     var serverTrends: [DirectorAPI.Option] = []
-    /// true, solange die grosse Leiste unten steht. Dann ist die kleine hier
-    /// weg: sie ist ja nach unten gewandert.
-    var composerOpen: Bool = false
     /// Die Bildlesung. Liegt sie vor, kann der Director die angebotenen Trends
     /// gegen DIESES Foto beurteilen, ohne es noch einmal zu analysieren.
     var reading: DirectorAPI.Reading? = nil
 
     @State private var trendsOffen = false
+    @State private var buehne: DirectorBuehne = .picks
+    /// Das Urteil ueber DIESE Trendliste. Genau einmal geholt.
+    @State private var trendUrteil: DirectorAPI.TrendVerdict?
+    @State private var urteilLaeuft = false
+    @State private var eigeneZeile = ""
+    /// Welcher Trend gerade in der Mitte des Kranzes steht.
+    @State private var trendGewaehlt: DirectorAPI.Option?
+    /// Erst wenn jemand den Kranz angefasst hat, gibt es dort einen Knopf —
+    /// und erst dann lohnt sich die Frage an den Director, welcher passt.
+    @State private var kranzBeruehrt = false
+    @FocusState private var zeileAktiv: Bool
     /// false = der Wurf läuft noch.
     let landed: Bool
     let throwToken: Int
     /// Das Foto, über das gesprochen wird — liegt auf Karten, die es erhalten.
     let sourcePhoto: Data?
     var onPick: (DirectorAPI.Option) -> Void = { _ in }
-    var onOwnIdea: () -> Void = {}
+    /// Die eigene Ansage. Geht direkt in einen Zug — dafuer gibt es
+    /// `send(override:)` schon, es braucht keinen neuen Weg.
+    var onDirect: (String) -> Void = { _ in }
+    /// Meldet den Zustand nach oben, damit die Figur darauf reagieren kann.
+    var onBuehne: (DirectorBuehne) -> Void = { _ in }
     /// Was gerade angesehen wird — der Aufrufer haelt es, weil die Figur oben
     /// darueber spricht und die steht nicht hier drin.
     var selected: DirectorAPI.Option? = nil
     var onSelect: (DirectorAPI.Option?) -> Void = { _ in }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 26) {
-            // Der Kartenblock zeichnet über seine Layouthöhe hinaus nach oben
-            // (der Nebelstreifen, aus dem sie kommen). Ohne Ausgleich schöben
-            // sich die Karten über das, was darüber steht.
-            vorschlaege
-
+        VStack(alignment: .leading, spacing: 16) {
             if landed {
-                if !alleTrends.isEmpty { trendKarte }
-                if !composerOpen { eigeneIdee }
+                ueberschrift
+                inhalt
+                // DIE LEISTE STEHT IMMER HIER, in beiden Zustaenden.
+                //
+                // Sie in den Moduswechsel zu haengen waere naheliegend und
+                // falsch: SwiftUI baut sie dann beim Wechsel neu auf, der
+                // Fokus geht verloren und die Tastatur klappt sofort wieder
+                // zu. Genau in dem Moment, in dem der Nutzer tippen will.
+                //
+                // Sie bleibt deshalb dieselbe Ansicht; der Modus entscheidet
+                // nur, was DARUEBER und DARUNTER liegt.
+                ideenLeiste
+                trendKranz
+            } else {
+                DirectorGreetingView(trigger: throwToken)
+                    .frame(height: 230)
             }
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
         .animation(.easeOut(duration: 0.35), value: landed)
-        .animation(.smooth(duration: 0.28), value: selected?.id)
-        .animation(.smooth(duration: 0.3), value: composerOpen)
+        .animation(.smooth(duration: 0.34), value: buehne)
+        .onChange(of: buehne, initial: true) { _, neu in onBuehne(neu) }
+        // Das Urteil holt sich der Trendmodus selbst — einmal, und nur wenn
+        // eine Bildlesung vorliegt. Ohne sie muesste das Foto neu analysiert
+        // werden; dafuer ist eine Trendliste kein Grund.
+        .task(id: kranzBeruehrt) {
+            guard kranzBeruehrt, trendUrteil == nil, !urteilLaeuft,
+                  let reading, !alleTrends.isEmpty else { return }
+            urteilLaeuft = true
+            let ergebnis = await DirectorAPI.rankTrends(reading: reading, offered: alleTrends)
+            urteilLaeuft = false
+            // Der Kranz holt den Besten selbst in die Mitte, sobald
+            // `besterID` steht — siehe `DirectorTrendRing.setzeStart`.
+            withAnimation(.smooth(duration: 0.4)) { trendUrteil = ergebnis }
+        }
+        #if DEBUG
+        .onAppear {
+            if ProcessInfo.processInfo.environment["UITEST_DIRECTOR_TRENDS"] == "1" {
+                trendsOffen = true
+            }
+        }
+        #endif
         .sheet(isPresented: $trendsOffen) {
             DirectorTrendSheet(
-                trends: alleTrends,
+                trends: sortierteTrends,
                 reading: reading,
+                // GEREICHT, nicht neu geholt: derselbe Aufruf zweimal waere
+                // derselbe Preis zweimal.
+                vorabUrteil: trendUrteil,
                 sourcePhoto: sourcePhoto,
                 onPick: { option in
                     trendsOffen = false
@@ -95,109 +145,446 @@ struct DirectorPicks: View {
         }
     }
 
-    /// Vorschlaege des Directors zuerst — sie sind auf DIESES Foto sortiert —,
-    /// dahinter, was der Server gerade fuehrt. Doppelte fliegen raus.
-    private var alleTrends: [DirectorAPI.Option] {
-        var gesehen = Set(trends.map(\.id))
-        return trends + serverTrends.filter { gesehen.insert($0.id).inserted }
+    // MARK: - Kopf und Inhalt
+
+    private var ueberschrift: some View {
+        HStack(spacing: 8) {
+            Text(titel)
+                .font(.system(size: 11, weight: .black, design: .rounded))
+                .tracking(1.6)
+                .foregroundStyle(buehne == .picks ? Theme.textTertiary : Theme.accent)
+                .lineLimit(1).fixedSize()
+                .contentTransition(.opacity)
+
+            Rectangle().fill(Theme.textPrimary.opacity(0.09)).frame(height: 1)
+
+            if buehne != .picks { zurueck }
+        }
     }
 
-    // MARK: - Was man machen kann
+    private var titel: String {
+        switch buehne {
+        case .eigeneIdee: return "YOUR IDEA"
+        default:          return "CLAVIC'S PICKS"
+        }
+    }
 
-    /// KACHELN STATT SOFORTBILDER.
+    private var zurueck: some View {
+        Button {
+            zeileAktiv = false
+            wechsle(zu: .picks)
+        } label: {
+            Text("Back to Clavic's picks")
+                .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                .foregroundStyle(Theme.textSecondary)
+                .lineLimit(1).fixedSize()
+        }
+        .buttonStyle(.plain)
+    }
+
+    @ViewBuilder
+    private var inhalt: some View {
+        switch buehne {
+        case .eigeneIdee:
+            Text("What do you have in mind?")
+                .font(.system(size: 21, weight: .black, design: .rounded))
+                .foregroundStyle(Theme.textPrimary)
+                .transition(.opacity.combined(with: .offset(y: -10)))
+        default:
+            stapel(picks)
+                .transition(.opacity.combined(with: .scale(scale: 0.97, anchor: .top)))
+        }
+    }
+
+    /// Derselbe Stapel fuer beide Listen. Das IST die Anforderung: der
+    /// Trendmodus ist kein anderer Bildschirm, sondern andere Karten.
+    private func stapel(_ liste: [DirectorAPI.Option]) -> some View {
+        DirectorDeck(
+            optionen: liste,
+            aktivID: aktive(aus: liste)?.id,
+            // GEMESSEN, nicht geschaetzt: 15 Punkt Rand oben und unten, die
+            // hoechste Spalte der Kopfzeile (Name zweizeilig plus zweizeilige
+            // Beschreibung, rund 110), 10 Punkt Abstand und der 50 Punkt hohe
+            // Knopf. Mit 168 quoll die Karte ueber ihren Rahmen und legte sich
+            // im Simulator auf die Zeilen darunter.
+            hoehe: 200,
+            onAktiv: { onSelect($0) },
+            karte: { richtungsKarte($0) }
+        )
+    }
+
+    // MARK: - Die Nebenwege
+
+    /// DIE EIGENE IDEE IST DIE LEISTE SELBST, kein Knopf davor.
     ///
-    /// Hier lagen geworfene Polaroids: 210 Punkt hohes Foto, Rand, Schraeglage,
-    /// Schatten, beschrifteter Streifen. Schoen — aber sie nahmen den halben
-    /// Bildschirm fuer zwei Waehlbare, und neben Kritzeln, Zettel, Sprechblase
-    /// und Trendkarte war das Bild optisch voll, ohne mehr zu sagen.
+    /// Hier stand „Tell Clavic your idea" als Pille. Ein Knopf, der eine
+    /// Eingabe verspricht, ist aber ein Umweg: man tippt, ein Bildschirm
+    /// wechselt, DANN darf man schreiben. Die Leiste kann das Versprechen
+    /// selbst sein — sie sieht aus wie eine Eingabe, weil sie eine ist.
     ///
-    /// Was hier gebraucht wird, ist eine Antwort auf „was kann ich machen":
-    /// ein Bild, damit man es sich vorstellen kann, und ein Name. Mehr nicht.
-    /// Die Erklaerung haengt an der Auswahl — in der Sprechblase der Figur,
-    /// dort wo sie gebraucht wird, und nicht vorsorglich an jeder Kachel.
-    private var vorschlaege: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            if landed {
-                abschnitt("WHAT I'D MAKE")
-                HStack(spacing: 10) {
-                    ForEach(picks) { pick in
-                        Button { onSelect(pick.id == selected?.id ? nil : pick) } label: {
-                            kachelKlein(pick)
-                        }
-                        .buttonStyle(.plain)
+    /// Beim Antippen raeumt der Bildschirm auf: der Stapel und die Trends
+    /// gehen weg, es bleibt die Frage und die Zeile. Ausgeloest wird das vom
+    /// FOKUS, nicht von einem Tipp-Handler — so gilt es auch, wenn die
+    /// Tastatur auf einem anderen Weg hochkommt.
+    @ViewBuilder
+    private var ideenLeiste: some View {
+        ClavicComposer(
+            text: $eigeneZeile,
+            placeholder: buehne == .eigeneIdee
+                ? "Make it look like a film still…"
+                : "Tell Clavic your idea…",
+            fokus: $zeileAktiv,
+            onSubmit: anweisen
+        ) {
+            if buehne == .eigeneIdee {
+                Button {
+                    zeileAktiv = false
+                    zurueckZuPicks()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Theme.textPrimary)
+                        .frame(width: 34, height: 34)
+                        .glassEffect(.regular.interactive(), in: Circle())
+                }
+                .buttonStyle(.plain)
+            }
+
+            Spacer(minLength: 0)
+
+            Button(action: anweisen) {
+                Image(systemName: "arrow.up")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundStyle(.white)
+                    .frame(width: 36, height: 36)
+                    .glassEffect(
+                        kannAnweisen ? .regular.tint(Theme.accent).interactive() : .regular,
+                        in: Circle()
+                    )
+                    .shadow(color: kannAnweisen ? Theme.accent.opacity(0.28) : .clear,
+                            radius: 8, y: 3)
+            }
+            .buttonStyle(.plain)
+            .disabled(!kannAnweisen)
+            .animation(.spring(duration: 0.25), value: kannAnweisen)
+        }
+        // Der Fokus IST der Moduswechsel.
+        .onChange(of: zeileAktiv) { _, aktiv in
+            guard aktiv, buehne != .eigeneIdee else { return }
+            withAnimation(.smooth(duration: 0.34)) { buehne = .eigeneIdee }
+            onBuehne(.eigeneIdee)
+        }
+    }
+
+    private func zurueckZuPicks() {
+        withAnimation(.smooth(duration: 0.34)) { buehne = .picks }
+        onBuehne(.picks)
+        onSelect(nil)
+    }
+
+    // MARK: - Die Trends
+
+    /// DIE TRENDS LIEGEN OFFEN DA, statt hinter einem Knopf.
+    ///
+    /// Hier stand „Find a TikTok trend ›" — ehrlich sekundaer, aber es zeigte
+    /// nichts. Trends SIND Bilder; ein Wort darueber macht niemanden
+    /// neugierig, und wer nicht tippt, erfaehrt nie, was es gibt.
+    ///
+    /// Der Kranz bleibt trotzdem der dritte Weg: er steht ganz unten, seine
+    /// Karten sind klein, und einen blauen Knopf bekommt er erst, wenn jemand
+    /// ihn angefasst hat. Vorher ist „Make it" auf der Director-Karte der
+    /// einzige blaue Knopf des Bildschirms.
+    @ViewBuilder
+    private var trendKranz: some View {
+        if buehne == .picks, !alleTrends.isEmpty {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    Text("TIKTOK TRENDS")
+                        .font(.system(size: 11, weight: .black, design: .rounded))
+                        .tracking(1.6)
+                        .foregroundStyle(Theme.textTertiary)
+                        .lineLimit(1).fixedSize()
+                    Rectangle().fill(Theme.textPrimary.opacity(0.09)).frame(height: 1)
+                    Button { trendsOffen = true } label: {
+                        Text("See all")
+                            .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Theme.textSecondary)
+                            .lineLimit(1).fixedSize()
                     }
+                    .buttonStyle(.plain)
                 }
 
-                if let selected, picks.contains(where: { $0.id == selected.id }) {
-                    sprechblase(selected)
-                    machDas(selected)
+                DirectorTrendRow(
+                    trends: sortierteTrends,
+                    besterID: bestandenerTrend,
+                    sourcePhoto: sourcePhoto,
+                    isAnimating: !trendsOffen,
+                    gewaehlt: $trendGewaehlt,
+                    // Anfassen ist die Absichtserklaerung: erst danach fragt
+                    // die App den Director, welcher Trend zu DIESEM Foto
+                    // passt, und erst danach steht dort ein Knopf. Ohne diese
+                    // Schwelle liefe bei jeder Analyse ein Modellaufruf mit,
+                    // den niemand bestellt hat.
+                    onBeruehrt: beruehrt
+                )
+
+                if kranzBeruehrt, let trend = trendGewaehlt {
+                    machDas(trend)
+                        .transition(.opacity.combined(with: .offset(y: 8)))
                 }
-            } else {
-                // Waehrend des Wurfs steht hier sein Gruss — sonst springt die
-                // halbe Seite, wenn die Kacheln landen.
-                DirectorGreetingView(trigger: throwToken)
-                    .frame(height: bildHoehe + 26)
+            }
+            .transition(.opacity)
+        }
+    }
+
+    private func beruehrt() {
+        guard !kranzBeruehrt else { return }
+        withAnimation(.smooth(duration: 0.3)) { kranzBeruehrt = true }
+        onBuehne(.trends)
+    }
+
+    /// EIN KNOPF, DER AUCH WIE EINER AUSSIEHT.
+    ///
+    /// Hier standen zwei Textzeilen mit einem kleinen Pfeil. Sie waren
+    /// zurueckhaltend — und damit zu zurueckhaltend: sie sahen aus wie
+    /// Beschriftung, nicht wie etwas, das man antippt. Wer nicht ausprobiert,
+    /// hat den zweiten und dritten Weg der App nie gefunden.
+    ///
+    /// Jetzt: 54 Punkt hoch, Flaeche, Rand, Symbol, Winkel rechts. Aber in
+    /// Grauwerten, nicht in Akzentblau — der eine blaue Knopf auf diesem
+    /// Bildschirm bleibt „Make it".
+    private func nebenweg(_ text: String, symbol: String,
+                          _ tap: @escaping () -> Void) -> some View {
+        Button(action: tap) {
+            HStack(spacing: 11) {
+                Image(systemName: symbol)
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundStyle(Theme.accent)
+                    .frame(width: 30, height: 30)
+                    .background(Theme.accent.opacity(0.10), in: Circle())
+
+                Text(text)
+                    .font(.system(size: 15.5, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Theme.textPrimary)
+                    .lineLimit(1)
+
+                Spacer(minLength: 0)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12.5, weight: .bold))
+                    .foregroundStyle(Theme.textTertiary)
+            }
+            .padding(.horizontal, 12)
+            .frame(height: 54)
+            .frame(maxWidth: .infinity)
+            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .strokeBorder(Theme.textPrimary.opacity(0.09), lineWidth: 1)
+            )
+            // Die Flaeche ist gefuellt, der Rand aber rund — ohne eigene
+            // Trefferflaeche geht ein Tipp in den Ecken daneben.
+            .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func wechsle(zu neu: DirectorBuehne) {
+        withAnimation(.smooth(duration: 0.34)) { buehne = neu }
+        // Die Auswahl gehoert zur Liste, die gerade liegt. Ohne das Loesen
+        // zeigte der Trendstapel weiter auf eine Richtung, die er nicht hat.
+        onSelect(nil)
+        if neu == .eigeneIdee {
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(260))
+                zeileAktiv = true
             }
         }
     }
 
-    /// Was die Figur zur gewaehlten Kachel sagt.
+    // MARK: - Trends sortieren
+
+    /// Der Beste zuerst, dann die anderen guten, dann der Rest.
     ///
-    /// KEIN zusaetzlicher Modellaufruf. Der Text steht schon in der Antwort:
-    /// `caption` ist die Zeile, mit der der Director diese Richtung begruendet
-    /// hat. Bei einem Haus-Look kommt dessen Beschreibung davor — „Crisp Xenon
-    /// flash & warm skin" sagt in vier Woertern, WAS es ist.
+    /// Ohne Urteil greift, was der Director in seiner Antwort schon markiert
+    /// hat (`isBestMatch`) — dafuer braucht es keinen zweiten Aufruf.
+    private var sortierteTrends: [DirectorAPI.Option] {
+        guard let urteil = trendUrteil else {
+            let beste = alleTrends.filter(\.isBestMatch)
+            return beste + alleTrends.filter { !$0.isBestMatch }
+        }
+        var rang: [String: Int] = [:]
+        if let best = urteil.bestID { rang[best] = 0 }
+        for (i, id) in urteil.alsoIDs.enumerated() where rang[id] == nil { rang[id] = i + 1 }
+        return alleTrends.enumerated().sorted { a, b in
+            let ra = rang[a.element.id] ?? (1000 + a.offset)
+            let rb = rang[b.element.id] ?? (1000 + b.offset)
+            return ra < rb
+        }.map(\.element)
+    }
+
+    /// Welcher Trend fuer DIESES Foto vorn liegt — aus dem Urteil, sonst aus
+    /// der Markierung, die der Director schon in seiner Antwort gesetzt hat.
+    private var bestandenerTrend: String? {
+        trendUrteil?.bestID ?? alleTrends.first(where: \.isBestMatch)?.id
+    }
+
+    /// Vorschlaege des Directors zuerst — sie sind auf DIESES Foto sortiert —,
+    /// dahinter, was der Server gerade fuehrt. Doppelte fliegen raus.
+    private var alleTrends: [DirectorAPI.Option] {
+        TikTokTrends.options(ranked: trends + serverTrends)
+    }
+
+    // MARK: - Die Karte
+
+    /// Welche Karte in DIESER Liste vorn liegt.
     ///
-    /// Sie haengt an der AUSWAHL, nicht an jeder Kachel: eine Erklaerung, wenn
-    /// sie gebraucht wird, statt drei vorsorglich nebeneinander.
-    private func sprechblase(_ option: DirectorAPI.Option) -> some View {
+    /// `selected` liegt im Aufrufer und ueberlebt einen Listenwechsel — ohne
+    /// den Abgleich zeigte der Trendstapel auf eine Richtung, die er nicht
+    /// hat. Faellt nichts zusammen, gilt der Lead, sonst die erste.
+    private func aktive(aus liste: [DirectorAPI.Option]) -> DirectorAPI.Option? {
+        liste.first { $0.id == selected?.id }
+            ?? liste.first { $0.id == lead }
+            ?? liste.first
+    }
+
+    /// EINE RICHTUNG ALS KARTE. Text traegt die Aussage, das Bild ist Beiwerk.
+    ///
+    /// Hier lag einmal ein 252 Punkt hohes Referenzbild. Das war groesser als
+    /// das Foto des Nutzers weiter oben, und damit stand der Satz auf dem
+    /// Kopf: zu sehen war eine fremde Frau in einem fertigen Look, nicht eine
+    /// Entscheidung ueber DIESES Bild.
+    ///
+    /// Die Karte hat eine FESTE Hoehe. Nur so liegen die Kanten der Karten
+    /// dahinter parallel — ungleich hohe Karten sehen nicht nach Stapel aus,
+    /// sondern nach Fehler.
+    private func richtungsKarte(_ option: DirectorAPI.Option) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(alignment: .top, spacing: 13) {
+                VStack(alignment: .leading, spacing: 4) {
+                    if let marke = abzeichen(option) {
+                        Text(marke)
+                            .font(.system(size: 9.5, weight: .black, design: .rounded))
+                            .tracking(1.3)
+                            .foregroundStyle(Theme.accent)
+                            .lineLimit(1)
+                    }
+
+                    Text(option.label)
+                        .font(.system(size: 23, weight: .black, design: .rounded))
+                        .foregroundStyle(Theme.textPrimary)
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    let text = beschreibung(option)
+                    if !text.isEmpty {
+                        Text(text)
+                            .font(.system(size: 13, weight: .medium, design: .rounded))
+                            .foregroundStyle(Theme.textSecondary)
+                            .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+
+                Spacer(minLength: 0)
+
+                if hatVorschau(option) { referenz(option) }
+            }
+
+            Spacer(minLength: 0)
+
+            machDas(option)
+        }
+        .padding(15)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder(Theme.textPrimary.opacity(0.09), lineWidth: 1)
+        )
+        .shadow(color: Theme.textPrimary.opacity(0.10), radius: 12, y: 6)
+    }
+
+    /// Wessen Wahl das ist — oder, im Trendmodus, wofuer sie gut ist.
+    ///
+    /// Nur auf der Karte, die es wirklich betrifft. Traegt jede Karte ein
+    /// Abzeichen, sagt es nichts mehr.
+    private func abzeichen(_ option: DirectorAPI.Option) -> String? {
+        picks.count > 1 && option.id == lead ? "CLAVIC'S PICK" : nil
+    }
+
+    /// Der Daumennagel. Klein, hochkant, mit einer Zeile darunter, die sagt,
+    /// was er IST.
+    ///
+    /// Die Zeile ist der Punkt: ohne sie sieht man eine fremde Person und
+    /// haelt sie fuer das Ergebnis. Mit ihr ist es eine Musterkarte.
+    private func referenz(_ option: DirectorAPI.Option) -> some View {
+        VStack(spacing: 4) {
+            Color.clear
+                .frame(width: 72, height: 92)
+                .background(Theme.surfaceHigh)
+                .overlay { vorschau(option).id(option.id) }
+                .clipped()
+                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .strokeBorder(Theme.textPrimary.opacity(0.08), lineWidth: 1)
+                )
+
+            Text("THE LOOK")
+                .font(.system(size: 8.5, weight: .black, design: .rounded))
+                .tracking(0.9)
+                .foregroundStyle(Theme.textTertiary)
+        }
+    }
+
+    /// Ob ueberhaupt etwas zu zeigen ist.
+    ///
+    /// `vorschau(_:)` faellt still auf nichts zurueck, wenn weder Adresse noch
+    /// Asset noch das eigene Foto passen. Ohne diese Pruefung stuende dort ein
+    /// leeres graues Rechteck mit „THE LOOK" darunter.
+    private func hatVorschau(_ option: DirectorAPI.Option) -> Bool {
+        if let name = option.preview, !name.isEmpty {
+            if name.hasPrefix("http") { return true }
+            if UIImage(named: name) != nil { return true }
+        }
+        return sourcePhoto != nil && option.mode.keepsPhoto
+    }
+
+    /// Was diese Richtung IST, in einer Zeile.
+    ///
+    /// KEIN zusaetzlicher Modellaufruf. `caption` ist die Zeile, mit der der
+    /// Director sie begruendet hat; bei einem Haus-Look kommt dessen
+    /// Beschreibung davor — „Crisp Xenon flash" sagt in drei Woertern, was es
+    /// technisch ist. Sind beide gleich, steht sie nur einmal da.
+    private func beschreibung(_ option: DirectorAPI.Option) -> String {
         let hausLook = option.preview.flatMap { name -> DigiCamStyles.Style? in
             guard name.hasPrefix("card_look_") else { return nil }
             return DigiCamStyles.style(id: String(name.dropFirst("card_look_".count)))
         }
-        // Nur voranstellen, wenn es NICHT dasselbe ist — sonst stand der Satz
-        // zweimal da.
-        let beschreibung = hausLook?.subtitle
-        let satz = (beschreibung.map { $0.caseInsensitiveCompare(option.caption) == .orderedSame } ?? true)
-            ? option.caption
-            : [beschreibung, option.caption].compactMap { $0 }.joined(separator: ". ")
-
-        return HStack(alignment: .top, spacing: 10) {
-            // Nur der KOPF. Das Bild zeigt die ganze Figur; rund ausgeschnitten
-            // saehe man sonst den Bauch.
-            Image("clavic_mascot")
-                .resizable()
-                .scaledToFit()
-                .frame(width: 86, height: 86)
-                .offset(y: 20)
-                .frame(width: 44, height: 44)
-                .clipShape(Circle())
-                .background(Theme.papier, in: Circle())
-
-            Text(satz.isEmpty ? option.caption : satz)
-                .font(.system(size: 14, weight: .medium, design: .rounded))
-                .foregroundStyle(Theme.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 13)
-                .padding(.vertical, 11)
-                .background(Theme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .overlay(RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(Theme.textPrimary.opacity(0.08), lineWidth: 1))
-                .shadow(color: Theme.textPrimary.opacity(0.08), radius: 10, y: 4)
+        let teile = [hausLook?.subtitle, option.caption]
+            .compactMap { $0 }
+            .filter { !$0.isEmpty }
+        // Gleiches nicht zweimal: in den Testdaten ist die Look-Beschreibung
+        // oft woertlich die Begruendung des Directors.
+        if teile.count == 2, teile[0].caseInsensitiveCompare(teile[1]) == .orderedSame {
+            return teile[0]
         }
-        .transition(.opacity.combined(with: .offset(y: -6)))
+        return teile.joined(separator: " · ")
     }
 
-    /// Der eine klare Knopf. Erst HIER kostet es Credits — vorher hat die Figur
-    /// gesagt, was es ist.
+    /// Der eine klare Knopf. Erst HIER kostet es Credits — vorher hat die
+    /// Karte nur gesagt, was es waere.
     private func machDas(_ option: DirectorAPI.Option) -> some View {
-        Button { onPick(option) } label: {
+        Button { waehleAus(option) } label: {
             HStack(spacing: 8) {
                 Image(systemName: "wand.and.sparkles")
                     .font(.system(size: 15, weight: .bold))
-                Text("Make it \(option.label)")
-                    .font(.system(size: 16, weight: .bold, design: .rounded))
+                // NUR „Make it". Der Name steht zwei Zeilen darueber; ihn
+                // hier zu wiederholen war die dritte Nennung derselben Sache
+                // auf einem Bildschirm.
+                Text("Make it")
+                    .font(.system(size: 16.5, weight: .bold, design: .rounded))
                     .lineLimit(1)
             }
             .foregroundStyle(.white)
@@ -207,141 +594,56 @@ struct DirectorPicks: View {
             .shadow(color: Theme.accent.opacity(0.30), radius: 12, y: 5)
         }
         .buttonStyle(.plain)
-        .transition(.opacity.combined(with: .offset(y: 8)))
     }
 
-    /// Winzige, weit gesperrte Versalien mit einer Linie — dieselbe Zeile wie
-    /// ueber der Trendzeile, damit der Bildschirm eine Handschrift hat.
-    private func abschnitt(_ titel: String) -> some View {
-        HStack(spacing: 8) {
-            Text(titel)
-                .font(.system(size: 10, weight: .black, design: .rounded))
-                .tracking(1.7)
-                .foregroundStyle(Theme.textTertiary)
-                .lineLimit(1).fixedSize()
-            Rectangle().fill(Theme.textPrimary.opacity(0.10)).frame(height: 1)
-        }
-    }
-
-    /// Bildhoehe nach Anzahl: eine Richtung darf gross sein, drei muessen
-    /// nebeneinander passen.
-    private var bildHoehe: CGFloat {
-        switch picks.count {
-        case 1:  return 168
-        case 2:  return 148
-        default: return 116
-        }
-    }
-
-    private func kachelKlein(_ option: DirectorAPI.Option) -> some View {
-        let gewaehlt = option.id == selected?.id
-        return VStack(alignment: .leading, spacing: 6) {
-            ZStack(alignment: .topLeading) {
-                Rectangle().fill(Theme.surfaceHigh)
-                vorschau(option)
-                if option.id == lead && picks.count > 1 {
-                    Text("MY PICK")
-                        .font(.system(size: 8.5, weight: .black, design: .rounded))
-                        .tracking(1.0)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 6).padding(.vertical, 3)
-                        .background(Theme.accent, in: Capsule())
-                        .padding(6)
-                }
-            }
-            .frame(maxWidth: .infinity)
-            .frame(height: bildHoehe)
-            .clipped()
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .strokeBorder(gewaehlt ? Theme.accent : Theme.textPrimary.opacity(0.08),
-                                  lineWidth: gewaehlt ? 3 : 1)
+    /// Jede Wahl laeuft hier durch.
+    ///
+    /// Im Trendmodus wird sie gemeldet — nur so laesst sich spaeter
+    /// unterscheiden, ob jemand dem Director gefolgt ist oder ihn uebergangen
+    /// hat. Dieselbe Meldung schickt auch das Pop-up; sie darf beim Umbau der
+    /// Ansicht nicht verloren gehen.
+    private func waehleAus(_ option: DirectorAPI.Option) {
+        // Ob es ein Trend war, steht jetzt an der Option selbst — es gibt
+        // keinen Trendmodus mehr, in dem man das ablesen koennte.
+        if !picks.contains(where: { $0.id == option.id }),
+           alleTrends.contains(where: { $0.id == option.id }) {
+            DirectorAPI.reportTrendChoice(
+                selectionID: trendUrteil?.selectionID,
+                chosenID: option.id,
+                bestID: trendUrteil?.bestID
             )
-
-            Text(option.label)
-                .font(.system(size: 13.5, weight: .bold, design: .rounded))
-                .foregroundStyle(Theme.textPrimary)
-                .lineLimit(2)
-                .multilineTextAlignment(.leading)
-                .frame(maxWidth: .infinity, alignment: .leading)
         }
+        onPick(option)
     }
 
     // MARK: - Trends
 
-    /// Die beste Passung — falls der Director eine benennen konnte.
+    /// EINE TEXTZEILE. Der Trendbereich ist eine TUER, keine Auslage.
     ///
-    /// NUR aus SEINEN Trends. Die Server-Trends hat er nie gesehen; sie eine
-    /// „beste Passung" zu nennen waere eine Behauptung ohne Grundlage.
-    private var besteWahl: DirectorAPI.Option? {
-        trends.first(where: { $0.isBestMatch }) ?? trends.first
-    }
-
-
-    /// EINE ZEILE. Der Trendbereich ist eine TUER, keine Auslage.
-    ///
-    /// Hier stand eine halbe Bildschirmseite: Ueberschrift mit Linie und
-    /// Zaehler, ein 168 Punkt hohes Bild mit Verlauf und zwei Overlay-Texten,
-    /// darunter vier Miniaturen, darunter eine Fusszeile mit Pfeil. Sieben
-    /// Elemente fuer eine Nebenfunktion — und zusammen mit Kritzeln, Zettel,
-    /// Polaroids, Sprechblase und Glasleiste war der Bildschirm optisch voll,
-    /// ohne dadurch mehr zu sagen.
-    ///
-    /// Was die Zeile leistet, ist dasselbe: sie zeigt, dass es Trends gibt,
-    /// wie viele, und welchen der Director fuer dieses Foto vorn sieht. Das
-    /// grosse Bild dazu steht im Pop-up, wo man es auch braucht.
-    private var trendKarte: some View {
+    /// Hier stand zuletzt „best match: Y2K Digicam" beziehungsweise „19 to
+    /// look through". Beides war falsch gewichtet: ein zweiter Name neben
+    /// CLAVIC'S PICK ist eine zweite Empfehlung, und eine Zahl wirbt mit
+    /// Menge, wo es um eine Entscheidung geht. Die Zeile sagt jetzt nur, dass
+    /// es diese Tuer gibt und was dahinter passiert — die Beurteilung fuer
+    /// DIESES Foto laeuft ohnehin erst im Pop-up.
+    private var trendZeile: some View {
         Button { trendsOffen = true } label: {
-            HStack(spacing: 12) {
-                stapel
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("TIKTOK TRENDS")
-                        .font(.system(size: 10, weight: .black, design: .rounded))
-                        .tracking(1.5)
-                        .foregroundStyle(Theme.textTertiary)
-                    Text(besteWahl.map { "Best match: \($0.label)" }
-                         ?? "\(alleTrends.count) to look through")
-                        .font(.system(size: 15, weight: .bold, design: .rounded))
-                        .foregroundStyle(Theme.textPrimary)
-                        .lineLimit(1)
-                }
-
-                Spacer(minLength: 0)
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 13, weight: .bold))
+            HStack(spacing: 7) {
+                Text("TikTok trends")
+                    .font(.system(size: 14, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Theme.textSecondary)
+                Text("· Find one for this photo")
+                    .font(.system(size: 14, weight: .regular, design: .rounded))
                     .foregroundStyle(Theme.textTertiary)
+                    .lineLimit(1)
+                Image(systemName: "arrow.right")
+                    .font(.system(size: 11.5, weight: .bold))
+                    .foregroundStyle(Theme.textTertiary)
+                Spacer(minLength: 0)
             }
-            .padding(11)
-            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .strokeBorder(Theme.textPrimary.opacity(0.08), lineWidth: 1)
-            )
+            .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-    }
-
-    /// Drei versetzte Vorschauen — man sieht, dass dahinter Bilder liegen,
-    /// ohne dass sie den Platz einer eigenen Karte brauchen.
-    private var stapel: some View {
-        ZStack {
-            ForEach(Array(alleTrends.prefix(3).enumerated()), id: \.element.id) { index, trend in
-                vorschau(trend)
-                    .frame(width: 32, height: 42)
-                    .clipped()
-                    .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 6, style: .continuous)
-                            .strokeBorder(Theme.surface, lineWidth: 1.5)
-                    )
-                    .rotationEffect(.degrees(Double(index - 1) * 7))
-                    .offset(x: CGFloat(index - 1) * 10)
-                    .zIndex(Double(index))
-            }
-        }
-        .frame(width: 56, height: 44)
     }
 
     /// Das Vorschaubild einer Kachel — aus dem Bundle ODER vom Server.
@@ -370,65 +672,21 @@ struct DirectorPicks: View {
 
     // MARK: - Eigene Idee
 
-    /// Eine kleine Glasleiste, die beim Antippen nach unten wandert.
-    ///
-    /// Sie sieht aus wie die grosse Regie-Leiste, nur klein und an der Stelle,
-    /// an der man auf den Gedanken kommt. Beim Antippen verschwindet sie hier
-    /// und dieselbe Leiste steht unten am Bildschirmrand — sie ist nicht
-    /// zweimal da, sie ist umgezogen. Deshalb steuert `composerOpen` von
-    /// aussen, ob sie ueberhaupt gezeigt wird.
-    ///
-    /// Das Glas ist dasselbe Material wie im Chat-Tab. Wer dort getippt hat,
-    /// erkennt hier sofort, was das ist.
-    private var eigeneIdee: some View {
-        Button(action: onOwnIdea) {
-            HStack(spacing: 10) {
-                Image(systemName: "pencil.and.scribble")
-                    .font(.system(size: 14, weight: .bold))
-                    .foregroundStyle(Theme.accent)
-                Text("…or tell me your own idea")
-                    .font(.system(size: 15, weight: .medium, design: .rounded))
-                    .foregroundStyle(Theme.textSecondary)
-                Spacer(minLength: 0)
-                Image(systemName: "arrow.up")
-                    .font(.system(size: 13, weight: .bold))
-                    .foregroundStyle(Theme.textTertiary)
-                    .frame(width: 28, height: 28)
-                    .background(Theme.surfaceHigh, in: Circle())
-            }
-            .padding(.leading, 15)
-            .padding(.trailing, 7)
-            .padding(.vertical, 7)
-            .glassEffect(.regular.interactive(), in: Capsule())
-            .shadow(color: Theme.textPrimary.opacity(0.08), radius: 10, y: 4)
-            // Glas ist optisch geschlossen, hat aber durchsichtige Luecken —
-            // ohne eigene Trefferflaeche geht der Tipp daran vorbei.
-            .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .transition(.opacity.combined(with: .offset(y: 12)))
+    private var kannAnweisen: Bool {
+        !eigeneZeile.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func anweisen() {
+        let text = eigeneZeile.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        zeileAktiv = false
+        eigeneZeile = ""
+        zurueckZuPicks()
+        onDirect(text)
     }
 
     // MARK: - Bausteine
 
-}
-
-/// Eine Linie, die nichts darstellt — der Platzhalter fuer eine Idee, die
-/// noch niemand aufgeschrieben hat. Zwei ungleiche Wellen uebereinander, damit
-/// sie nicht wie eine Sinuskurve aussieht.
-private struct KritzelLinie: Shape {
-    func path(in r: CGRect) -> Path {
-        var p = Path()
-        let steps = 60
-        for step in 0...steps {
-            let t = Double(step) / Double(steps)
-            let y = r.midY + sin(t * 2.4 * 2 * .pi) * r.height * 0.30
-                           + sin(t * 5.1 * 2 * .pi + 1.3) * r.height * 0.10
-            let point = CGPoint(x: r.minX + r.width * t, y: y)
-            if step == 0 { p.move(to: point) } else { p.addLine(to: point) }
-        }
-        return p
-    }
 }
 
 // MARK: - Alle Trends in einem Blick
@@ -439,16 +697,16 @@ private struct KritzelLinie: Shape {
 /// Ueberfliegen schneller als Tippen, und jedes Bedienelement mehr macht aus
 /// einer Auswahl eine Verwaltung.
 ///
-/// Der Inhalt kommt aus zwei Quellen und sieht gleich aus: die Vorschlaege des
-/// Directors fuer DIESES Foto zuerst, dahinter, was der Server gerade fuehrt
-/// (`templates.json`). Neuer Trend, Bild und Name hochgeladen — er steht hier,
-/// ohne App-Update. Genau dafuer laedt `vorschau(_:)` eine Adresse statt eines
-/// Asset-Namens.
+/// Reviewed photo looks, ordered by the Director when a photo reading exists.
 private struct DirectorTrendSheet: View {
 
     let trends: [DirectorAPI.Option]
     /// Die Bildlesung. Ohne sie wird nicht gefragt — dann bleibt es die Liste.
     let reading: DirectorAPI.Reading?
+    /// Das Urteil, das die Buehne schon geholt hat. Liegt es vor, wird NICHT
+    /// noch einmal gefragt — derselbe Aufruf zweimal waere derselbe Preis
+    /// zweimal.
+    var vorabUrteil: DirectorAPI.TrendVerdict? = nil
     let sourcePhoto: Data?
     let onPick: (DirectorAPI.Option) -> Void
 
@@ -492,6 +750,9 @@ private struct DirectorTrendSheet: View {
         NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
+                    Text("Real photos. Same shot, different look.")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundStyle(Theme.textSecondary)
                     if laeuft { sucht }
                     if let bestMatch { empfehlung(bestMatch) }
                     if let urteil, urteil.bestID == nil, !urteil.why.isEmpty { keinerPasst(urteil.why) }
@@ -515,6 +776,7 @@ private struct DirectorTrendSheet: View {
                 .padding(Theme.screenPadding)
             }
             .task {
+                if let vorabUrteil { urteil = vorabUrteil; return }
                 // NUR mit vorhandener Lesung. Ohne sie muesste das Foto neu
                 // analysiert werden — dafuer ist eine Trendliste kein Grund.
                 guard urteil == nil, let reading, !trends.isEmpty else { return }
@@ -651,7 +913,9 @@ private struct DirectorTrendSheet: View {
     /// Aus dem Bundle ODER vom Server — siehe Kopf.
     @ViewBuilder
     private func bild(_ trend: DirectorAPI.Option) -> some View {
-        if let name = trend.preview, name.hasPrefix("http"), let url = URL(string: name) {
+        if let look = TikTokTrends.look(id: trend.id) {
+            TrendPhotoPreview(look: look)
+        } else if let name = trend.preview, name.hasPrefix("http"), let url = URL(string: name) {
             AsyncImage(url: url) { phase in
                 if let bild = phase.image { bild.resizable().scaledToFill() }
                 else { Rectangle().fill(Theme.surfaceHigh) }

@@ -102,6 +102,11 @@ struct CreateView: View {
         static var selectable: [ImageQuality] { [.low, .high] }
     }
     @State private var imageQuality: ImageQuality = .low
+    /// Alle Feineinstellungen liegen hinter einer Zeile. Vorbild: die
+    /// „Advanced Settings"-Zeile, die AI-Bild-Apps durchgaengig nutzen —
+    /// ein Screen zeigt Upload, Prompt, eine Zeile, einen Knopf. Nicht vier
+    /// Abschnitte mit Chips.
+    @State private var zeigeErweitert = false
 
     /// Vom Nutzer wählbare Auflösung für Seedance-2.0-Templates. Default 480p:
     /// 480p kostet halb so viele Credits wie 720p (resolutionFactor 1,0 vs 2,0)
@@ -313,10 +318,19 @@ struct CreateView: View {
                             upscaleUploadSection
                             generateButton
                         } else if isPinterestSwap {
-                            // Zwei eigene Bilder (Inspo + Selfie) + Größe + Qualität.
+                            // Beim Betreten stehen NUR die beiden Felder da.
+                            // Groesse und Qualitaet erscheinen erst, wenn beide
+                            // Fotos liegen — vorher ist die Wahl bedeutungslos
+                            // und der Screen sieht aus wie ein Formular.
                             pinterestSwapSection
-                            imageSizeSection
-                            imageQualitySection
+                            if pinInspoData != nil && pinSelfieData != nil {
+                                erweiterteZeile {
+                                    VStack(spacing: 20) {
+                                        imageSizeSection
+                                        imageQualitySection
+                                    }
+                                }
+                            }
                             generateButton
                         } else if isPhotoEnhance {
                             // 8K Upscale: nur Foto + Generieren (immer max. Qualität,
@@ -545,7 +559,7 @@ struct CreateView: View {
             }
         }
         .preferredColorScheme(.light)
-        .sheet(isPresented: $showSubscriptionGate) {
+        .fullScreenCover(isPresented: $showSubscriptionGate) {
             PaywallView()
         }
         .sheet(isPresented: $showPaywall) {
@@ -595,13 +609,6 @@ struct CreateView: View {
 
     private var upscaleUploadSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(
-                title: isVideoUpscale ? "Your video" : "Your photo",
-                subtitle: isVideoUpscale
-                    ? "Upload a short clip – it will be upscaled to higher quality."
-                    : "Upload a photo – it will be sharpened and enlarged."
-            )
-
             PhotosPicker(
                 selection: $photoSelection,
                 maxSelectionCount: 1,
@@ -679,24 +686,34 @@ struct CreateView: View {
     }
 
     private var upscaleEmptyState: some View {
-        VStack(spacing: 12) {
-            Image(systemName: isVideoUpscale ? "video.badge.plus" : "photo.badge.plus")
-                .font(.system(size: 38, weight: .medium))
-                .foregroundStyle(Theme.accent)
-            Text(isVideoUpscale ? "Add video" : "Add photo")
-                .font(.system(size: 16, weight: .semibold, design: .rounded))
-                .foregroundStyle(Theme.textPrimary)
-            Text(isVideoUpscale ? "Tap to choose a clip" : "Tap to choose a photo")
-                .font(.system(size: 13))
-                .foregroundStyle(Theme.textTertiary)
+        ZStack {
+            LinearGradient(colors: [Theme.accent.opacity(0.10), Theme.accent.opacity(0.03)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+            VStack(spacing: 12) {
+                ZStack {
+                    Circle().fill(Theme.accent.opacity(0.14))
+                    Image(systemName: isVideoUpscale ? "video.badge.plus" : "photo.badge.plus")
+                        .font(.system(size: 30, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
+                }
+                .frame(width: 74, height: 74)
+                Text(isVideoUpscale ? "Add a video" : "Add a photo")
+                    .font(.system(size: 17, weight: .bold, design: .rounded))
+                    .foregroundStyle(Theme.textPrimary)
+                Text(isVideoUpscale ? "It gets upscaled to higher quality"
+                                    : "It gets sharper and bigger")
+                    .font(.system(size: 13, design: .rounded))
+                    .foregroundStyle(Theme.textTertiary)
+            }
         }
         .frame(maxWidth: .infinity)
-        .frame(height: 220)
-        .background(Theme.surface, in: RoundedRectangle(cornerRadius: Theme.cornerMedium, style: .continuous))
+        .frame(height: 300)
+        .clipShape(RoundedRectangle(cornerRadius: Theme.cornerMedium, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: Theme.cornerMedium, style: .continuous)
-                .strokeBorder(Theme.accent.opacity(0.4), style: StrokeStyle(lineWidth: 1.5, dash: [7, 5]))
+                .strokeBorder(Theme.accent.opacity(0.22), lineWidth: 1)
         )
+        .shadow(color: Theme.accent.opacity(0.12), radius: 16, y: 8)
     }
 
     // MARK: - Template-Banner
@@ -1021,19 +1038,26 @@ struct CreateView: View {
                         .background(.black.opacity(0.55), in: Capsule())
                         .padding(8)
                     } else {
-                        VStack(spacing: 8) {
-                            Image(systemName: icon)
-                                .font(.system(size: 26, weight: .medium))
-                                .foregroundStyle(Theme.accent)
-                            Text(placeholder)
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(Theme.textPrimary)
-                            Text("Tap to add")
-                                .font(.system(size: 11))
-                                .foregroundStyle(Theme.textTertiary)
+                        // Gestaltete Flaeche statt gestricheltem Kasten: weicher
+                        // Verlauf, rundes Symbolabzeichen, kein Strichrahmen.
+                        ZStack {
+                            LinearGradient(colors: [Theme.accent.opacity(0.10),
+                                                    Theme.accent.opacity(0.03)],
+                                           startPoint: .topLeading, endPoint: .bottomTrailing)
+                            VStack(spacing: 10) {
+                                ZStack {
+                                    Circle().fill(Theme.accent.opacity(0.14))
+                                    Image(systemName: icon)
+                                        .font(.system(size: 22, weight: .semibold))
+                                        .foregroundStyle(Theme.accent)
+                                }
+                                .frame(width: 56, height: 56)
+                                Text(placeholder)
+                                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                                    .foregroundStyle(Theme.textPrimary)
+                            }
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(Theme.surface)
                     }
                 }
                 .frame(height: 220)
@@ -1041,11 +1065,10 @@ struct CreateView: View {
                 .clipShape(RoundedRectangle(cornerRadius: Theme.cornerMedium, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: Theme.cornerMedium, style: .continuous)
-                        .strokeBorder(
-                            data == nil ? Theme.accent.opacity(0.4) : Theme.stroke,
-                            style: StrokeStyle(lineWidth: data == nil ? 1.5 : 1, dash: data == nil ? [7, 5] : [])
-                        )
+                        .strokeBorder(data == nil ? Theme.accent.opacity(0.22) : Theme.stroke,
+                                      lineWidth: 1)
                 )
+                .shadow(color: Theme.accent.opacity(0.12), radius: 14, y: 6)
             }
         }
     }
@@ -1962,6 +1985,43 @@ struct CreateView: View {
 
     // MARK: - Generieren
 
+    /// Eine Zeile statt mehrerer Abschnitte. Zugeklappt sieht der Screen
+    /// aufgeraeumt aus, aufgeklappt steht alles da.
+    private func erweiterteZeile<Inhalt: View>(@ViewBuilder inhalt: () -> Inhalt) -> some View {
+        VStack(spacing: 12) {
+            Button {
+                withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                    zeigeErweitert.toggle()
+                }
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: "slider.horizontal.3")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Theme.accent)
+                    Text("Advanced settings")
+                        .font(.system(size: 16, weight: .semibold, design: .rounded))
+                        .foregroundStyle(Theme.textPrimary)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 13, weight: .bold))
+                        .foregroundStyle(Theme.textTertiary)
+                        .rotationEffect(.degrees(zeigeErweitert ? 90 : 0))
+                }
+                .padding(.horizontal, 18).padding(.vertical, 17)
+                .background(Theme.surface,
+                            in: RoundedRectangle(cornerRadius: Theme.cornerMedium, style: .continuous))
+                .overlay(RoundedRectangle(cornerRadius: Theme.cornerMedium, style: .continuous)
+                    .strokeBorder(Theme.stroke, lineWidth: 1))
+            }
+            .buttonStyle(.plain)
+
+            if zeigeErweitert {
+                inhalt()
+                    .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+    }
+
     private var generateButton: some View {
         VStack(spacing: 10) {
             Button {
@@ -1973,6 +2033,9 @@ struct CreateView: View {
                 }
             }
             .buttonStyle(PrimaryButtonStyle(isEnabled: canGenerate))
+            // Farbiger Schein unter dem Knopf. Ohne ihn wirkt er wie ein
+            // Formularelement, mit ihm wie die Aktion des Screens.
+            .shadow(color: Theme.accent.opacity(canGenerate ? 0.38 : 0), radius: 18, y: 8)
             .disabled(!canGenerate)
 
             creditCostHint
@@ -2251,10 +2314,6 @@ struct CreateView: View {
     /// Pinterest-Swap: zwei eigene Bilder nebeneinander (Inspo + Selfie).
     private var pinterestSwapSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            SectionHeader(
-                title: "Two photos",
-                subtitle: "Left: the inspo look (e.g. a Pinterest photo). Right: your selfie. You get 4 photos — your face in the look + 3 extra poses (same outfit & background)."
-            )
             HStack(spacing: 12) {
                 pinPhotoSlot(
                     label: "Inspo look",
@@ -2303,19 +2362,26 @@ struct CreateView: View {
                         .background(.black.opacity(0.55), in: Capsule())
                         .padding(8)
                     } else {
-                        VStack(spacing: 8) {
-                            Image(systemName: icon)
-                                .font(.system(size: 26, weight: .medium))
-                                .foregroundStyle(Theme.accent)
-                            Text(placeholder)
-                                .font(.system(size: 12, weight: .semibold))
-                                .foregroundStyle(Theme.textPrimary)
-                            Text("Tap to add")
-                                .font(.system(size: 11))
-                                .foregroundStyle(Theme.textTertiary)
+                        // Gestaltete Flaeche statt gestricheltem Kasten: weicher
+                        // Verlauf, rundes Symbolabzeichen, kein Strichrahmen.
+                        ZStack {
+                            LinearGradient(colors: [Theme.accent.opacity(0.10),
+                                                    Theme.accent.opacity(0.03)],
+                                           startPoint: .topLeading, endPoint: .bottomTrailing)
+                            VStack(spacing: 10) {
+                                ZStack {
+                                    Circle().fill(Theme.accent.opacity(0.14))
+                                    Image(systemName: icon)
+                                        .font(.system(size: 22, weight: .semibold))
+                                        .foregroundStyle(Theme.accent)
+                                }
+                                .frame(width: 56, height: 56)
+                                Text(placeholder)
+                                    .font(.system(size: 14, weight: .bold, design: .rounded))
+                                    .foregroundStyle(Theme.textPrimary)
+                            }
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .background(Theme.surface)
                     }
                 }
                 .frame(height: 220)
@@ -2323,11 +2389,10 @@ struct CreateView: View {
                 .clipShape(RoundedRectangle(cornerRadius: Theme.cornerMedium, style: .continuous))
                 .overlay(
                     RoundedRectangle(cornerRadius: Theme.cornerMedium, style: .continuous)
-                        .strokeBorder(
-                            data == nil ? Theme.accent.opacity(0.4) : Theme.stroke,
-                            style: StrokeStyle(lineWidth: data == nil ? 1.5 : 1, dash: data == nil ? [7, 5] : [])
-                        )
+                        .strokeBorder(data == nil ? Theme.accent.opacity(0.22) : Theme.stroke,
+                                      lineWidth: 1)
                 )
+                .shadow(color: Theme.accent.opacity(0.12), radius: 14, y: 6)
             }
         }
     }

@@ -39,17 +39,13 @@ struct AgentView: View {
     /// sie behält, kann weitere Fragen zu DEMSELBEN Foto stellen, ohne es noch
     /// einmal analysieren zu lassen — die Trend-Auswahl tut genau das.
     @State private var photoReading: DirectorAPI.Reading?
-    /// Was der Server gerade als Trend führt. Kommt aus `templates.json` und
-    /// braucht kein App-Update: neuer Trend samt Bild hochgeladen, sofort im
-    /// Streifen. Genau dafür wurde der eingebaute Katalog hier entfernt.
-    /// OPTIONAL, nicht zwingend: `@Environment` mit einem nicht-optionalen
-    /// `@Observable` stuerzt beim Zugriff ab, wenn niemand ihn eingehaengt
-    /// hat — etwa in einer Vorschau oder einem Test. Der Streifen faellt dann
-    /// auf die Vorschlaege des Directors zurueck, statt die App mitzureissen.
-    @Environment(TemplateStore.self) private var templateStore: TemplateStore?
+
     /// Haelt die App im Hintergrund am Leben, solange ein Bild rechnet, und
     /// zieht ein unterbrochenes Projekt nach einem Neustart zu Ende.
     @Environment(GenerationManager.self) private var generationManager
+    /// Der Weg in den Chat-Tab. Setzt man dort ein Bild hinein, wechselt
+    /// `ContentView` von selbst den Tab und der Chat nimmt es als Vorlage.
+    @Environment(EditHandoff.self) private var editHandoff
     @State private var photoSelections: [PhotosPickerItem] = []
     @AppStorage("acceptedContentPolicy") private var acceptedContentPolicy = false
     @State private var showConsent = false
@@ -62,6 +58,8 @@ struct AgentView: View {
     @FocusState private var inputFocused: Bool
     /// Kamera-Modus („Recreate“), derselbe wie im Chat-Tab.
     @State private var showPoseCamera = false
+    @State private var showRemoveObjects = false
+    @State private var showUpscale = false
 
     // MARK: - Maskottchen-Bühne
     /// Was die Figur oben gerade tut. Sie beginnt mit dem Standbild und wirft,
@@ -86,36 +84,48 @@ struct AgentView: View {
     /// Eigenes sagen will — über „Something else? Just say it." — und
     /// verschwindet nach dem Absenden wieder.
     @State private var showComposer = false
+    /// Was gerade auf der Director-Buehne liegt. Steuert NUR, welchen
+    /// Ruhe-Loop die Figur neben dem Foto spielt — sie soll zeigen, wovon
+    /// gerade die Rede ist.
+    @State private var directorBuehne: DirectorBuehne = .picks
 
     var body: some View {
         VStack(spacing: 0) {
             if messages.isEmpty {
-                // KEINE Eingabezeile im Auftakt. Vor der Analyse hat niemand
-                // etwas zu tippen — der Director hat das Foto ja noch nicht
-                // gesehen. Und die Eingabezeile ist genau das Element, das
-                // eine Seite nach Chat aussehen lässt. Sie kommt mit der
-                // ersten Antwort.
+                // Im Auftakt steht die Eingabezeile nicht von selbst da: vor
+                // der Analyse hat niemand etwas zu tippen, und eine dauerhafte
+                // Zeile ist genau das Element, das eine Seite nach Chat
+                // aussehen lässt.
+                //
+                // Wer aber schon weiß, was er will, holt sie über „Already
+                // have an idea?" herein — dieselbe Leiste, die auch nach der
+                // Analyse einfährt. Ohne diese Überlagerung passierte beim
+                // Antippen NICHTS: `showComposer` wurde gesetzt, die Leiste
+                // hing aber nur am Gesprächszweig. Im Simulator so gesehen.
                 emptyState
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .contentShape(Rectangle())
+                    .overlay(alignment: .bottom) {
+                        if showComposer {
+                            inputBar.transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
+                    }
+                    .animation(Self.composerMotion, value: showComposer)
             } else {
                 conversation
             }
         }
         .background {
-            // Die Werkstatt um die Figur herum. Vorher stand sie oben allein
-            // und darunter lag der halbe Bildschirm leeres Cremeweiss — beim
-            // Lesen wie nach dem Ergebnis. Die Requisiten liegen nur an den
-            // Raendern und wachsen von aussen herein, damit nie etwas hinter
-            // Foto oder Text liegt.
-            ZStack {
-                Theme.background
-                // Im Auftakt zurueckhaltender: dort traegt schon das Blattwerk
-                // der Figur, und `DirectorStart` fuellt die Mitte.
-                DirectorScenery(busy: isWorking,
-                                opacity: messages.isEmpty ? 0.7 : 1)
-            }
-            .ignoresSafeArea()
+            // Hier standen gezeichnete Requisiten (`DirectorScenery`). Gemeint
+            // als Werkstatt, gelesen als Stoerung: hinter der Trend-Zeile waren
+            // die Umrisse erkennbar, und was man als Gegenstand erkennt, nimmt
+            // der Karte Aufmerksamkeit weg, die man antippen soll.
+            //
+            // Jetzt traegt ein weiches Farbleuchten die Flaeche. Es hat keine
+            // Form, die man benennen kann, und nichts liegt je als Kante hinter
+            // Foto oder Text.
+            DirectorBackdrop(busy: isWorking)
+                .ignoresSafeArea()
         }
         // Der Arbeitszustand spiegelt sich in der Bühne — aber nur, wenn nicht
         // gerade der Wurf läuft; der darf nicht unterbrochen werden.
@@ -176,20 +186,30 @@ struct AgentView: View {
         .fullScreenCover(item: $previewItem) { item in
             ChatImageFullscreenView(item: item) { data in saveImage(data) }
         }
-        .sheet(isPresented: $showSubscriptionGate) { PaywallView() }
+        .fullScreenCover(isPresented: $showSubscriptionGate) { PaywallView() }
+        .fullScreenCover(isPresented: $showRemoveObjects) {
+            RemoveObjectsView(startBild: attachments.first,
+                              onClose: { showRemoveObjects = false })
+        }
+        // Das Hochskalieren laeuft ueber dieselbe Vorlage wie ueberall sonst —
+        // eigener Weg waere eine zweite Umsetzung derselben Sache.
+        .fullScreenCover(isPresented: $showUpscale) {
+            if let vorlage = TemplateLibrary.all.first(where: { $0.upscaleKind == "image" }) {
+                CreateView(template: vorlage) { _ in showUpscale = false }
+            }
+        }
         .fullScreenCover(isPresented: $showPoseCamera) {
             PoseCameraView(
                 onSend: { result in
                     showPoseCamera = false
-                    // Beide Bilder als Anhang, der fertige Satz als Text — der
-                    // Agent bekommt damit denselben Kontext wie der Chat.
                     // Reihenfolge WICHTIG: eigene Aufnahme zuerst, Vorlage
-                    // danach (der Prompt spricht von IMAGE 1 / IMAGE 2).
-                    attachments = [result.shot, result.reference]
-                    input = result.instruction
-                    Task { await send() }
+                    // danach — der Prompt spricht von IMAGE 1 / IMAGE 2.
+                    startPoseSwap(result)
                 },
-                onCancel: { showPoseCamera = false }
+                onCancel: { showPoseCamera = false },
+                // Dieser Weg heisst „Put yourself in any photo" — er IST der
+                // Swap. Die drei anderen Absichten gehoeren in den Chat-Tab.
+                nurSwap: true
             )
         }
         #if DEBUG
@@ -210,7 +230,7 @@ struct AgentView: View {
                 lastImages = [source]
                 var result = AgentMessage(
                     role: .assistant,
-                    text: "Flat ceiling light and a cool cast — here's what I'd do."
+                    text: "The light is holding this back."
                 )
                 func option(_ style: DigiCamStyles.Style, _ mode: DirectorAPI.Mode) -> DirectorAPI.Option {
                     DirectorAPI.Option(
@@ -218,9 +238,20 @@ struct AgentView: View {
                         mode: mode, prompt: style.prompt, preview: style.previewAfter
                     )
                 }
-                // Zwei Picks, dazu ein paar Trends — wie im echten Zug.
-                result.picks = Array(DigiCamStyles.all.prefix(2)).map { option($0, .grade) }
-                result.trends = Array(DigiCamStyles.all.dropFirst(2).prefix(3)).map { option($0, .grade) }
+                // Drei Picks, dazu ein paar Trends — wie im echten Zug bei
+                // `decision_shape = explore`.
+                result.picks = Array(DigiCamStyles.all.prefix(3)).map { option($0, .grade) }
+                // MIT Lead — sonst zeigt der Bildschirm den Sonderfall „zwei
+                // gleich starke Wege" statt des Normalfalls mit Held. Genau
+                // den prueft `UITEST_DIRECTOR_NO_LEAD`.
+                if environment["UITEST_DIRECTOR_NO_LEAD"] == nil {
+                    result.lead = result.picks.first?.id
+                }
+                result.trends = Array(DigiCamStyles.all.dropFirst(3).prefix(3)).map { option($0, .grade) }
+                // Einen als beste Passung markieren — so, wie es der Director
+                // in seiner Antwort tut (`fit: "best"`). Ohne Bildlesung wird
+                // im Trendmodus NICHT nachgefragt; die Markierung sortiert.
+                if !result.trends.isEmpty { result.trends[0].isBestMatch = true }
                 messages = [result]
                 revealPicksAnyway()
             } else if environment["UITEST_DIRECTOR_RESULT"] != nil,
@@ -241,11 +272,12 @@ struct AgentView: View {
                 lastImages = [source]
                 var result = AgentMessage(
                     role: .assistant,
-                    text: "Flat ceiling light — this one needs flash."
+                    text: "This one needs flash."
                 )
                 let style = DigiCamStyles.all[5]
                 result.picks = [DirectorAPI.Option(
-                    id: style.id, label: style.title, caption: style.subtitle,
+                    id: style.id,
+                    label: ProcessInfo.processInfo.environment["UITEST_DIRECTOR_LONGNAME"] ?? style.title, caption: style.subtitle,
                     mode: .grade, prompt: style.prompt, preview: style.previewAfter
                 )]
                 result.lead = style.id
@@ -317,28 +349,37 @@ struct AgentView: View {
             },
             onThrowFinished: { mascotAct = isWorking ? .working : .idle }
         )
+        // KEIN CREMEPOLSTER MEHR.
+        //
+        // Hier lag ein weich auslaufendes cremefarbenes Feld hinter der Figur.
+        // Es war noetig, weil ihre Videos kein Alpha hatten und ihr
+        // Cremekasten sonst als helles Rechteck im Farbleuchten stand. Seit
+        // die Clips HEVC mit echtem Alphakanal sind (siehe `MascotStage`),
+        // steht die Figur direkt auf dem Hintergrund — das Polster waere jetzt
+        // selbst der sichtbare Fleck.
     }
 
-    /// Serververlagen als antippbare Richtungen.
+    /// WELCHEN LOOP DIE FIGUR NEBEN DEM FOTO SPIELT.
     ///
-    /// Nur Bild-Trends mit Vorschau und Rezept: ein Video-Trend gehört nicht
-    /// in einen Streifen, der verspricht, DIESES Foto zu verändern, und eine
-    /// Kachel ohne Bild kann man sich nicht vorstellen.
+    /// Alles vorhandene Material, nichts Neues: `mascot_read_loop` sind die
+    /// drei Posen, in denen sie den Abzug zeigt und billigt — das ist das
+    /// Vorstellen. `mascot_scan` ist der Pruef-Loop mit der Lupe; genau die
+    /// Haltung, in der man fremde Karten durchsieht. `mascot_idle_tab` fuehrt
+    /// mit den Augen und trifft dann den Betrachter — das liest sich als
+    /// Zuhoeren.
+    ///
+    /// Faellt eines der Videos aus, greift der Ruhe-Loop von selbst.
+    private var buehnenLoop: URL? {
+        switch directorBuehne {
+        case .picks:      return MascotStage.readLoopURL
+        case .trends:     return MascotStage.scanURL
+        case .eigeneIdee: return MascotStage.idleURLs.first
+        }
+    }
+
+    /// Reviewed photo trends with bundled, aligned before/after previews.
     private var serverTrends: [DirectorAPI.Option] {
-        (templateStore?.templates ?? [])
-            .filter { $0.isImageEdit && !$0.prompt.isEmpty && !$0.isHiddenFromDiscover }
-            .compactMap { template in
-                let vorschau = template.previewRemoteURL ?? template.preview
-                guard !vorschau.isEmpty else { return nil }
-                return DirectorAPI.Option(
-                    id: template.hashtag.isEmpty ? template.title : template.hashtag,
-                    label: template.title,
-                    caption: template.subtitle,
-                    mode: .grade,
-                    prompt: template.fixedEditPrompt ?? template.prompt,
-                    preview: vorschau
-                )
-            }
+        TikTokTrends.options()
     }
 
     /// Der letzte Stand des Directors — das ist alles, was gezeigt wird.
@@ -358,6 +399,11 @@ struct AgentView: View {
     private var conversation: some View {
         ScrollView(showsIndicators: false) {
             VStack(spacing: 14) {
+                // Bedingung HIER, nicht in der Eigenschaft: ein leerer
+                // `ViewBuilder`-Zweig bleibt fuer den `VStack` ein Kind und
+                // bekommt trotzdem seine 14 pt Abstand — waehrend gearbeitet
+                // wird stuende sonst eine Luecke ohne Inhalt.
+                if !isWorking { neuAnfangenZeile }
                 DirectorWorkspace(
                     mascot: { slot in
                         switch slot {
@@ -370,7 +416,7 @@ struct AgentView: View {
                             // Eigener Ruhe-Satz: hier zeigt, betrachtet und
                             // billigt sie den Abzug — statt dasselbe zu tun
                             // wie im Leerlauf auf dem Startbildschirm.
-                            mascotBlock(height: 132, idleLoopURL: MascotStage.readLoopURL)
+                            mascotBlock(height: 132, idleLoopURL: buehnenLoop)
                                 .frame(width: 132)
                         }
                     },
@@ -382,22 +428,34 @@ struct AgentView: View {
                     lead: letzter?.lead,
                     trends: letzter?.trends ?? [],
                     serverTrends: serverTrends,
-                    composerOpen: showComposer,
+                    verdict: letzter?.text,
                     reading: photoReading,
                     landed: optionsRevealed,
                     throwToken: throwToken,
                     onPick: { chooseOption($0) },
-                    onOwnIdea: {
-                        // Erst die Leiste einsetzen, DANN den Fokus. Beides im
-                        // selben Zug laesst die Tastatur gegen die einlaufende
-                        // Leiste anlaufen — sichtbar als Ruckler. Ein Zug der
-                        // Laufschleife dazwischen reicht.
-                        withAnimation(Self.composerMotion) { showComposer = true }
-                        Task { @MainActor in inputFocused = true }
-                    },
+                    // Die eigene Ansage geht denselben Weg wie ein
+                    // Vorschlags-Chip: ein Zug mit dem bestehenden Bildkontext.
+                    // Kein neuer Pfad, keine neue Backend-Funktion.
+                    onDirect: { text in Task { await send(override: text) } },
+                    onBuehne: { directorBuehne = $0 },
                     onCompare: {},
                     onKeep: {
                         if let daten = letzter?.resultImage { saveImage(daten) }
+                    },
+                    // WEITERBEARBEITEN HEISST: MIT DEM BILD IN DEN CHAT.
+                    //
+                    // Der Director entscheidet, der Chat fuehrt aus, was man
+                    // ihm einzeln sagt — das ist die Arbeitsteilung der beiden
+                    // Tabs. Wer nach einem Ergebnis noch etwas Konkretes
+                    // aendern will („die Tasche weg", „waermer"), ist im Chat
+                    // richtig, und das Bild soll dabei nicht verloren gehen.
+                    //
+                    // `EditHandoff` gibt es dafuer schon: `ContentView`
+                    // wechselt beim Setzen von selbst den Tab, und der Chat
+                    // uebernimmt das Bild als Vorlage.
+                    onKeepEditing: {
+                        guard let daten = letzter?.resultImage else { return }
+                        editHandoff.sendToChat(daten)
                     },
                     onTryAnother: {
                         // ZURUECK ZU DEN RICHTUNGEN, nicht zurueck auf null.
@@ -427,19 +485,33 @@ struct AgentView: View {
             if showComposer { inputBar.transition(.move(edge: .bottom).combined(with: .opacity)) }
         }
         .animation(Self.composerMotion, value: showComposer)
-        .overlay(alignment: .topTrailing) {
-            if !isWorking {
-                Button { startNewChat() } label: {
-                    Label("Start over", systemImage: "arrow.counterclockwise")
-                        .font(.system(size: 13, weight: .semibold, design: .rounded))
-                        .foregroundStyle(Theme.accent)
-                        .padding(.horizontal, 12).padding(.vertical, 7)
-                        .background(.ultraThinMaterial, in: Capsule())
-                }
-                .buttonStyle(.plain)
-                .padding(.trailing, Theme.screenPadding).padding(.top, 6)
+    }
+
+    /// „Start over" — IM Inhalt, nicht darueber.
+    ///
+    /// Vorher hing der Knopf als `overlay(alignment: .topTrailing)` fest ueber
+    /// der Ansicht. Beim Scrollen lief die Karte darunter durch, und seine
+    /// Material-Kapsel schob sich ueber deren obere rechte Ecke — eine
+    /// Flaeche, die Inhalt verdeckt, bevor er ueberhaupt am Bildschirmrand
+    /// ankommt. Genau das sah man als „Feld unter der Navigationsleiste".
+    ///
+    /// Jetzt ist er die erste Zeile des Scroll-Inhalts. Er wandert mit nach
+    /// oben und verschwindet unter der Kopfzeile wie alles andere; verdecken
+    /// kann er nichts mehr. Deshalb braucht er auch kein Material mehr — er
+    /// steht auf dem Hintergrund, nicht auf fremdem Inhalt.
+    private var neuAnfangenZeile: some View {
+        HStack {
+            Spacer(minLength: 0)
+            Button { startNewChat() } label: {
+                Label("Start over", systemImage: "arrow.counterclockwise")
+                    .font(.system(size: 13, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Theme.accent)
+                    .padding(.horizontal, 12).padding(.vertical, 7)
+                    .contentShape(Capsule())
             }
+            .buttonStyle(.plain)
         }
+        .padding(.trailing, -4)
     }
 
     // MARK: - Photo Director start
@@ -476,8 +548,17 @@ struct AgentView: View {
                     photo: attachments.first,
                     photoSelections: $photoSelections,
                     onCamera: { showPoseCamera = true },
+                    onRemoveObjects: { showRemoveObjects = true },
+                    onUpscale: { showUpscale = true },
                     onSend: { Task { await send() } },
-                    onClear: { attachments = [] }
+                    onClear: { attachments = [] },
+                    onOwnIdea: {
+                        // Dieselbe Bewegung wie nach der Analyse: die Leiste
+                        // faehrt ein, dann kommt der Fokus. Zusammen laeuft die
+                        // Tastatur gegen die Leiste an — sichtbar als Ruckler.
+                        withAnimation(Self.composerMotion) { showComposer = true }
+                        Task { @MainActor in inputFocused = true }
+                    }
                 )
 
                     Spacer(minLength: 0)
@@ -487,7 +568,7 @@ struct AgentView: View {
                 .padding(.horizontal, Theme.screenPadding)
                 // The floating composer overlays the scroll view; reserve enough
                 // scrollable space so the final suggestion never hides beneath it.
-                .padding(.bottom, 158)
+                .padding(.bottom, showComposer ? 230 : 158)
             }
             .scrollDismissesKeyboard(.interactively)
             .frame(width: geometry.size.width)
@@ -724,8 +805,7 @@ struct AgentView: View {
                     landed: optionsRevealed,
                     throwToken: throwToken,
                     sourcePhoto: lastImages.first,
-                    onPick: { chooseOption($0) },
-                    onOwnIdea: { input = ""; inputFocused = true }
+                    onPick: { chooseOption($0) }
                 )
             }
             .padding(.top, 2)
@@ -779,74 +859,57 @@ struct AgentView: View {
         VStack(alignment: .leading, spacing: 8) {
             if inputFocused && !schnellauftraege.isEmpty { schnellzeile }
 
-            VStack(spacing: 10) {
-                TextField("Tell him what to change…", text: $input, axis: .vertical)
-                    .font(.system(size: 16.5, weight: .medium, design: .rounded))
-                    .lineLimit(1...8)
-                    .focused($inputFocused)
-                    .submitLabel(.send)
-                    .onSubmit {
-                        inputFocused = false
-                        if canSend { Task { await send() } }
-                    }
-                    .foregroundStyle(Theme.textPrimary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    // Ohne eigene Kurve springt die Leiste bei jedem Umbruch
-                    // hart um. Ausloeser ist der Text, nicht der Fokus.
-                    .animation(Self.composerMotion, value: input)
-
-                HStack(spacing: 8) {
-                    Button {
-                        inputFocused = false
-                        withAnimation(Self.composerMotion) { showComposer = false }
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundStyle(Theme.textPrimary)
-                            .frame(width: 34, height: 34)
-                            .glassEffect(.regular.interactive(), in: Circle())
-                    }
-                    .buttonStyle(.plain)
-
-                    Spacer(minLength: 0)
-
-                    Button {
-                        inputFocused = false
-                        Task { await send() }
-                    } label: {
-                        Image(systemName: "arrow.up")
-                            .font(.system(size: 17, weight: .bold))
-                            .foregroundStyle(.white)
-                            .frame(width: 36, height: 36)
-                            .glassEffect(
-                                canSend ? .regular.tint(Theme.accent).interactive() : .regular,
-                                in: Circle()
-                            )
-                            .shadow(color: canSend ? Theme.accent.opacity(0.28) : .clear, radius: 8, y: 3)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(!canSend)
-                    .animation(.spring(duration: 0.25), value: canSend)
+            // DIESELBE Leiste wie im Chat-Tab — siehe `ClavicComposer`. Hier
+            // stand sie ein zweites Mal, Zeile fuer Zeile identisch. Zwei
+            // Kopien einer absichtlich gleichen Sache driften auseinander,
+            // sobald jemand nur eine anfasst.
+            ClavicComposer(
+                text: $input,
+                placeholder: "Tell him what to change…",
+                fokus: $inputFocused,
+                onSubmit: {
+                    inputFocused = false
+                    if canSend { Task { await send() } }
                 }
+            ) {
+                Button {
+                    inputFocused = false
+                    withAnimation(Self.composerMotion) { showComposer = false }
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(Theme.textPrimary)
+                        .frame(width: 34, height: 34)
+                        .glassEffect(.regular.interactive(), in: Circle())
+                }
+                .buttonStyle(.plain)
+
+                Spacer(minLength: 0)
+
+                Button {
+                    inputFocused = false
+                    Task { await send() }
+                } label: {
+                    Image(systemName: "arrow.up")
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundStyle(.white)
+                        .frame(width: 36, height: 36)
+                        .glassEffect(
+                            canSend ? .regular.tint(Theme.accent).interactive() : .regular,
+                            in: Circle()
+                        )
+                        .shadow(color: canSend ? Theme.accent.opacity(0.28) : .clear, radius: 8, y: 3)
+                }
+                .buttonStyle(.plain)
+                .disabled(!canSend)
+                .animation(.spring(duration: 0.25), value: canSend)
             }
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-            .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-            .shadow(color: .black.opacity(0.10), radius: 18, y: 8)
-            // Glas ist optisch geschlossen, hat aber durchsichtige Luecken —
-            // ohne eigene Trefferflaeche faellt der Tipp durch auf eine Karte.
-            .contentShape(RoundedRectangle(cornerRadius: 26, style: .continuous))
         }
         .padding(.horizontal, Theme.screenPadding)
-        .padding(.top, 8)
-        .padding(.bottom, inputFocused ? 2 : 82)
-        .animation(Self.composerMotion, value: inputFocused)
-        .contentShape(Rectangle())
-        .zIndex(100)
+        .padding(.bottom, 96)
     }
 
-    /// Genau die Kurve des Chat-Composers.
-    private static let composerMotion: Animation = .smooth(duration: 0.3)
+    private static var composerMotion: Animation { ClavicComposer<EmptyView>.motion }
 
     /// Die Anmerkungen vom Foto als fertige Auftraege, dazu ein allgemeiner.
     ///
@@ -920,6 +983,28 @@ struct AgentView: View {
 
         if !rawText.isEmpty, let reason = ContentPolicy.rejectionReason(for: rawText) {
             flashToast(reason)
+            return
+        }
+
+        // DAS TOR VOR DEM DENKEN.
+        //
+        // Hier stand nichts. `DirectorAPI.chat` lief ohne Abo, ohne Guthaben,
+        // ohne Abzug — jeder konnte die App laden und unbegrenzt Fotos
+        // analysieren lassen. GERECHNET kostet ein Zug uns $0,036 (Gemini 3.5
+        // fuers Lesen $0,0069, Opus 5 fuers Urteil $0,029) bei null Umsatz.
+        // Zweihundert davon sind $7,20 — mehr, als ein Wochenabo netto
+        // einbringt, und das ohne ein einziges erzeugtes Bild.
+        //
+        // Jeder andere Weg, der uns Geld kostet, war laengst so abgesichert
+        // (`runEdit`, `ChatEditView`, `RemoveObjectsView`). Nur das Denken
+        // nicht — ausgerechnet der Weg, den jeder als Erstes geht.
+        //
+        // Dasselbe Tor wie ueberall: das `PaywallView`-Sheet. NICHT die alte
+        // `HardPaywallView` — die ist im Quelltext ausdruecklich als Altlast
+        // markiert, und die dismissible Fassung ist die, die durch die
+        // App-Store-Pruefung gekommen ist.
+        guard store.canCreate else {
+            await MainActor.run { showSubscriptionGate = true }
             return
         }
 
@@ -1035,8 +1120,36 @@ struct AgentView: View {
     /// "improve" unrequested areas unless the invariants are repeated directly
     /// in the final render prompt. Explicit user changes still win; everything
     /// else is immutable.
+    /// DIE IDENTITAETSSPERRE. Steht in JEDEM Vertrag, der eine Person betrifft.
+    ///
+    /// Wir hatten einen echten Fehlschlag: eine Bearbeitung hat die Haare der
+    /// Frau veraendert und ihr Gesicht so weit verschoben, dass sie wie eine
+    /// andere Person aussah. Genau das ist der Fehler, den diese App gegenueber
+    /// anderen KI-Fotoapps NICHT machen soll.
+    ///
+    /// Der Satz stand vorher in jedem Vertrag einzeln und jedes Mal etwas
+    /// anders — im strengsten ausfuehrlich, im kreativen als Halbsatz am Ende
+    /// („Do not beautify or change the person's identity"). Ein Halbsatz nach
+    /// drei Zeilen kreativer Erlaubnis verliert. Jetzt ist es EIN Block, er
+    /// steht ganz oben, und er ist in allen Modi wortgleich.
+    ///
+    /// HAARE GEHOEREN DAZU. Das ist keine Feinheit: „cleaner composition" oder
+    /// „flash look" hat das Modell als Erlaubnis gelesen, die Frisur neu zu
+    /// erfinden. Deshalb wird Haar hier einzeln aufgezaehlt, statt unter
+    /// „identity" mitgemeint zu sein.
+    private static let identityLock = """
+    IDENTITY LOCK — ABSOLUTE, OVERRIDES EVERY OTHER INSTRUCTION BELOW:
+    This is an edit of the person in the provided photograph. It is not a new person, not a lookalike and not an interpretation. Do not reinterpret, beautify, idealise, replace or reconstruct the face.
+    Preserve exactly: facial geometry and proportions, eyes, eyebrows, nose, mouth, lips, jawline and face shape, ears, skin tone, complexion, freckles, moles, scars and natural skin texture, apparent age, and the expression unless the requested direction explicitly requires a different one.
+    Preserve the hair exactly: hairstyle, length, volume, texture, parting, hairline and colour. Never remove, shorten, lengthen, restyle, straighten, curl, recolour or add bangs to the hair, and never cover or crop it away.
+    A creative direction such as a camera look, flash, sunset, cleaner composition, better framing, editorial styling or background cleanup is NOT permission to change any of the above. If a more beautiful result would require changing the person, produce the less beautiful result: the same person always wins.
+    Only deviate from this block where the user's own words explicitly asked for that exact change to the person.
+    """
+
     private func compositionLockedPrompt(_ requestedEdit: String) -> String {
         """
+        \(Self.identityLock)
+
         EDIT CONTRACT — NON-NEGOTIABLE:
         Use the first reference as the exact base image. Preserve its exact canvas size, aspect ratio, crop, camera position, perspective and composition. Preserve every existing background pixel semantically: the same room/location, walls, furniture, objects, signs, reflections, sky, ground and empty spaces in the same positions. Do not add, remove, replace, move, redesign, clean up or hallucinate any object.
 
@@ -1091,6 +1204,8 @@ struct AgentView: View {
             // Gleiche Szene, gleicher Ausschnitt — aber etwas darf weg oder
             // repariert werden.
             return """
+            \(Self.identityLock)
+
             SOCIAL EDIT CONTRACT:
             Keep the exact same person and identity: face geometry, skin tone, hair, body proportions, clothing and natural texture. Preserve the source photo as the base. You may improve light, color, detail, subject separation and perform only the crop or minor distraction cleanup explicitly required by the requested direction. Do not invent a new setting, pose, outfit or object. No beautification, body reshaping or plastic skin.
 
@@ -1101,6 +1216,8 @@ struct AgentView: View {
         case .restage:
             // Ort, Kleidung, Pose duerfen sich aendern — die Identitaet nicht.
             return """
+            \(Self.identityLock)
+
             CREATIVE PHOTO CONTRACT:
             Use the source person as the exact identity reference: preserve recognizable face geometry, skin tone, hair characteristics and body proportions. This direction intentionally permits a new natural pose, crop, lighting and environment. Rebuild all perspective, contact shadows, reflections, anatomy and camera grain coherently so it looks like one real photograph captured in that moment—not a pasted subject or a filter. Do not beautify or change the person's identity.
 
@@ -1112,6 +1229,7 @@ struct AgentView: View {
             // Etwas Neues. KEIN Personenvertrag: `generate` kommt nur auf
             // ausdrueckliche Bitte und oft ohne Person im Bild — eine Klausel
             // ueber „die Identitaet der Quellperson" waere dort schlicht falsch.
+            // Es gibt hier auch keine Quellperson, die man schuetzen koennte.
             return requested
         }
     }
@@ -1120,7 +1238,68 @@ struct AgentView: View {
         withSteps(renderContract(option.prompt, mode: option.mode), option)
     }
 
-    private func runEdit(action: DirectorAPI.Action, sourceImages: [Data]) async {
+    /// EIN FOTO NACHSTELLEN, MIT DIR DARIN.
+    ///
+    /// Die ganze Maschinerie dafuer steht seit Langem (`PoseCamera`): eine
+    /// Vorlage aus der Mediathek ODER einem Pinterest-Link, die Kamera legt sie
+    /// halbtransparent unter die Aufnahme, uebernimmt ihr Seitenverhaeltnis,
+    /// und `PosePrompt` baut daraus den fertigen Auftrag. Was fehlte, war ein
+    /// Weg dorthin, den man findet — sie hing an „Take one now" auf dem
+    /// Startbildschirm.
+    ///
+    /// GEHT ABSICHTLICH NICHT ERST ZUM DIRECTOR. Der Nutzer hat schon
+    /// entschieden, was er will: die Vorlage UND die Art des Nachstellens
+    /// (`PoseIntent`). Ein Modellaufruf, der das noch einmal beurteilt, kostet
+    /// Geld und kann daneben greifen — waehlte er `grade`, waere der Swap tot,
+    /// weil dann nichts an der Szene geaendert werden darf. Der Chat-Tab macht
+    /// es aus demselben Grund seit Langem direkt.
+    ///
+    /// DREI DINGE MUESSEN MIT, die der Director-Weg sonst wegwirft:
+    ///   • `result.prompt` — der gebaute Auftrag samt Bildreihenfolge und
+    ///     Licht-Hinweis. Der kurze Chat-Satz allein reicht nicht.
+    ///   • `restage` — nur dieser Vertrag erlaubt neue Pose und Umgebung. Die
+    ///     Identitaetssperre steht trotzdem drin, und genau darum geht es hier:
+    ///     die Szene darf sich aendern, DU nicht.
+    ///   • GPT Image 2 statt Seedream. Gemessen haelt es die Identitaet und
+    ///     uebernimmt die Pose zuverlaessiger; Seedream tauscht oft nur das
+    ///     Gesicht oder laesst die steife Selfie-Haltung stehen.
+    private func startPoseSwap(_ result: PoseCameraResult) {
+        let bilder = [result.shot, result.reference]
+        attachments = []
+        lastImages = bilder
+        messages.append(AgentMessage(role: .user, text: result.instruction))
+        messages.append(AgentMessage(role: .assistant, text: "", isLoading: true))
+        isWorking = true
+        mascotAct = .working
+
+        // AUFLOESUNG UND SEITENVERHAELTNIS KOMMEN JETZT AUS DEM ABLAUF.
+        //
+        // Beides stand hier fest: `high` und „auto". Die Stufe war richtig —
+        // GEMESSEN in einem isolierten Vergleich (gleicher Vertrag, gleiches
+        // Modell, gleiche Bilder, EINZIGE Aenderung `quality`) gewinnt `high`
+        // bei Hautstruktur, Wachsigkeit, Augen, Haarstraehnen, Handy- und
+        // Schuhgeometrie, Fingern und Szenentreue, bei gleicher Identitaet.
+        // Sie ist deshalb weiter die Voreinstellung.
+        //
+        // Aber sie kostet: 4 Credits statt 2 und rund 285 s statt 60. Wer das
+        // nicht will, soll es waehlen koennen — und wer ein Ergebnis fuer eine
+        // Story braucht, soll 9:16 waehlen koennen, statt hinterher zu
+        // beschneiden.
+        Task {
+            await runEdit(
+                action: DirectorAPI.Action(prompt: result.prompt,
+                                           mode: .restage,
+                                           quality: result.quality),
+                sourceImages: bilder,
+                modell: ImageEditAPI.chatModel,
+                seitenverhaeltnis: result.aspectRatio
+            )
+        }
+    }
+
+    private func runEdit(action: DirectorAPI.Action, sourceImages: [Data],
+                         modell: String = ImageEditAPI.defaultModel,
+                         seitenverhaeltnis: String = "auto") async {
         let quality = ChatQuality(rawValue: action.quality) ?? .medium
         let cost = agentCredits(quality)
 
@@ -1155,8 +1334,17 @@ struct AgentView: View {
             }
         }
 
+        // DER VERTRAG RICHTET SICH NACH DEM MODUS — wie ueberall sonst auch.
+        //
+        // Hier stand fest `compositionLockedPrompt`, also der strengste: „Pose,
+        // Ausschnitt, Hintergrund und jedes Objekt bleiben." Fuer eine Retusche
+        // richtig, fuer einen `restage` das genaue Gegenteil des Auftrags — der
+        // konnte auf diesem Weg gar nicht funktionieren.
+        //
+        // Die Nachbesserung weiter unten benutzt `renderContract` schon lange.
+        // Erster Versuch und Wiederholung widersprachen sich also.
         let protectedAction = DirectorAPI.Action(
-            prompt: compositionLockedPrompt(action.prompt),
+            prompt: renderContract(action.prompt, mode: action.mode),
             mode: action.mode,
             quality: action.quality
         )
@@ -1164,8 +1352,8 @@ struct AgentView: View {
             prompt: protectedAction.prompt,
             referenceImages: refs,
             quality: quality.apiValue,
-            aspectRatio: "auto",
-            model: ImageEditAPI.defaultModel
+            aspectRatio: seitenverhaeltnis,
+            model: modell
         )
 
         let projekt = startProject(
@@ -1183,7 +1371,42 @@ struct AgentView: View {
             case .success(let imageData):
                 // Realism-QA: Ergebnis prüfen und bei Bedarf EINMAL korrigiert neu
                 // rendern (kostet den Nutzer keinen zweiten Credit).
-                let finalData = await refineIfNeeded(imageData, action: protectedAction, refs: refs, sourceImages: sourceImages, quality: quality)
+                let geprueft = await refineIfNeeded(imageData, action: protectedAction,
+                                                    refs: refs, sourceImages: sourceImages,
+                                                    quality: quality, modell: modell)
+
+                // EIN SICHTBAR ANDERER MENSCH IST KEIN ERGEBNIS.
+                //
+                // Selbst nach zwei korrigierten Anlaeufen kann die Identitaet
+                // verfehlt bleiben. So ein Bild darf nicht als fertig
+                // erscheinen — genau daran erkennt man die KI-Fotoapps, von
+                // denen wir uns unterscheiden wollen. Es wird verworfen, und
+                // der Nutzer zahlt dafuer NICHT: `store.consume` steht unten im
+                // Erfolgszweig.
+                if geprueft.identitaetVerfehlt {
+                    let grund = geprueft.grund ?? "the result changed how you look"
+                    console_identitaet(grund)
+                    await MainActor.run {
+                        // KEIN INTERNES KUERZEL FUER DEN NUTZER.
+                        //
+                        // Hier stand „identity drift". Das landet ueber
+                        // `project.errorMessage` in der Detailansicht der
+                        // Bibliothek — der Nutzer las dort eine Fehlermeldung
+                        // aus unserem Quelltext und konnte nichts damit
+                        // anfangen.
+                        abortProject(projekt, reason: "Discarded — it changed how you look. You were not charged.")
+                        if let last = messages.indices.last {
+                            messages[last] = AgentMessage(
+                                role: .assistant,
+                                text: "I threw that one away — it changed your face. I'd rather give you nothing than someone else. Try it again, or tell me what to do differently.",
+                                isLoading: false
+                            )
+                        }
+                        isWorking = false
+                    }
+                    return
+                }
+                let finalData = geprueft.bild
                 await MainActor.run {
                     store.consume(cost)   // Credits ERST bei Erfolg — genau einmal.
                     if let last = messages.indices.last {
@@ -1239,11 +1462,30 @@ struct AgentView: View {
     ///
     /// Blockiert nie: schlägt die Prüfung oder der zweite Anlauf fehl, bleibt
     /// das erste Ergebnis stehen.
-    private func refineIfNeeded(_ first: Data, action: DirectorAPI.Action, refs: [Data], sourceImages: [Data], quality: ChatQuality) async -> Data {
-        guard !sourceImages.isEmpty || action.mode == .generate else { return first }
+    /// Was am Ende der Pruefung herauskommt.
+    ///
+    /// Frueher war das nur `Data`, und damit gab es keinen Weg, „das Bild ist
+    /// da, aber es zeigt jemand anderen" auszudruecken — nach zwei Anlaeufen
+    /// wurde zurueckgegeben, was gerade da war. Ein sichtbar anderer Mensch
+    /// darf aber nie als fertiges Ergebnis erscheinen.
+    struct Geprueft {
+        let bild: Data
+        /// true = auch nach allen Anlaeufen ist es nicht mehr dieselbe Person.
+        let identitaetVerfehlt: Bool
+        /// Woran es lag, fuer die Meldung an den Nutzer.
+        let grund: String?
+    }
+
+    private func refineIfNeeded(_ first: Data, action: DirectorAPI.Action, refs: [Data],
+                                sourceImages: [Data], quality: ChatQuality,
+                                modell: String = ImageEditAPI.defaultModel) async -> Geprueft {
+        guard !sourceImages.isEmpty || action.mode == .generate else {
+            return Geprueft(bild: first, identitaetVerfehlt: false, grund: nil)
+        }
 
         var best = first
         var prompt = action.prompt
+        var letzteBeanstandung: String?
 
         // Höchstens zwei Nachbesserungen — danach ist nicht der Prompt das
         // Problem, sondern der Auftrag, und weitere Anläufe kosten nur Zeit.
@@ -1258,8 +1500,15 @@ struct AgentView: View {
             let verdict = await DirectorAPI.review(
                 originals: sourceImages, result: best, prompt: prompt, mode: action.mode
             )
-            guard verdict.worthRetrying, let corrected = verdict.correctedPrompt else { return best }
-            if verdict.isLookMiss && attempt > 1 { return best }
+            letzteBeanstandung = verdict.identityIssue
+            guard verdict.worthRetrying, let corrected = verdict.correctedPrompt else {
+                return Geprueft(bild: best,
+                                identitaetVerfehlt: verdict.identityIssue != nil,
+                                grund: verdict.identityIssue)
+            }
+            if verdict.isLookMiss && attempt > 1 {
+                return Geprueft(bild: best, identitaetVerfehlt: false, grund: nil)
+            }
 
             // Sagt, WAS er nachbessert — der Nutzer soll sehen, dass hier
             // wirklich jemand hinschaut, statt einen Spinner zu zählen.
@@ -1269,21 +1518,68 @@ struct AgentView: View {
             // fest `compositionLockedPrompt` — bei einem `restage` haette der
             // zweite Anlauf also genau das verboten, was der Auftrag verlangt,
             // und die Nachbesserung haette gegen sich selbst gearbeitet.
+            // EIN RETRY RENDERT HOECHSTENS AUF `medium`.
+            //
+            // Die Korrektur betrifft Identitaet, Haare und Pose — nicht die
+            // Aufloesung. Ein Retry in 4K kostet dasselbe wie der erste
+            // Versuch, und beim Swap ist das viel.
+            //
+            // GERECHNET: GPT Image 2 auf high@4k kostet uns $0,73. Bis zu zwei
+            // Wiederholungen ergeben dreimal $0,73 plus drei QC-Pruefungen
+            // (je rund $0,06) = $2,37. Der Swap bringt 4 Credits, netto $1,76
+            // aus einem Pack — das war ein Minus von $0,61 fuer ein Ergebnis,
+            // das der Nutzer als gelungen erlebt.
+            //
+            // Mit `medium` faellt der schlechteste Fall auf $1,17 und die
+            // Marge kippt auf +$0,59. Qualitaet kostet das nichts: ein Retry
+            // passiert nur, wenn der erste Versuch ohnehin verworfen wurde.
+            let retryQualitaet: ChatQuality = quality == .high ? .medium : quality
             let req = ImageEditRequest(
                 prompt: renderContract(corrected, mode: action.mode),
                 referenceImages: refs,
-                quality: quality.apiValue,
+                quality: retryQualitaet.apiValue,
                 aspectRatio: "auto",
-                model: ImageEditAPI.defaultModel
+                // DASSELBE MODELL WIE DER ERSTE VERSUCH.
+                //
+                // Hier stand fest `defaultModel`. Ein Swap rendert aber mit
+                // GPT Image 2 — die Nachbesserung waere also auf Seedream
+                // umgesprungen, mitten in einer Korrektur, die genau die
+                // Identitaet retten soll. Und Seedream ist dafuer das
+                // schwaechere: es tauscht oft nur das Gesicht oder laesst die
+                // steife Selfie-Haltung stehen. Der zweite Anlauf haette den
+                // Fehler des ersten also mit schlechterem Werkzeug behoben.
+                model: modell
             )
             guard let taskID = try? await ImageEditAPI.createTask(req),
                   case .success(let next) = ((try? await pollTask(taskID)) ?? .failure(""))
-            else { return best }
+            else {
+                return Geprueft(bild: best,
+                                identitaetVerfehlt: letzteBeanstandung != nil,
+                                grund: letzteBeanstandung)
+            }
 
             best = next
             prompt = corrected
         }
-        return best
+
+        // EIN LETZTER BLICK NACH DEM LETZTEN ANLAUF.
+        //
+        // Vorher endete die Schleife hier und gab zurueck, was gerade da war —
+        // das zweite Ergebnis wurde nie mehr angesehen. Ein Bild, das die
+        // Identitaet ZWEIMAL verfehlt hat, ging damit als fertig durch.
+        await setLoadingNote("Checking the result…")
+        let letztes = await DirectorAPI.review(
+            originals: sourceImages, result: best, prompt: prompt, mode: action.mode
+        )
+        return Geprueft(bild: best,
+                        identitaetVerfehlt: letztes.identityIssue != nil,
+                        grund: letztes.identityIssue)
+    }
+
+    /// Ein verworfenes Ergebnis soll im Protokoll auftauchen — ohne das ist
+    /// spaeter nicht zu klaeren, wie oft das passiert und woran es lag.
+    private func console_identitaet(_ grund: String) {
+        print("[director] Ergebnis verworfen, Identitaet verfehlt: \(grund)")
     }
 
     /// Was gerade passiert, in einer Zeile — mit laufender Uhr.
@@ -1295,12 +1591,23 @@ struct AgentView: View {
     /// einem Absturz nicht zu unterscheiden.
     private static func renderNote(seconds: Int, of index: Int? = nil, total: Int = 1) -> String {
         let uhr = String(format: "%d:%02d", seconds / 60, seconds % 60)
+        // DIE LANGE STRECKE BRAUCHT EIGENE STUFEN.
+        //
+        // Vorher endete die Staffel bei 70 s mit „Almost there — this one's
+        // taking its time". Seit der Swap auf `high` laeuft (gemessen rund
+        // 285 s), stuende dieser Satz dreieinhalb Minuten lang da — und ein
+        // „gleich fertig", das sich nicht bewegt, liest sich als Fehler.
+        //
+        // Die Stufen benennen jetzt, was wirklich passiert, und sagen es
+        // vorher: volle Aufloesung dauert.
         let phase: String
         switch seconds {
         case ..<8:   phase = "Setting up your image"
         case ..<30:  phase = "Painting the light and colour"
         case ..<70:  phase = "Working on the detail"
-        default:     phase = "Almost there — this one's taking its time"
+        case ..<150: phase = "Rendering at full resolution — this takes a few minutes"
+        case ..<250: phase = "Still working — full resolution is slow on purpose"
+        default:     phase = "Almost there"
         }
         let zaehler = (index != nil && total > 1) ? " · \(index! + 1) of \(total)" : ""
         return "\(phase)\(zaehler)  \(uhr)"
@@ -1498,8 +1805,16 @@ struct AgentView: View {
                         sourceImages: sourceImages,
                         quality: quality
                     )
-                    finishProject(projekt, data: geprueft)
-                    completed.append((option, geprueft))
+                    // Dasselbe hier: eine Richtung, die die Identitaet
+                    // verfehlt, zaehlt als Fehlschlag und nicht als Ergebnis.
+                    if geprueft.identitaetVerfehlt {
+                        console_identitaet(geprueft.grund ?? "identity drift")
+                        abortProject(projekt, reason: "Discarded — it changed how you look. You were not charged.")
+                        failures += 1
+                    } else {
+                        finishProject(projekt, data: geprueft.bild)
+                        completed.append((option, geprueft.bild))
+                    }
                 case .failure(let grund):
                     abortProject(projekt, reason: grund)
                     failures += 1

@@ -15,11 +15,17 @@
 //  aussehen. Die Karte WAR die Aufforderung; sobald ein Foto da ist, ist sie
 //  die Antwort darauf. Ein Zustand, zwei Füllungen.
 //
-//  UND KEINE TEXTZEILE, SOLANGE ES NICHTS ZU SAGEN GIBT.
-//  Vor der Analyse hat niemand etwas zu tippen — der Director hat das Foto ja
-//  noch nicht gesehen. Eine Eingabezeile dort ist nicht nur überflüssig, sie
-//  ist das Element, das die Seite nach Chat aussehen lässt. Sie erscheint
-//  zusammen mit der ersten Antwort.
+//  EINE EIGENE IDEE DARF AUCH VORHER KOMMEN — ABER LEISE.
+//  Lange stand hier gar keine Eingabe: eine Textzeile über der Karte hätte die
+//  Seite nach Chat aussehen lassen, und vor der Analyse hat der Director das
+//  Foto ja noch nicht gesehen. Das galt aber nur für eine gleichrangige Zeile.
+//  Wer schon weiß, was er will, soll nicht erst eine Analyse abwarten müssen,
+//  die er gar nicht braucht.
+//
+//  Deshalb: „See what he'd do" bleibt der eine große Knopf, und darunter steht
+//  EINE Zeile in Nebentext — kein Feld, kein Rahmen, kein Sende-Pfeil. Sie
+//  erscheint erst mit dem Foto, weil es vorher nichts gibt, worauf sich eine
+//  Idee beziehen könnte.
 //
 //  DIE KARTE NIMMT DIE FORM DES FOTOS AN.
 //  Das Fach hatte eine feste Höhe. Ein Hochformat wurde darin beschnitten —
@@ -27,6 +33,16 @@
 //  Seitenverhältnis des Bildes gemessen und das Fach danach gesetzt: nichts
 //  wird beschnitten, und das Sofortbild wächst oder schrumpft mit, wie ein
 //  echter Abzug in seinem Format.
+//
+//  EIN WEG IN DIE ANALYSE, DREI WERKZEUGE DANEBEN.
+//  Die Karte führt in die Analyse: Foto rein, der Director sieht es an.
+//  Darunter liegen drei Dinge, die kein Urteil brauchen, weil sie genau eine
+//  Sache tun — sich in ein fremdes Foto setzen, etwas wegnehmen, größer
+//  machen. Alle drei sehen gleich aus (`DirectorToolCards`).
+//
+//  KEINE BALKEN MEHR. „Put yourself in any photo" stand hier als schmale
+//  Zeile über zwei Bildkarten — also genau das, was an „Take one now" schon
+//  falsch war: Text, wo die Nachbarn zeigen, worum es geht.
 //
 //  KEINE VORSCHLÄGE VOR DER ANALYSE.
 //  Unter der Karte standen einmal drei Laschen — „Clean it up", „Rescue the
@@ -51,8 +67,12 @@ struct DirectorStart: View {
     let photo: Data?
     @Binding var photoSelections: [PhotosPickerItem]
     var onCamera: () -> Void = {}
+    var onRemoveObjects: () -> Void = {}
+    var onUpscale: () -> Void = {}
     var onSend: () -> Void = {}
     var onClear: () -> Void = {}
+    /// Der zweite Weg: nicht fragen, sondern selbst ansagen.
+    var onOwnIdea: () -> Void = {}
 
     @State private var appeared = false
     @State private var shimmer = false
@@ -103,9 +123,21 @@ struct DirectorStart: View {
             .frame(height: 318)
 
             if photo == nil {
-                kameraKnopf
+                // Drei Werkzeuge, die kein Urteil des Directors brauchen: jedes
+                // tut genau eine Sache. Deshalb stehen sie hier und nicht in
+                // seinen Vorschlaegen — und alle drei sehen gleich aus, damit
+                // keines wie ein Hinweistext wirkt.
+                DirectorToolCards(onSwap: onCamera,
+                                  onRemove: onRemoveObjects,
+                                  onUpscale: onUpscale)
+                    .padding(.horizontal, Theme.screenPadding)
+                    .padding(.top, 2)
             } else {
-                losKnopf.transition(.opacity.combined(with: .offset(y: 10)))
+                VStack(spacing: 12) {
+                    losKnopf
+                    eigeneIdeeZeile
+                }
+                .transition(.opacity.combined(with: .offset(y: 10)))
             }
         }
         .frame(maxWidth: .infinity)
@@ -246,28 +278,6 @@ struct DirectorStart: View {
         .rotationEffect(.degrees(-2.2))
     }
 
-    /// Unter der Karte statt an ihrer Ecke. Dort war er ein Fremdkörper: ein
-    /// zweites rundes Glas auf einem Glasrahmen, halb überlappend, ohne
-    /// Beschriftung. Hier ist er das, was er ist — der zweite Weg, ein Foto
-    /// hereinzugeben, ruhig neben dem ersten.
-    private var kameraKnopf: some View {
-        Button(action: onCamera) {
-            HStack(spacing: 8) {
-                Image(systemName: "camera.fill")
-                    .font(.system(size: 14, weight: .semibold))
-                Text("Take one now")
-                    .font(.system(size: 14.5, weight: .semibold, design: .rounded))
-            }
-            .foregroundStyle(Theme.accent)
-            .padding(.horizontal, 18)
-            .padding(.vertical, 12)
-            .background(Theme.papier, in: Capsule())
-            .overlay(Capsule().strokeBorder(Theme.accent.opacity(0.22), lineWidth: 1))
-            .shadow(color: Theme.textPrimary.opacity(0.08), radius: 6, x: 0, y: 3)
-        }
-        .buttonStyle(.plain)
-    }
-
     /// Kein Sende-Pfeil in einer Textzeile — der ließe es wie einen Chat
     /// aussehen. Ein Satz in seiner Stimme, der sagt, was als Nächstes kommt.
     private var losKnopf: some View {
@@ -283,6 +293,26 @@ struct DirectorStart: View {
             .padding(.vertical, 14)
             .background(Theme.accent, in: Capsule())
             .shadow(color: Theme.accent.opacity(0.32), radius: 14, x: 0, y: 7)
+        }
+        .buttonStyle(.plain)
+    }
+
+    /// Der zweite Weg, absichtlich schwächer.
+    ///
+    /// Keine Kapsel, keine Fläche, kein Pfeil — nur eine Zeile in Nebentext mit
+    /// dem angetippten Wort in Akzentfarbe. Sie steht unter dem großen Knopf
+    /// und sieht auch so aus: ein Angebot für die, die schon wissen, was sie
+    /// wollen, und kein zweiter Aufruf neben dem ersten.
+    private var eigeneIdeeZeile: some View {
+        Button(action: onOwnIdea) {
+            (Text("Already have an idea? ")
+                .foregroundStyle(Theme.textTertiary)
+             + Text("Tell Clavic…")
+                .foregroundStyle(Theme.accent))
+                .font(.system(size: 14, weight: .medium, design: .rounded))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }

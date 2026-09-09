@@ -29,6 +29,17 @@ struct PoseCameraView: View {
     /// Wird mit dem fertigen Paket aufgerufen; der Chat sendet es dann.
     var onSend: (PoseCameraResult) -> Void
     var onCancel: () -> Void
+    /// NUR „Swap me in" — kein Auswahlmenue.
+    ///
+    /// Der Weg vom Startbildschirm heisst „Put yourself in any photo", und das
+    /// IST `swap`. Wer ihn antippt, hat sich schon entschieden; ihm danach vier
+    /// Moeglichkeiten hinzustellen, von denen drei etwas anderes tun, macht aus
+    /// einer klaren Ansage wieder eine Frage.
+    ///
+    /// Der Chat-Tab oeffnet denselben Bildschirm aus einem allgemeinen
+    /// Kameraknopf heraus — dort ist die Auswahl richtig und bleibt deshalb
+    /// voreingestellt an.
+    var nurSwap: Bool = false
 
     // Zwei Wege zum selben Ergebnis: mit der Kamera ein Selfie machen (Vorlage
     // liegt dabei durchsichtig darüber) ODER beide Bilder aus der Mediathek
@@ -36,7 +47,11 @@ struct PoseCameraView: View {
     // Öffnen einschaltet, wenn man sie gar nicht braucht.
     private enum Stage { case start, shoot, compose }
 
-    @State private var stage: Stage = .start
+    // Der Zwischenschritt „Kamera oder Mediathek?" ist raus. Er hat eine
+    // Frage gestellt, die man am Feld selbst beantwortet: Wer die Kamera will,
+    // tippt auf das Selfie-Feld und waehlt dort Kamera. Ein eigener Screen
+    // dafuer ist ein Umweg.
+    @State private var stage: Stage = .compose
     /// Merkt den gewählten Weg — der Zurück-Knopf im letzten Schritt muss
     /// dorthin führen, wo man hergekommen ist.
     @State private var usedCamera = false
@@ -69,6 +84,12 @@ struct PoseCameraView: View {
 
     // Absicht
     @State private var intent: PoseIntent = .swap
+    @State private var aspekt: PoseAspect = .auto
+    @State private var aufloesung: PoseResolution = .high
+    /// Alle Feineinstellungen liegen hinter einer Zeile. Beim Betreten stehen
+    /// nur die beiden Felder da — vorher waren Seitenverhaeltnis, Aufloesung
+    /// und Textfeld sofort sichtbar, mit gesetzter Vorauswahl.
+    @State private var zeigeErweitert = false
     @State private var extraText = ""
     @FocusState private var textFocused: Bool
 
@@ -500,12 +521,12 @@ struct PoseCameraView: View {
 
     private var composeStage: some View {
         VStack(spacing: 0) {
-            header(title: "What should I do?", trailing: AnyView(
+            header(title: nurSwap ? "Put yourself in it" : "What should I do?", trailing: AnyView(
                 Button {
                     // Über die Kamera gekommen → zurück zum Auslösen.
                     // Über die Mediathek → zurück zur Wegwahl.
                     shotData = nil
-                    withAnimation(.spring(duration: 0.3)) { stage = usedCamera ? .shoot : .start }
+                    withAnimation(.spring(duration: 0.3)) { stage = .shoot }
                 } label: {
                     Image(systemName: "arrow.counterclockwise")
                         .font(.system(size: 15, weight: .semibold))
@@ -518,43 +539,100 @@ struct PoseCameraView: View {
 
             ScrollView {
                 VStack(alignment: .leading, spacing: 20) {
-                    // Beide Plätze sind antippbar und nachträglich änderbar —
-                    // beim Mediathek-Weg sind sie anfangs leer und WERDEN hier
-                    // gefüllt, beim Kamera-Weg sind sie schon belegt.
-                    HStack(spacing: 10) {
+                    // ZWEI FELDER, BEIDE BENANNT — das eigene Selfie zuerst.
+                    //
+                    // Vorher standen hier zwei 92 Punkt breite Kacheln mit
+                    // „You" und „Reference". Beim Mediathek-Weg sind beide
+                    // anfangs leer, und dann entscheidet allein die
+                    // Beschriftung, welches Foto wohin gehoert — genau diese
+                    // Zuordnung bestimmt spaeter, wer im Ergebnis wer ist.
+                    // „Reference" sagt das niemandem.
+                    //
+                    // Das eigene Selfie steht links, weil der Screen jetzt
+                    // direkt geoeffnet wird: die erste Frage ist „wer bist du",
+                    // nicht „was willst du nachstellen".
+                    HStack(alignment: .top, spacing: 12) {
+                        // Links das eigene Selfie, rechts die Vorlage.
                         Button { pickerTarget = .shot } label: {
-                            slot(shotPreview, label: "You", hint: "Your selfie")
+                            bildplatz(shotPreview,
+                                      titel: "Your selfie",
+                                      hinweis: "Tap to take one or pick a photo",
+                                      laedt: false)
                         }
                         .buttonStyle(.plain)
 
-                        Image(systemName: "plus")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundStyle(Theme.textTertiary)
-
                         Menu {
+                            Button { linkText = ""; showLinkAlert = true } label: {
+                                Label("Paste a Pinterest link", systemImage: "link")
+                            }
                             Button { pickerTarget = .reference } label: {
                                 Label("Choose from Photos", systemImage: "photo.stack")
                             }
-                            Button { linkText = ""; showLinkAlert = true } label: {
-                                Label("Paste a link", systemImage: "link")
-                            }
                         } label: {
-                            slot(referencePreview, label: "Reference", hint: "Shot to recreate")
+                            bildplatz(referencePreview,
+                                      titel: "Pinterest image",
+                                      hinweis: "Paste a link or pick a photo",
+                                      laedt: isLoadingReference)
                         }
-
-                        Spacer(minLength: 0)
-
-                        if isLoadingReference { ProgressView().tint(Theme.textPrimary) }
                     }
 
-                    VStack(spacing: 8) {
-                        ForEach(PoseIntent.allCases) { option in
-                            Button {
-                                withAnimation(.spring(duration: 0.25)) { intent = option }
-                            } label: {
-                                intentRow(option)
+                    // Eine Zeile statt drei Abschnitte. Zugeklappt zeigt der
+                    // Screen nur die zwei Felder und den Knopf.
+                    Button {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.85)) {
+                            zeigeErweitert.toggle()
+                        }
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: "slider.horizontal.3")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(Theme.accent)
+                            Text("Advanced settings")
+                                .font(.system(size: 16, weight: .semibold, design: .rounded))
+                                .foregroundStyle(Theme.textPrimary)
+                            Spacer()
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 13, weight: .bold))
+                                .foregroundStyle(Theme.textTertiary)
+                                .rotationEffect(.degrees(zeigeErweitert ? 90 : 0))
+                        }
+                        .padding(.horizontal, 16).padding(.vertical, 16)
+                        .background(Theme.surfaceHigh,
+                                    in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    }
+                    .buttonStyle(.plain)
+
+                    if zeigeErweitert {
+                    wahlzeile("Aspect ratio") {
+                        ForEach(PoseAspect.allCases) { option in
+                            chip(option.label, unten: option.hint, aktiv: aspekt == option) {
+                                withAnimation(.spring(duration: 0.22)) { aspekt = option }
                             }
-                            .buttonStyle(.plain)
+                        }
+                    }
+
+                    // Die Dauer steht MIT an der Auswahl. GEMESSEN: 2K rund
+                    // 59 s, 4K rund 282 s — das ist der Unterschied zwischen
+                    // „gleich da" und „geh einen Kaffee holen", und niemand
+                    // sollte ihn erst hinterher merken.
+                    wahlzeile("Resolution") {
+                        ForEach(PoseResolution.allCases) { option in
+                            chip(option.label, unten: option.hint, aktiv: aufloesung == option) {
+                                withAnimation(.spring(duration: 0.22)) { aufloesung = option }
+                            }
+                        }
+                    }
+
+                    if !nurSwap {
+                        VStack(spacing: 8) {
+                            ForEach(PoseIntent.allCases) { option in
+                                Button {
+                                    withAnimation(.spring(duration: 0.25)) { intent = option }
+                                } label: {
+                                    intentRow(option)
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
                     }
 
@@ -562,7 +640,12 @@ struct PoseCameraView: View {
                         Text("Anything else? (optional)")
                             .font(.system(size: 12.5, weight: .semibold, design: .rounded))
                             .foregroundStyle(Theme.textSecondary)
-                        TextField("e.g. swap me with the person sitting on the Lamborghini",
+                        // Im Swap-Modus schlug das Beispiel genau das vor, was
+                        // ohnehin passiert („swap me with the person…"). Hier
+                        // gehoert etwas hin, das ZUSAETZLICH wirkt.
+                        TextField(nurSwap
+                                  ? "e.g. keep my glasses, make it golden hour"
+                                  : "e.g. swap me with the person sitting on the Lamborghini",
                                   text: $extraText, axis: .vertical)
                             .font(.system(size: 15, weight: .medium, design: .rounded))
                             .foregroundStyle(Theme.textPrimary)
@@ -571,6 +654,7 @@ struct PoseCameraView: View {
                             .padding(.horizontal, 14).padding(.vertical, 12)
                             .background(Theme.surfaceHigh, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
                     }
+                    }   // Ende: erweiterte Einstellungen
 
                     Button {
                         send()
@@ -601,6 +685,86 @@ struct PoseCameraView: View {
                 .padding(.bottom, 34)
             }
         }
+    }
+
+    /// Ein benanntes Bildfeld. Gross genug, dass man sieht, was drin liegt.
+    ///
+    /// Der Titel steht OBEN und immer — auch wenn ein Bild drin ist. Vorher
+    /// stand er unter der Kachel und verschwand gefuehlt, sobald ein Foto da
+    /// war; wer dann zurueckkam, musste raten, welches Feld welches ist.
+    private func bildplatz(_ bild: UIImage?, titel: String,
+                           hinweis: String, laedt: Bool) -> some View {
+        // Die Beschriftung sitzt IM Feld, nicht darueber. Gestrichelte Raender
+        // sind Formular-Vokabular — hier traegt eine gefuellte Flaeche mit
+        // rundem Symbolabzeichen und weichem Schatten.
+        ZStack {
+            if let ui = bild {
+                Image(uiImage: ui).resizable().scaledToFill()
+            } else {
+                LinearGradient(colors: [Theme.accent.opacity(0.12), Theme.accent.opacity(0.04)],
+                               startPoint: .topLeading, endPoint: .bottomTrailing)
+                VStack(spacing: 9) {
+                    ZStack {
+                        Circle().fill(Theme.accent.opacity(0.15))
+                        Image(systemName: "plus")
+                            .font(.system(size: 20, weight: .bold))
+                            .foregroundStyle(Theme.accent)
+                    }
+                    .frame(width: 52, height: 52)
+                    Text(titel)
+                        .font(.system(size: 14, weight: .bold, design: .rounded))
+                        .foregroundStyle(Theme.textPrimary)
+                    Text(hinweis)
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                        .foregroundStyle(Theme.textTertiary)
+                        .multilineTextAlignment(.center)
+                        .padding(.horizontal, 12)
+                }
+            }
+            if laedt {
+                Color.black.opacity(0.25)
+                ProgressView().tint(.white)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .aspectRatio(0.78, contentMode: .fit)
+        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 22, style: .continuous)
+                .strokeBorder(bild == nil ? Theme.accent.opacity(0.22) : Theme.stroke, lineWidth: 1)
+        )
+        .shadow(color: Theme.accent.opacity(0.13), radius: 14, y: 6)
+    }
+
+    private func wahlzeile<Inhalt: View>(_ titel: String,
+                                         @ViewBuilder inhalt: () -> Inhalt) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(titel)
+                .font(.system(size: 12.5, weight: .semibold, design: .rounded))
+                .foregroundStyle(Theme.textSecondary)
+            HStack(spacing: 7) { inhalt() }
+        }
+    }
+
+    private func chip(_ text: String, unten: String?, aktiv: Bool,
+                      _ tap: @escaping () -> Void) -> some View {
+        Button(action: tap) {
+            VStack(spacing: 1) {
+                Text(text)
+                    .font(.system(size: 13.5, weight: .bold, design: .rounded))
+                if let unten {
+                    Text(unten)
+                        .font(.system(size: 9.5, weight: .medium, design: .rounded))
+                        .opacity(aktiv ? 0.85 : 0.6)
+                }
+            }
+            .foregroundStyle(aktiv ? Color.white : Theme.textPrimary)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 9)
+            .background(aktiv ? AnyShapeStyle(Theme.accent) : AnyShapeStyle(Theme.surfaceHigh),
+                        in: RoundedRectangle(cornerRadius: 13, style: .continuous))
+        }
+        .buttonStyle(.plain)
     }
 
     private func intentRow(_ option: PoseIntent) -> some View {
@@ -777,15 +941,18 @@ struct PoseCameraView: View {
             // Nur wenn auf BEIDEN niemand ist, ist es sicher ein Objekt-Tausch.
             let hasPerson = shotHasPerson || refHasPerson
 
+            let gewaehlt: PoseIntent = nurSwap ? .swap : intent
             let result = PoseCameraResult(
                 shot: shotData,
                 reference: referenceData,
-                instruction: trimmed.isEmpty ? intent.chatLine : trimmed,
+                instruction: trimmed.isEmpty ? gewaehlt.chatLine : trimmed,
                 // Zielszene (reference) für den Licht-Hint: Weißabgleich/Helligkeit
                 // der Vorlage, nicht des Selfies.
-                prompt: PosePrompt.build(intent: intent, userText: trimmed,
+                prompt: PosePrompt.build(intent: gewaehlt, userText: trimmed,
                                          sceneImage: referenceData,
-                                         hasPerson: hasPerson)
+                                         hasPerson: hasPerson),
+                aspectRatio: aspekt.rawValue,
+                quality: aufloesung.rawValue
             )
             await MainActor.run {
                 camera.stop()

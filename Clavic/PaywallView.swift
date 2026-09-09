@@ -11,6 +11,12 @@ import StoreKit
 
 // MARK: - Web-Paywall-Palette
 
+/// Helle Paywall-Palette, identisch zum Onboarding.
+private enum PWL {
+    static let blau     = Color(red: 0.157, green: 0.502, blue: 0.941)
+    static let blauHell = Color(red: 0.616, green: 0.808, blue: 1.0)
+}
+
 private enum PW {
     static let bg = Color(red: 0.039, green: 0.039, blue: 0.071)       // #0a0a12
     static let card = Color(red: 0.078, green: 0.078, blue: 0.122)    // #14141f
@@ -35,6 +41,8 @@ struct PaywallView: View {
     @State private var isPurchasing = false
     @State private var infoMessage: String?
     @State private var appeared = false
+    /// Das Schliessen-Kreuz erscheint erst nach zwei Sekunden.
+    @State private var zeigeSchliessen = false
 
     private let valueProps = [
         "One upload, endless AI looks",
@@ -49,97 +57,230 @@ struct PaywallView: View {
     ]
 
     var body: some View {
-        NavigationStack {
-            ZStack {
-                PW.bg.ignoresSafeArea()
+        // Aufbau nach Retouch Me und Halo AI, aber in der HELLEN Sprache der
+        // App: weisser Grund mit blauem Verlauf, dunkle Schrift, blaue Aktion.
+        // Die alte Fassung war dunkel und passte damit zu keinem anderen Screen.
+        ZStack {
+            grund
 
-                GeometryReader { geo in
-                    let horizontalPadding: CGFloat = 16
-                    let contentWidth = min(geo.size.width - horizontalPadding * 2, 448)
-                    let marqueeCardW = min(88, contentWidth * 0.22)
-                    let marqueeCardH = marqueeCardW * 1.4
-
-                    ZStack {
-                        paywallBackground(
-                            width: geo.size.width,
-                            cardWidth: marqueeCardW,
-                            cardHeight: marqueeCardH
-                        )
-
-                        ScrollView(showsIndicators: false) {
-                            VStack(spacing: 0) {
-                                heroCard(contentWidth: contentWidth)
-                                valuePropsBlock
-                                templateShowcase
-                                beforeAfterBlock(contentWidth: contentWidth)
-                                socialProof
-                                secondPlanBlock
-                                creditPackBlock
-                                legalCard
-                                faqBlock
-                                footerLinks
-                            }
-                            .frame(maxWidth: contentWidth)
-                            .frame(maxWidth: .infinity)
-                            .padding(.horizontal, horizontalPadding)
-                            .padding(.top, 8)
-                            .padding(.bottom, max(28, geo.safeAreaInsets.bottom + 12))
-                        }
-                        .scrollContentBackground(.hidden)
-                    }
-                }
+            VStack(spacing: 0) {
+                held
+                inhalt
             }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarBackground(PW.bg, for: .navigationBar)
-            .toolbarBackground(.visible, for: .navigationBar)
-            .toolbarColorScheme(.dark, for: .navigationBar)
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button { dismiss() } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundStyle(PW.textSec)
-                            .frame(width: 32, height: 32)
-                            .background(Color.white.opacity(0.08), in: Circle())
+            .ignoresSafeArea(edges: .top)
+
+            VStack {
+                HStack {
+                    // Erst nach zwei Sekunden — davor gibt es keinen Ausgang.
+                    if zeigeSchliessen {
+                        Button { dismiss() } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundStyle(.white)
+                                .padding(10)
+                                .background(Circle().fill(.black.opacity(0.32)))
+                        }
+                        .transition(.opacity.combined(with: .scale))
                     }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button("Restore") {
+                    Spacer()
+                    Button {
                         Task {
                             await store.restore()
                             infoMessage = store.isPro
                                 ? "Your subscription has been restored."
                                 : "No active purchases found."
                         }
+                    } label: {
+                        Text("Restore")
+                            .font(.system(size: 14, weight: .semibold, design: .rounded))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 14).padding(.vertical, 8)
+                            .background(Capsule().fill(.black.opacity(0.32)))
                     }
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundStyle(PW.textSec)
                 }
+                .padding(.horizontal, 18)
+                .padding(.top, 8)
+                Spacer()
             }
         }
-        .background(PW.bg.ignoresSafeArea())
-        .presentationBackground(PW.bg)
-        .preferredColorScheme(.dark)
-        .onAppear {
+        // Nicht wegwischbar: der einzige Ausgang ist das X nach zwei Sekunden.
+        .interactiveDismissDisabled(true)
+        .task {
             preselect()
-            withAnimation(.easeOut(duration: 0.5)) { appeared = true }
             AppsFlyerEventTracker.trackPaywallView()
-        }
-        .onChange(of: store.subscriptions.count) { _, _ in
-            preselect()
-        }
-        .onChange(of: store.isPro) { _, isPro in
-            if isPro { dismiss() }
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) { zeigeSchliessen = true }
         }
         .alert(infoMessage ?? "", isPresented: Binding(
-            get: { infoMessage != nil },
-            set: { if !$0 { infoMessage = nil } }
-        )) {
-            Button("OK", role: .cancel) {}
+            get: { infoMessage != nil }, set: { if !$0 { infoMessage = nil } })) {
+            Button("OK", role: .cancel) { infoMessage = nil }
         }
     }
 
-    // MARK: - Hintergrund
+    /// Derselbe Grund wie im Onboarding: Weiss mit blauem Verlauf und zwei
+    /// weich gezeichneten Farbflecken.
+    private var grund: some View {
+        ZStack {
+            Color.white
+            LinearGradient(colors: [PWL.blauHell.opacity(0.50), .white,
+                                    PWL.blauHell.opacity(0.32)],
+                           startPoint: .topLeading, endPoint: .bottomTrailing)
+            Circle().fill(PWL.blau.opacity(0.22))
+                .frame(width: 320, height: 320).blur(radius: 90)
+                .offset(x: -130, y: 210)
+        }
+        .ignoresSafeArea()
+    }
+
+    private var held: some View {
+        ZStack(alignment: .bottom) {
+            HStack(spacing: 0) {
+                Image("trend_goldenhour_before")
+                    .resizable().scaledToFill()
+                    .frame(width: UIScreen.main.bounds.width / 2).clipped()
+                Image("trend_goldenhour_after")
+                    .resizable().scaledToFill()
+                    .frame(width: UIScreen.main.bounds.width / 2).clipped()
+            }
+            .frame(height: UIScreen.main.bounds.height * 0.42)
+            .overlay(Rectangle().fill(.white).frame(width: 2))
+            .overlay(alignment: .topLeading) {
+                etikett("Before").padding(.leading, 16).padding(.top, 62)
+            }
+            .overlay(alignment: .topTrailing) {
+                etikett("After").padding(.trailing, 16).padding(.top, 62)
+            }
+
+            // Weicher Uebergang ins Helle statt harter Kante.
+            LinearGradient(colors: [.clear, .white], startPoint: .top, endPoint: .bottom)
+                .frame(height: 120)
+        }
+        .frame(height: UIScreen.main.bounds.height * 0.42)
+    }
+
+    private func etikett(_ t: String) -> some View {
+        Text(t)
+            .font(.system(size: 11, weight: .bold, design: .rounded))
+            .foregroundStyle(.white)
+            .padding(.horizontal, 10).padding(.vertical, 5)
+            .background(Capsule().fill(.black.opacity(0.40)))
+    }
+
+    private var inhalt: some View {
+        VStack(spacing: 0) {
+            Text("Ready to go Pro?")
+                .font(.system(size: 30, weight: .bold, design: .rounded))
+                .foregroundStyle(.primary)
+            Text("No commitment, cancel anytime.")
+                .font(.system(size: 15, design: .rounded))
+                .foregroundStyle(.secondary)
+                .padding(.top, 5)
+
+            VStack(spacing: 10) {
+                ForEach(planListe, id: \.id) { produkt in planZeile(produkt) }
+            }
+            .padding(.top, 20)
+
+            Spacer(minLength: 10)
+
+            Button {
+                if let p = selected { Task { await buy(p) } }
+            } label: {
+                Group {
+                    if isPurchasing { ProgressView().tint(.white) }
+                    else { Text(ctaText).font(.system(size: 17, weight: .bold, design: .rounded)) }
+                }
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity).padding(.vertical, 18)
+                .background(Capsule().fill(
+                    LinearGradient(colors: [PWL.blau, PWL.blau.opacity(0.85)],
+                                   startPoint: .topLeading, endPoint: .bottomTrailing)))
+                .shadow(color: PWL.blau.opacity(0.40), radius: 18, y: 8)
+            }
+            .disabled(selected == nil || isPurchasing)
+            .buttonStyle(.plain)
+
+            Text(kleingedrucktes)
+                .font(.system(size: 12, design: .rounded))
+                .foregroundStyle(.secondary)
+                .multilineTextAlignment(.center)
+                .padding(.top, 10).padding(.bottom, 6)
+        }
+        .padding(.horizontal, 20)
+        .padding(.bottom, 10)
+    }
+
+    private var planListe: [Product] {
+        let w = store.subscriptions.first { $0.id == StoreIDs.weekly }
+        let y = store.subscriptions.first { $0.id == StoreIDs.yearly }
+        return [w, y].compactMap { $0 }
+    }
+
+    private func planZeile(_ produkt: Product) -> some View {
+        let aktiv = selected?.id == produkt.id
+        let jahr = produkt.id == StoreIDs.yearly
+        return Button {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) { selected = produkt }
+        } label: {
+            HStack {
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(jahr ? "Yearly" : "Weekly")
+                        .font(.system(size: 13, design: .rounded))
+                        .foregroundStyle(.secondary)
+                    Text(wochenpreis(produkt))
+                        .font(.system(size: 20, weight: .bold, design: .rounded))
+                        .foregroundStyle(.primary)
+                }
+                Spacer()
+                if let r = rabatt, jahr {
+                    Text(r)
+                        .font(.system(size: 12, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 11).padding(.vertical, 7)
+                        .background(Capsule().fill(PWL.blau))
+                }
+            }
+            .padding(.horizontal, 18).padding(.vertical, 16)
+            .background(RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(aktiv ? PWL.blau.opacity(0.10) : Color.white.opacity(0.75)))
+            .overlay(RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(aktiv ? PWL.blau : .black.opacity(0.08),
+                              lineWidth: aktiv ? 2 : 1))
+            .shadow(color: PWL.blau.opacity(aktiv ? 0.18 : 0.06), radius: aktiv ? 14 : 8, y: 5)
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func wochenpreis(_ produkt: Product) -> String {
+        if produkt.id == StoreIDs.yearly {
+            let proWoche = produkt.price / 52
+            return "\(proWoche.formatted(produkt.priceFormatStyle)) / week"
+        }
+        return "\(produkt.displayPrice) / week"
+    }
+
+    private var rabatt: String? {
+        guard let w = store.subscriptions.first(where: { $0.id == StoreIDs.weekly }),
+              let y = store.subscriptions.first(where: { $0.id == StoreIDs.yearly })
+        else { return nil }
+        let proWoche = (y.price as NSDecimalNumber).doubleValue / 52
+        let wochenpreis = (w.price as NSDecimalNumber).doubleValue
+        guard wochenpreis > 0 else { return nil }
+        let ersparnis = (1 - proWoche / wochenpreis) * 100
+        guard ersparnis > 5 else { return nil }
+        return "\(Int(ersparnis.rounded()))% OFF"
+    }
+
+    private var ctaText: String {
+        selected?.id == StoreIDs.yearly ? "Start my free trial" : "Continue"
+    }
+
+    private var kleingedrucktes: String {
+        guard let p = selected else { return "Cancel anytime." }
+        return p.id == StoreIDs.yearly
+            ? "3 days free, then \(p.displayPrice) / year. Cancel anytime."
+            : "\(p.displayPrice) / week. Cancel anytime."
+    }
 
     private func paywallBackground(width: CGFloat, cardWidth: CGFloat, cardHeight: CGFloat) -> some View {
         ZStack {

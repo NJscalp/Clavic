@@ -208,7 +208,7 @@ struct StudioView: View {
         }
         .overlay(alignment: .top) { if let toast { toastView(toast) } }
         .animation(.easeInOut(duration: 0.2), value: toast)
-        .sheet(isPresented: $showSubscriptionGate) { PaywallView() }
+        .fullScreenCover(isPresented: $showSubscriptionGate) { PaywallView() }
         .fullScreenCover(isPresented: $showCamera) {
             SoloShotView(
                 // Der Solo Shot erzeugt das Bild inzwischen selbst und legt es

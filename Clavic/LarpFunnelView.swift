@@ -88,7 +88,7 @@ struct LarpFunnelView: View {
                 Task { await generate() }
             }
         }
-        .sheet(isPresented: $showPaywall) {
+        .fullScreenCover(isPresented: $showPaywall) {
             PaywallView().environment(store)
         }
         .preferredColorScheme(.dark)

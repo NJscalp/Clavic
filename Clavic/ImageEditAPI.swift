@@ -43,42 +43,31 @@ struct ImageEditTaskState {
 }
 
 enum ImageEditAPI {
-    /// ByteDance Seedream v5.0 Pro EDIT auf WaveSpeed AI — bis zu 10
-    /// Referenzbilder, $0,045 @1k / $0,09 @2k.
-    static let defaultModel = "bytedance/seedream-v5.0-pro/edit"
-    /// Text→Bild (ohne Referenzfoto): Seedream v5.0 Pro.
-    static let generateModel = "bytedance/seedream-v5.0-pro"
-    static let displayName = "Seedream 5.0 Pro"
+    /// EINHEITLICHES MODELL (Stand 09.09.2026): OpenAI GPT Image 2.5 Sunburst
+    /// auf WaveSpeed — `openai/gpt-image-2.5-sunburst/edit`.
+    /// Gleiche Request-Struktur wie GPT Image 2, laut WaveSpeed ist die
+    /// Migration ein reiner Modell-ID-Tausch. Preis medium ~$0,024/1K, also
+    /// unter der Haelfte der GPT-Image-2-Stufe. Sunburst ist die Variante fuer
+    /// Edit-Praezision (die andere, Flare, ist auf Tempo ausgelegt).
+    static let defaultModel = "openai/gpt-image-2.5-sunburst/edit"
+    static let generateModel = "openai/gpt-image-2.5-sunburst/text-to-image"
+    static let displayName = "GPT Image 2.5 Sunburst"
 
-    /// NUR für den Chat (Clavic Image Edit): OpenAI GPT Image 2 auf WaveSpeed —
-    /// beste Text-/Logo-Treue (~99 %). Preis hängt an `quality`, nicht an der
-    /// Auflösung: low 0,02–0,04 $, medium 0,07–0,19 $, high 0,23–0,73 $.
-    static let chatModel = "openai/gpt-image-2/edit"
-    /// Text→Bild OHNE Referenzfoto, ebenfalls GPT Image 2. Live gegen
-    /// WaveSpeed geprüft: `openai/gpt-image-2` und `…/generate` gibt es NICHT,
-    /// der gültige Slug ist `…/text-to-image`.
-    static let chatGenerateModel = "openai/gpt-image-2/text-to-image"
-    static let chatDisplayName = "GPT Image 2"
+    static let chatModel = "openai/gpt-image-2.5-sunburst/edit"
+    static let chatGenerateModel = "openai/gpt-image-2.5-sunburst/text-to-image"
+    static let chatDisplayName = "GPT Image 2.5 Sunburst"
 
-    /// One Shot nutzt bewusst Seedream v5.0 Pro Edit: das Modell kann das
-    /// unveraenderte Raumfoto, eine separate Positionskarte und die Person als
-    /// drei eigenstaendige Referenzen lesen und fotografisch zusammenfuehren.
-    static let soloShotModel = "bytedance/seedream-v5.0-pro/edit"
-    static let soloShotDisplayName = "Seedream 5.0 Pro"
+    static let soloShotModel = "openai/gpt-image-2.5-sunburst/edit"
+    static let soloShotDisplayName = "GPT Image 2.5 Sunburst"
 
-    /// Google Nano Banana 2 (Gemini 3 Pro Image) auf WaveSpeed — fuer alles,
-    /// wo die Person selbst UMGEBAUT wird: Pose, Haltung, Blickrichtung,
-    /// Koerperdrehung.
-    ///
-    /// GEMESSEN am 06.08.2026, gleiches Foto, gleicher Prompt („change ONLY her
-    /// body pose to a relaxed aesthetic editorial pose"):
-    ///  - GPT Image 2  → Pose praktisch unveraendert, dafuer setzte es eine
-    ///    Sonnenbrille auf und veraenderte das Gesicht.
-    ///  - Nano Banana 2 → Kopf gedreht, Hand im Haar, anderes Standbein,
-    ///    Gesicht und Kleid identisch.
-    /// Darum laufen Pose-Anweisungen ueber dieses Modell.
-    static let poseModel = "google/nano-banana-2/edit"
-    static let poseDisplayName = "Nano Banana 2"
+    /// ACHTUNG: hier lief bis 09.09.2026 bewusst Nano Banana 2. Messung vom
+    /// 06.08.2026 (gleiches Foto, gleicher Prompt): GPT Image 2 liess die Pose
+    /// unveraendert, setzte eine Sonnenbrille auf und VERAENDERTE DAS GESICHT;
+    /// Nano Banana 2 drehte die Pose und hielt Gesicht und Kleid identisch.
+    /// Sunburst ist ein anderes Modell mit besserer Edit-Kontrolle, aber fuer
+    /// Pose-Prompts noch NICHT gegengeprueft. Vor Release testen.
+    static let poseModel = "openai/gpt-image-2.5-sunburst/edit"
+    static let poseDisplayName = "GPT Image 2.5 Sunburst"
 
     static var hasAPIKey: Bool { BackendConfiguration.isConfigured }
 

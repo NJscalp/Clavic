@@ -187,8 +187,10 @@ struct MascotStage: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: height)
-        // Ihre Umgebung. Sie liegt HINTER der Bühne und wird nur links und
-        // rechts sichtbar — der Cremekasten des Videos deckt die Mitte ab.
+        // Ihre Umgebung. Sie liegt HINTER der Bühne. Frueher deckte der
+        // Cremekasten des Videos die Mitte ab und das Blattwerk war nur links
+        // und rechts zu sehen; seit die Clips ein echtes Alpha haben, wachsen
+        // die Blaetter hinter der Figur durch.
         .background {
             if showsHabitat { MascotHabitat().allowsHitTesting(false) }
         }
@@ -263,8 +265,29 @@ struct MascotStage: View {
         )
     }
 
+    /// ALLE CLIPS SIND HEVC MIT ALPHA (.mov), NICHT MEHR H.264 (.mp4).
+    ///
+    /// Vorher waren die Videos auf deckendes Creme aufgezogen. Solange die
+    /// Oberflaeche dieselbe Creme war, fiel das nicht auf; sobald hinter der
+    /// Figur Farbe liegt, stand ihr Videokasten als helles Rechteck im Bild.
+    /// Dagegen half nur ein cremefarbenes Polster hinter ihr — ein Pflaster,
+    /// kein Freisteller.
+    ///
+    /// Jetzt tragen die Clips einen echten Alphakanal. Der Schluessel war
+    /// eindeutig, weil der Hintergrund in jedem Bild exakt (246,242,237) ist;
+    /// die Arbeit steckte in zwei Stellen: der Bauch der Figur ist selbst
+    /// cremefarben (deshalb zaehlt als Hintergrund nur, was vom BILDRAND aus
+    /// erreichbar ist), und H.264 legt um jede Kante ein Ringing, das vor
+    /// dunklem Grund sonst als heller Halo stehenbleibt.
+    ///
+    /// WICHTIG fuer die Wiedergabe: ein `AVPlayerLayer` zeigt das Alpha nur,
+    /// wenn man ihn ausdruecklich auf 32BGRA stellt — siehe
+    /// `pixelBufferAttributes` im Player. Ohne das laeuft der Film, aber
+    /// deckend schwarz hinterlegt.
+    private static let endung = "mov"
+
     static var throwURL: URL? {
-        Bundle.main.url(forResource: "mascot_throw", withExtension: "mp4")
+        Bundle.main.url(forResource: "mascot_throw", withExtension: endung)
     }
 
     /// Die Idle-Loops. Alle starten und enden in der Pose von
@@ -276,7 +299,7 @@ struct MascotStage: View {
     /// Eigenschaft eines Chamäleons und im Zuhause-Loop kommt sie nicht vor.
     static var idleURLs: [URL] {
         ["mascot_idle_tab", "mascot_idle1", "mascot_idle2", "mascot_idle3"].compactMap {
-            Bundle.main.url(forResource: $0, withExtension: "mp4")
+            Bundle.main.url(forResource: $0, withExtension: endung)
         }
     }
 
@@ -300,7 +323,7 @@ struct MascotStage: View {
     /// Pose 1→2: 0,78 · Pose 2→3: 0,81 · Ende→Anfang: 0,64. Das ist der Rest
     /// der Videokompression, nicht mehr die Figur.
     static var readLoopURL: URL? {
-        Bundle.main.url(forResource: "mascot_read_loop", withExtension: "mp4")
+        Bundle.main.url(forResource: "mascot_read_loop", withExtension: endung)
     }
 
 
@@ -312,7 +335,7 @@ struct MascotStage: View {
     /// unsichtbar. Der Idle-Loop kam roh auf 24,6 und musste auf sein
     /// sauberstes Teilstück beschnitten werden (11,8).
     static var scanURL: URL? {
-        Bundle.main.url(forResource: "mascot_scan", withExtension: "mp4")
+        Bundle.main.url(forResource: "mascot_scan", withExtension: endung)
     }
 }
 
@@ -389,6 +412,20 @@ final class MascotPlayerUIView: UIView {
     // wiederholen.
     private let playerA = AVQueuePlayer()
     private let playerB = AVQueuePlayer()
+    /// Beide Spieler duerfen NICHT auf Puffer warten.
+    ///
+    /// GEMESSEN in der Bildschirmaufnahme: beim Wiederholen des Loops fehlte
+    /// die Figur ein bis zwei Bilder lang vollstaendig — der Sprung von Bild
+    /// zu Bild sprang auf 49,5 von 255, waehrend er sonst bei 0,8 liegt. Das
+    /// ist kein Posenfehler, sondern eine leere Ebene: der Spieler haelt beim
+    /// Item-Wechsel an, um zu puffern, und die Ebene hat nichts zu zeigen.
+    ///
+    /// Die Clips liegen im Bundle und sind Sekunden lang; es gibt nichts zu
+    /// puffern. Erster Versuch, bevor die Buehne umgebaut wird.
+    private func nichtAufPufferWarten() {
+        playerA.automaticallyWaitsToMinimizeStalling = false
+        playerB.automaticallyWaitsToMinimizeStalling = false
+    }
     /// Haelt den Pruef-Clip lueckenlos in der Schleife, solange gelesen wird.
     private var scanLooper: AVPlayerLooper?
     /// true = A ist sichtbar, B ist die Reserve.
@@ -449,11 +486,89 @@ final class MascotPlayerUIView: UIView {
     /// sie danach in der Rotation vom Startbildschirm haengen.
     func setIdleLoop(_ url: URL?) {
         guard url != idleLoopURL else { return }
+        let vorher = idleLoopURL
         idleLoopURL = url
         // Nicht waehrend des Wurfs oder des Lesens umschalten: die haben eine
         // eigene Erzaehlung, die nicht mittendrin abreissen darf.
         guard !scanning, !holding else { return }
+
+        // EIN TAUSCH IM LAUFENDEN BETRIEB WIRD GEBLENDET, NICHT GESCHNITTEN.
+        //
+        // `startLoop` leert die Warteschlange und setzt sofort neu an. Solange
+        // es nur EINE Schleife gab, war das richtig: der Wurf endet in der
+        // Startpose und die Schleife beginnt in derselben.
+        //
+        // Seit der Director-Tab die Schleife nach Buehne wechselt, faellt der
+        // Schnitt aber an einer BELIEBIGEN Stelle. GEMESSEN, mittlere
+        // Abweichung von 255 zwischen einem Bild aus `mascot_read_loop` und
+        // der Anfangspose von `mascot_scan`: kleinster Abstand 5,9, Mittel
+        // 26,3, groesster 42,6. Eine saubere Naht liegt bei 0,8 bis 3,6 —
+        // das war also bis zu zehnmal der Sprung, den man sonst als Fehler
+        // sieht.
+        //
+        // Auf die naechste Ankerstelle zu warten hilft nicht: `read_loop`
+        // durchlaeuft sie nur alle rund 6,3 Sekunden, so lange darf eine
+        // Antwort auf einen Fingertipp nicht brauchen.
+        if let url, vorher != nil, currentIsLoop, !fading {
+            crossfadeToLoop(url, duration: 0.22)
+            return
+        }
         startIdle()
+    }
+
+    /// Dieselbe Blende wie zwischen den Idle-Clips, aber das Ziel ist eine
+    /// Endlosschleife.
+    ///
+    /// `crossfade(to:)` kann das nicht: es spielt einmal ab. Und `startLoop`
+    /// kann es nicht ohne Schnitt. Deshalb hier beides zusammen — Looper auf
+    /// der Reserve-Ebene aufbauen, dann die alte darueber ausblenden.
+    ///
+    /// Der ALTE Clip laeuft waehrend der Blende weiter. Ihn vorher anzuhalten
+    /// waere ein sichtbares Einfrieren; genau das steht schon im
+    /// Abschlussblock von `crossfade(to:)`.
+    private func crossfadeToLoop(_ url: URL, duration: Double) {
+        guard let ziel = back as? AVQueuePlayer else { startLoop(url); return }
+        fading = true
+        let gehend = front
+        let zielEbene = backLayer
+        let gehendeEbene = frontLayer
+
+        clearObservers()
+        currentSource = url
+        currentIsLoop = true
+
+        ziel.removeAllItems()
+        ziel.replaceCurrentItem(with: AVPlayerItem(url: url))
+        ziel.seek(to: .zero)
+        if !paused { ziel.play() }
+
+        // NUR die obere Ebene ausblenden, die untere steht dabei schon voll da
+        // — dieselbe Begruendung wie in `crossfade(to:)`.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        zielEbene.opacity = 1
+        zielEbene.zPosition = 0
+        gehendeEbene.zPosition = 1
+        CATransaction.commit()
+
+        // Buchfuehrung sofort umlegen, nicht erst im Abschlussblock.
+        frontIsA.toggle()
+
+        CATransaction.begin()
+        CATransaction.setAnimationDuration(duration)
+        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeInEaseOut))
+        CATransaction.setCompletionBlock { [weak self] in
+            guard let self else { return }
+            gehend.pause()
+            (gehend as? AVQueuePlayer)?.removeAllItems()
+            self.fading = false
+        }
+        gehendeEbene.opacity = 0
+        CATransaction.commit()
+
+        // Ohne das liefe der neue Clip GENAU EINMAL und bliebe stehen: die
+        // Blende hat die Beobachter des alten Durchgangs geloescht.
+        planeUebergabe(url, von: ziel)
     }
 
     func configure(throwURL: URL, idleURLs: [URL], idleLoopURL: URL? = nil,
@@ -471,6 +586,7 @@ final class MascotPlayerUIView: UIView {
 
         backgroundColor = .clear
         isUserInteractionEnabled = false
+        nichtAufPufferWarten()
         beobachteLebenszyklus()
         starteWachhund()
 
@@ -481,6 +597,13 @@ final class MascotPlayerUIView: UIView {
             l.videoGravity = .resizeAspect
             l.isOpaque = false
             l.backgroundColor = UIColor.clear.cgColor
+            // OHNE DIESE ZEILE IST DAS ALPHA WEG.
+            // Ein `AVPlayerLayer` verlangt standardmaessig einen deckenden
+            // Puffer und wirft den Alphakanal der HEVC-Datei fort — der Film
+            // laeuft dann korrekt, aber auf Schwarz statt durchsichtig.
+            l.pixelBufferAttributes = [
+                kCVPixelBufferPixelFormatTypeKey as String: kCVPixelFormatType_32BGRA
+            ]
             layer.addSublayer(l)
         }
         layerA.opacity = 1
@@ -609,14 +732,9 @@ final class MascotPlayerUIView: UIView {
         // ohne Neustart und ohne Luecke.
         scanLooper = nil
         currentSource = scanURL
-        currentIsLoop = true
-        if let queue = front as? AVQueuePlayer {
-            queue.removeAllItems()
-            scanLooper = AVPlayerLooper(player: queue, templateItem: AVPlayerItem(url: scanURL))
-            if !paused { queue.play() }
-        } else {
-            play(scanURL, on: front)
-        }
+        // Derselbe Weg wie jede andere Schleife — siehe `startLoop`. Vorher
+        // stand hier ein eigener `AVPlayerLooper` mit demselben Blinzeln.
+        startLoop(scanURL)
     }
 
     func startIdle() {
@@ -630,32 +748,150 @@ final class MascotPlayerUIView: UIView {
         scheduleIdleHandover(on: front)
     }
 
-    /// Haengt eine Datei lueckenlos an sich selbst.
+    /// Haengt eine Datei lueckenlos an sich selbst — UEBER BEIDE EBENEN.
     ///
-    /// Herausgeloest aus `startScanning`, weil es dort schon bewiesen war: der
-    /// Looper legt das naechste Item an, ohne Neustart und ohne Luecke. Der
-    /// Weg HINEIN ist ein harter Schnitt — der Wurf endet in der Startpose und
-    /// der Loop beginnt in derselben, da faellt nichts auf.
+    /// HIER STAND EIN `AVPlayerLooper`, UND DER HAT GEBLINZELT.
+    ///
+    /// Gemessen in der Bildschirmaufnahme, Ausschnitt um die Figur, 60 Bilder
+    /// je Sekunde: bei JEDER Wiederholung fehlte die Figur ein bis zwei Bilder
+    /// lang vollstaendig. Der Sprung von Bild zu Bild ging auf 49,5 von 255
+    /// hoch, wo er sonst bei 0,8 liegt. Kein Posenfehler — eine leere Ebene.
+    /// Der Looper tauscht das Item, und die `AVPlayerLayer` hat in diesem
+    /// Moment nichts anzuzeigen.
+    ///
+    /// `automaticallyWaitsToMinimizeStalling = false` half nicht: nachgemessen
+    /// blieben die Aussetzer bei 19,43 s, 29,45 s, 34,48 s — weiter im Takt
+    /// der Cliplaenge. Es ist kein Pufferproblem, es ist der Item-Wechsel.
+    ///
+    /// Deshalb wiederholt sich der Clip jetzt ueber die ZWEITE Ebene: eine
+    /// halbe Sekunde vor Schluss wird er dort neu aufgelegt und mit `preroll`
+    /// bis zum ersten dekodierten Bild vorgespult. Am Ende des Durchgangs
+    /// werden nur noch die Deckkraefte getauscht — ohne Animation, in einem
+    /// Bild. Die Ebene, die sichtbar wird, HAT bereits ein Bild.
+    ///
+    /// Das geht nur, weil erstes und letztes Bild praktisch gleich sind.
+    /// GEMESSEN nach dem Ping-Pong-Umbau: `mascot_idle_tab` 0,82 ·
+    /// `mascot_idle3` 1,15 · `mascot_scan` 0,81 · `mascot_read_loop` 3,57.
+    /// Eine Blende braucht es dafuer nicht — sie waere sogar schlechter,
+    /// weil dann zwei Figuren uebereinanderlaegen.
     func startLoop(_ url: URL) {
         currentSource = url
         currentIsLoop = true
         fading = false
         clearObservers()
-        let visible = frontLayer, hidden = backLayer
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        visible.opacity = 1; visible.zPosition = 1
-        hidden.opacity = 0; hidden.zPosition = 0
-        CATransaction.commit()
         scanLooper?.disableLooping()
         scanLooper = nil
-        if let queue = front as? AVQueuePlayer {
-            queue.removeAllItems()
-            scanLooper = AVPlayerLooper(player: queue, templateItem: AVPlayerItem(url: url))
-            if !paused { queue.play() }
-        } else {
-            play(url, on: front)
+        let sichtbar = frontLayer, versteckt = backLayer
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        sichtbar.opacity = 1; sichtbar.zPosition = 1
+        versteckt.opacity = 0; versteckt.zPosition = 0
+        CATransaction.commit()
+        starteDurchgang(url, auf: front)
+    }
+
+    private func starteDurchgang(_ url: URL, auf spieler: AVPlayer) {
+        (spieler as? AVQueuePlayer)?.removeAllItems()
+        spieler.replaceCurrentItem(with: AVPlayerItem(url: url))
+        spieler.seek(to: .zero)
+        if !paused { spieler.play() }
+        ruesteReserve(url)
+        planeUebergabe(url, von: spieler)
+    }
+
+    /// Legt denselben Clip auf der Reserve-Ebene bereit und spult ihn bis zum
+    /// ersten dekodierten Bild vor.
+    ///
+    /// SOFORT, nicht kurz vor Schluss. Der erste Anlauf ruestete die Reserve
+    /// ueber einen zweiten Grenzzeit-Beobachter eine halbe Sekunde vor dem
+    /// Ende — und der wurde manchmal verpasst. Dann lag beim Tausch noch der
+    /// VORHERIGE Clip auf der Reserve, und die Figur sprang mitten im
+    /// Trendmodus fuer fuenf Bilder in die Ruhehaltung, ohne Lupe. In der
+    /// Aufnahme genau so gesehen: ein Sprung von 26,0 bei 13,78 s.
+    ///
+    /// Bereitgelegt wird jetzt am Anfang des Durchgangs. Die Reserve steht
+    /// dann Sekunden lang fertig da, und der Tausch haengt an nichts mehr.
+    private func ruesteReserve(_ url: URL) {
+        let reserve = back
+        (reserve as? AVQueuePlayer)?.removeAllItems()
+        reserve.replaceCurrentItem(with: AVPlayerItem(url: url))
+        reserve.pause()
+        reserve.seek(to: .zero) { _ in Self.spuleVor(reserve, versuche: 3) }
+    }
+
+    /// `preroll` NUR bei fertigem Item.
+    ///
+    /// DAS HAT DIE APP ABSTUERZEN LASSEN. `AVPlayer.preroll(atRate:)` wirft
+    /// eine Objective-C-Ausnahme, wenn der Spieler noch nicht `readyToPlay`
+    /// ist — und seit die Reserve gleich zu Beginn des Durchgangs bestueckt
+    /// wird, ist das Item beim Ende des `seek` regelmaessig noch nicht so weit.
+    /// Im Absturzbericht: `EXC_CRASH SIGABRT`, `-[AVPlayer
+    /// prerollAtRate:completionHandler:]` aus `ruesteReserve`. Eine
+    /// ObjC-Ausnahme laesst sich aus Swift nicht fangen, also darf sie gar
+    /// nicht erst entstehen.
+    ///
+    /// Ist noch nichts bereit, wird es spaeter erneut versucht. Klappt es gar
+    /// nicht, faellt nur das Vorspulen aus — die Ebene hat dann bis zum
+    /// Tausch trotzdem Sekunden Zeit, ihr erstes Bild zu dekodieren.
+    private static func spuleVor(_ spieler: AVPlayer, versuche: Int) {
+        guard versuche > 0 else { return }
+        guard spieler.status == .readyToPlay,
+              spieler.currentItem?.status == .readyToPlay else {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                spuleVor(spieler, versuche: versuche - 1)
+            }
+            return
         }
+        spieler.preroll(atRate: 1) { _ in }
+    }
+
+    private func planeUebergabe(_ url: URL, von spieler: AVPlayer) {
+        guard let item = spieler.currentItem else { return }
+        // Die Dauer des ASSETS, nicht des Items: die des Items ist direkt nach
+        // dem Anlegen noch unbestimmt.
+        let ende = CMTimeGetSeconds(item.asset.duration)
+        guard ende.isFinite, ende > 0.2 else { return }
+
+        // Zwei Hundertstel vor Schluss — ein Bild frueher ist unsichtbar, ein
+        // Bild zu spaet zeigt das Standbild am Ende.
+        addBoundary(at: ende - 0.02, on: spieler) { [weak self] in
+            guard let self, self.currentIsLoop, self.currentSource == url else { return }
+            self.uebergib(url, von: spieler)
+        }
+    }
+
+    private func uebergib(_ url: URL, von alt: AVPlayer) {
+        let neu = back
+
+        // NIE auf eine Ebene tauschen, die etwas anderes zeigt. Genau daran
+        // ist der erste Anlauf gescheitert; lieber ein harter Neustart
+        // desselben Clips — dessen Naht ist gemessen unter 1,2.
+        guard (neu.currentItem?.asset as? AVURLAsset)?.url == url else {
+            alt.seek(to: .zero)
+            if !paused { alt.play() }
+            clearObservers()
+            ruesteReserve(url)
+            planeUebergabe(url, von: alt)
+            return
+        }
+
+        let neueEbene = backLayer, alteEbene = frontLayer
+        if !paused { neu.play() }
+
+        // OHNE Animation. Erstes und letztes Bild sind gleich; eine Blende
+        // waere hier nur ein weicher Doppelgaenger.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        neueEbene.opacity = 1; neueEbene.zPosition = 1
+        alteEbene.opacity = 0; alteEbene.zPosition = 0
+        CATransaction.commit()
+
+        frontIsA.toggle()
+        alt.pause()
+        clearObservers()
+        // Die eben frei gewordene Ebene wird die naechste Reserve.
+        ruesteReserve(url)
+        planeUebergabe(url, von: neu)
     }
 
     /// Schaltet zwischen Pruef-Loop und Ruhe um.

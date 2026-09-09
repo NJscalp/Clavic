@@ -19,8 +19,6 @@ struct ContentView: View {
     @Environment(Store.self) private var store
     @Environment(EditHandoff.self) private var editHandoff
     @AppStorage("hasSeenOnboarding") private var hasSeenOnboarding = false
-    @AppStorage("hasSeenLarpFunnel") private var hasSeenLarpFunnel = false
-    @AppStorage("hasSignedIn") private var hasSignedIn = false
     @AppStorage("hasSeenSubscriptionOffer") private var hasSeenSubscriptionOffer = false
 
     @State private var tab: MainTab = .agent
@@ -37,11 +35,15 @@ struct ContentView: View {
     /// Server-gesteuerte Templates (neue Trends ohne App-Update).
     @State private var templateStore = TemplateStore()
 
-    enum MainTab { case chatEdit, agent, studio, library }
+    /// Der Studio-Tab ist entfallen. Was man dort wirklich brauchte —
+    /// Objekte entfernen — steht jetzt als eigenes Werkzeug am Start des
+    /// Directors; alles Weitere war eine zweite Umsetzung dessen, was der
+    /// Chat-Tab ohnehin kann.
+    enum MainTab { case chatEdit, agent, library }
 
     /// Tastatur-/Preview-Last: nur der sichtbare Tab hält Live-State aktiv.
     private var chatEditActive: Bool {
-        let inMainApp = hasSeenOnboarding && hasSignedIn
+        let inMainApp = hasSeenOnboarding
         return inMainApp && tab == .chatEdit && createRequest == nil && !showSettings && !showPaywall && !showSubscriptionOffer && !showSubscriptionGate
     }
 
@@ -66,15 +68,6 @@ struct ContentView: View {
                         AgentView(introFinished: introFinished)
                             .opacity(tab == .agent ? 1 : 0)
                             .allowsHitTesting(tab == .agent)
-
-                        StudioView { project in
-                            tab = .library
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                                navPath = [project]
-                            }
-                        }
-                        .opacity(tab == .studio ? 1 : 0)
-                        .allowsHitTesting(tab == .studio)
 
                         LibraryView()
                             .opacity(tab == .library ? 1 : 0)
@@ -104,28 +97,17 @@ struct ContentView: View {
             }
             .tint(Theme.accent)
 
-            // Erststart-Flow: Onboarding → Larp-Funnel (Conversion) → Anmeldung → App
+            // Erststart-Flow: Onboarding → App.
+            // Der Larp-Funnel und der Sign-in-mit-Apple-Screen sind am
+            // 09.09.2026 entfallen. Das Abo-Angebot laeuft jetzt direkt nach
+            // dem Onboarding ueber completeOnboardingFlow().
             if !hasSeenOnboarding {
-                OnboardingView(isPresented: Binding(
+                OnboardingFlowView(isPresented: Binding(
                     get: { !hasSeenOnboarding },
                     set: { hasSeenOnboarding = !$0 }
                 ))
                 .transition(.opacity)
                 .zIndex(3)
-            } else if !hasSeenLarpFunnel {
-                // Interaktiver Teaser VOR der Paywall: Foto → Analyse → Ideen →
-                // „Continue to see your result" → Paywall. Der Funnel IST das
-                // Abo-Angebot → danach kein zweites Paywall-Sheet mehr zeigen.
-                LarpFunnelView {
-                    hasSeenLarpFunnel = true
-                    hasSeenSubscriptionOffer = true
-                }
-                .transition(.opacity)
-                .zIndex(3)
-            } else if !hasSignedIn {
-                SignInView(isSignedIn: $hasSignedIn)
-                    .transition(.opacity)
-                    .zIndex(2)
             }
         }
         .preferredColorScheme(.light)
@@ -135,28 +117,26 @@ struct ContentView: View {
         .sheet(isPresented: $showPaywall) {
             CreditsView()
         }
-        .sheet(isPresented: $showSubscriptionOffer, onDismiss: {
+        // Vollbild statt Sheet: als Karte mit grauem Streifen darueber wirkte
+        // die Paywall wie ein Hinweisfenster, nicht wie ein eigener Screen.
+        .fullScreenCover(isPresented: $showSubscriptionOffer, onDismiss: {
             hasSeenSubscriptionOffer = true
         }) {
             PaywallView()
         }
-        .sheet(isPresented: $showSubscriptionGate, onDismiss: {
+        .fullScreenCover(isPresented: $showSubscriptionGate, onDismiss: {
             if !store.isPro { pendingCreateTemplate = nil }
         }) {
             PaywallView()
         }
         // Ein übergebenes Bild bringt den Tab mit, in dem es gebraucht wird.
         // Der Erstellen-Weg über `createRequest` bleibt davon unberührt.
-        .onChange(of: editHandoff.pendingChatImage) { _, data in
-            guard data != nil else { return }
+        // Am ZÄHLER, nicht am Bild — siehe `EditHandoff.chatToken`.
+        .onChange(of: editHandoff.chatToken) { _, _ in
             withAnimation(.spring(duration: 0.3)) { tab = .chatEdit }
         }
-        .onChange(of: editHandoff.pendingStudioImage) { _, data in
-            guard data != nil else { return }
-            withAnimation(.spring(duration: 0.3)) { tab = .studio }
-        }
-        .onChange(of: hasSignedIn) { _, signedIn in
-            if signedIn { completeSignInFlow() }
+        .onChange(of: hasSeenOnboarding) { _, done in
+            if done { completeOnboardingFlow() }
         }
         .onChange(of: store.isPro) { _, isPro in
             guard isPro, let template = pendingCreateTemplate else { return }
@@ -180,7 +160,7 @@ struct ContentView: View {
             generationManager.configure(context: modelContext)
             generationManager.store = store
             generationManager.resumePendingProjects()
-            if hasSignedIn { completeSignInFlow() }
+            if hasSeenOnboarding { completeOnboardingFlow() }
             #if DEBUG
             // UI-Review-Hook (nur Debug/Simulator): Tab oder Template per
             // Launch-Env öffnen, z. B. SIMCTL_CHILD_UITEST_TEMPLATE="Pinterest Swap".
@@ -189,7 +169,6 @@ struct ContentView: View {
                 if t == "chat" { tab = .chatEdit }
                 else if t == "agent" { tab = .agent }
                 else if t == "library" { tab = .library }
-                else if t == "studio" { tab = .studio }
             }
             if let title = env["UITEST_TEMPLATE"] {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
@@ -220,8 +199,8 @@ struct ContentView: View {
         createRequest = CreateRequest(template: template)
     }
 
-    /// Nach Anmeldung: einmaliges, schließbares Abo-Angebot.
-    private func completeSignInFlow() {
+    /// Nach dem Onboarding: einmaliges, schließbares Abo-Angebot.
+    private func completeOnboardingFlow() {
         guard !hasSeenSubscriptionOffer, !store.isPro else { return }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) {
             showSubscriptionOffer = true
@@ -278,7 +257,59 @@ struct ContentView: View {
         }
         .padding(.horizontal, Theme.screenPadding)
         .padding(.vertical, 10)
-        .background(Theme.background.opacity(0.95))
+        // WARUM DIE LEISTE UNTEN AUSLAEUFT.
+        //
+        // Zwei Fassungen davor, beide falsch:
+        //
+        // 1. `Theme.background.opacity(0.95)` — die fehlenden 5 % waren als
+        //    Andeutung von Tiefe gedacht und lasen sich als Zeichenfehler:
+        //    gescrollte Karten schimmerten als Geistertext DURCH die Leiste,
+        //    auch hinter dem Titel.
+        //
+        // 2. Voll deckendes `Theme.background` — kein Geistertext mehr, dafuer
+        //    schnitt die Leiste den Inhalt an ihrer Unterkante knochenhart ab.
+        //    Weil sie dieselbe Farbe hat wie der Hintergrund, sieht man dort
+        //    keine Kopfzeile, sondern einen Balken, der Karten zerschneidet.
+        //    Im Simulator reproduziert: Startbildschirm hochgescrollt, harte
+        //    Linie bei 122 pt quer durch die Fotokarten.
+        //
+        // Jetzt: deckend ueber die volle Hoehe der Leiste — hinter dem Titel
+        // ist NIE etwas zu ahnen — und darunter ein 26 pt langer Auslauf, in
+        // dem der Inhalt weich verschwindet. Keine Kante, kein Geistertext.
+        // Das negative untere `padding` laesst den Verlauf ueber die Leiste
+        // hinausragen; ein `.background` wird nicht beschnitten.
+        //
+        // Der Auslauf endet auf `Theme.background.opacity(0)`, NICHT auf
+        // `.clear`: `.clear` ist schwarz mit Alpha 0, und dagegen zu
+        // interpolieren graut die Mitte des Verlaufs an.
+        .background {
+            VStack(spacing: 0) {
+                // Deckend ueber Statusleiste UND Leiste. Ohne
+                // `ignoresSafeArea` endet diese Flaeche an der Unterkante der
+                // Statusleiste — und weil ein `ScrollView` bis dorthin
+                // zeichnet, stand gescrollter Inhalt DARUEBER: Foto und Figur
+                // oben, Karten unten, dazwischen ein cremefarbener Streifen.
+                // Das ist der Balken, den man sieht. Im Simulator so
+                // reproduziert, Picks-Ansicht weit hochgescrollt.
+                Theme.background
+                // Der Auslauf: feste 26 pt, nicht ein Anteil der Hoehe. Der
+                // obere Sicherheitsbereich ist je nach Geraet 20 bis 62 pt
+                // gross; ein Prozentwert waere auf jedem Modell woanders.
+                LinearGradient(
+                    stops: [
+                        .init(color: Theme.background, location: 0),
+                        .init(color: Theme.background.opacity(0.72), location: 0.5),
+                        .init(color: Theme.background.opacity(0), location: 1)
+                    ],
+                    startPoint: .top, endPoint: .bottom
+                )
+                .frame(height: 26)
+            }
+            // Das negative untere `padding` schiebt genau diese 26 pt unter
+            // die Leiste hinaus. Deckend bleibt damit exakt die Leiste selbst.
+            .padding(.bottom, -26)
+            .ignoresSafeArea(edges: .top)
+        }
     }
 
     // MARK: - Schwebende Bottom-Bar
@@ -295,9 +326,6 @@ struct ContentView: View {
                     }
                     barButton(icon: "wand.and.stars", label: "Chat", isActive: tab == .chatEdit) {
                         withAnimation(.spring(duration: 0.3)) { tab = .chatEdit }
-                    }
-                    barButton(icon: "slider.horizontal.3", label: "Studio", isActive: tab == .studio) {
-                        withAnimation(.spring(duration: 0.3)) { tab = .studio }
                     }
                     barButton(icon: "photo.on.rectangle", label: "Library", isActive: tab == .library) {
                         withAnimation(.spring(duration: 0.3)) { tab = .library }

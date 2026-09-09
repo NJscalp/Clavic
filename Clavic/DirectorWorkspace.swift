@@ -71,6 +71,14 @@ struct DirectorWorkspace<Mascot: View>: View {
     var serverTrends: [DirectorAPI.Option] = []
     /// true, solange die Regie-Leiste unten steht.
     var composerOpen: Bool = false
+    /// Seine kurze Einschaetzung. EINE ZEILE, kein Zettel.
+    ///
+    /// Sie stand zwischendurch auf einem Blatt Papier mit Eselsohr, roter
+    /// Randlinie und Unterschrift — ein Dokument fuer einen Satz. Das war das
+    /// Problem, nicht der Satz: er ist das Einzige, was zeigt, dass hier
+    /// jemand DIESES Foto angesehen hat, und der einzige Ort, an dem
+    /// „ich wuerde hier kaum etwas anfassen" ueberhaupt stehen kann.
+    var verdict: String? = nil
     /// Die Bildlesung, damit die Trend-Auswahl das Foto nicht neu analysiert.
     var reading: DirectorAPI.Reading? = nil
 
@@ -80,11 +88,17 @@ struct DirectorWorkspace<Mascot: View>: View {
     let landed: Bool
     let throwToken: Int
     var onPick: (DirectorAPI.Option) -> Void = { _ in }
-    var onOwnIdea: () -> Void = {}
+    /// Die eigene Ansage aus der Buehne — geht unveraendert in einen Zug.
+    var onDirect: (String) -> Void = { _ in }
+    /// Welcher Zustand gerade auf der Buehne liegt. Der Aufrufer waehlt danach
+    /// den Ruhe-Loop der Figur.
+    var onBuehne: (DirectorBuehne) -> Void = { _ in }
     var onCompare: () -> Void = {}
     /// „Behalt ich" — sichert das Ergebnis.
     var onKeep: () -> Void = {}
     /// „Nochmal anders" — zurueck zu den Richtungen, ohne neues Foto.
+    /// Mit dem fertigen Bild in den Chat wechseln und dort weiterarbeiten.
+    var onKeepEditing: () -> Void = {}
     var onTryAnother: () -> Void = {}
     /// Reicht die gemessenen Anmerkungen nach oben. Die Leiste unten baut ihre
     /// Schnellauftraege daraus — so redet sie ueber DIESES Foto und nicht
@@ -117,16 +131,19 @@ struct DirectorWorkspace<Mascot: View>: View {
                 directorsCut(vorher: before, nachher: photo)
             } else {
                 ergebnisBuehne
+                if let verdict, !verdict.isEmpty { einschaetzung(verdict) }
             }
 
             if !picks.isEmpty {
                 DirectorPicks(
                     picks: picks, lead: lead, trends: trends,
-                    serverTrends: serverTrends, composerOpen: composerOpen,
+                    serverTrends: serverTrends,
                     reading: reading,
                     landed: landed, throwToken: throwToken,
                     sourcePhoto: before ?? photo,
-                    onPick: onPick, onOwnIdea: onOwnIdea,
+                    onPick: onPick,
+                    onDirect: onDirect,
+                    onBuehne: onBuehne,
                     selected: gewaehlt,
                     onSelect: { neu in
                         withAnimation(.smooth(duration: 0.28)) { gewaehlt = neu }
@@ -177,53 +194,62 @@ struct DirectorWorkspace<Mascot: View>: View {
     @ViewBuilder
     private var ladeKarte: some View {
         if let daten = photo, let ui = UIImage(data: daten) {
-            BlurLoadingCard(ui: ui)
+            BlurLoadingCard(ui: ui, leicht: true)
                 .frame(maxHeight: 250)
         }
     }
 
     // MARK: - Was gleich kommt
 
-    /// Zwei leere Vorschlaege in genau der Form der spaeteren echten.
+    /// DIE LEERE BUEHNE, in genau der Form der spaeteren echten.
     ///
     /// Vorher endete der Bildschirm nach der Textzeile und darunter lag die
     /// halbe Hoehe leer — das liest sich wie ein Fehler, nicht wie Arbeit.
-    /// Die Platzhalter fuellen die Flaeche, sagen ohne ein Wort was folgt, und
+    /// Der Platzhalter fuellt die Flaeche, sagt ohne ein Wort was folgt, und
     /// der Wechsel zum Ergebnis wird kleiner, weil die Form schon steht.
+    ///
+    /// Hier standen zwei liegende Zeilen — die Form der alten Doppelkarte.
+    /// Seit es EINE Buehne mit Schaltleiste gibt, versprach das die falsche
+    /// Seite: der Nutzer sah zwei Vorschlaege kommen und bekam einen.
     private var platzhalterVorschlaege: some View {
-        VStack(spacing: 10) {
-            ForEach(0..<2, id: \.self) { i in
-                HStack(spacing: 12) {
-                    RoundedRectangle(cornerRadius: 10, style: .continuous)
-                        .fill(Theme.textPrimary.opacity(0.07))
-                        .frame(width: 52, height: 52)
-                    VStack(alignment: .leading, spacing: 7) {
-                        Capsule().fill(Theme.textPrimary.opacity(0.07))
-                            .frame(width: i == 0 ? 150 : 118, height: 11)
-                        Capsule().fill(Theme.textPrimary.opacity(0.05))
-                            .frame(width: i == 0 ? 96 : 132, height: 9)
-                    }
-                    Spacer(minLength: 0)
+        VStack(alignment: .leading, spacing: 12) {
+            schimmerFlaeche(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .frame(height: 252)
+
+            HStack(spacing: 10) {
+                schimmerFlaeche(Circle()).frame(width: 44, height: 44)
+                schimmerFlaeche(Capsule()).frame(height: 40)
+            }
+
+            schimmerFlaeche(Capsule()).frame(height: 50)
+
+            HStack(spacing: 8) {
+                ForEach(0..<2, id: \.self) { i in
+                    schimmerFlaeche(Capsule())
+                        .frame(width: i == 0 ? 132 : 108, height: 46)
                 }
-                .padding(12)
-                .background(Theme.surface.opacity(0.5),
-                            in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-                .overlay {
-                    if !reduceMotion {
-                        // Dasselbe wandernde Licht wie in der Textzeile — ein
-                        // Motiv, nicht zwei verschiedene Ladeanzeigen.
-                        LinearGradient(colors: [.clear, Theme.textPrimary.opacity(0.06), .clear],
-                                       startPoint: .leading, endPoint: .trailing)
-                            .frame(width: 140)
-                            .offset(x: schimmer ? 260 : -220)
-                            .allowsHitTesting(false)
-                    }
-                }
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                Spacer(minLength: 0)
             }
         }
         .padding(.top, 2)
         .transition(.opacity)
+    }
+
+    /// Eine leere Flaeche mit dem wandernden Licht aus der Textzeile — ein
+    /// Motiv fuer alles, was gerade laedt, statt drei verschiedene Anzeigen.
+    private func schimmerFlaeche(_ form: some Shape) -> some View {
+        form
+            .fill(Theme.surface.opacity(0.5))
+            .overlay {
+                if !reduceMotion {
+                    LinearGradient(colors: [.clear, Theme.textPrimary.opacity(0.06), .clear],
+                                   startPoint: .leading, endPoint: .trailing)
+                        .frame(width: 140)
+                        .offset(x: schimmer ? 260 : -220)
+                        .allowsHitTesting(false)
+                }
+            }
+            .clipShape(form)
     }
 
     // MARK: - Das Bild
@@ -281,16 +307,52 @@ struct DirectorWorkspace<Mascot: View>: View {
 
     // MARK: - Der Director's Cut
 
-    /// Original und Ergebnis in EINEM Bild, mit der Trennlinie zum Ziehen.
+    /// Sagt, WO man ist und WAS ein Tipp tut.
     ///
-    /// Warum ein Schieber und kein Umschalter: man sieht beide Zustaende
-    /// gleichzeitig und begreift die Veraenderung in einer Bewegung, ohne
-    /// etwas zu lesen. Das ist zugleich das, was eine stumme Bildschirmaufnahme
-    /// traegt — jemand, der nur zusieht, versteht in zwei Sekunden, was hier
-    /// passiert ist.
+    /// Vorher stand hier nur „AFTER" mit einem Finger-Symbol. Das benennt den
+    /// Zustand, aber nicht das Paar — wer nicht tippt, erfaehrt nie, dass es
+    /// ueberhaupt ein Vorher gibt. Und ein Symbol allein liest niemand als
+    /// „hier kann man umschalten".
+    ///
+    /// Jetzt steht beides da: der aktuelle Zustand fett, dahinter in
+    /// Grauweiss, was der Tipp bringt. Damit ist der Vergleich schon aus dem
+    /// Stand zu verstehen, ohne ihn ausprobiert zu haben.
+    private var standMarke: some View {
+        HStack(spacing: 6) {
+            Image(systemName: "hand.tap.fill")
+                .font(.system(size: 9.5, weight: .bold))
+            Text(zeigeVorher ? "BEFORE" : "AFTER")
+                .font(.system(size: 10, weight: .black, design: .rounded))
+                .tracking(1.1)
+                .contentTransition(.opacity)
+            Text(zeigeVorher ? "TAP FOR AFTER" : "TAP FOR BEFORE")
+                .font(.system(size: 9.5, weight: .semibold, design: .rounded))
+                .tracking(0.6)
+                .foregroundStyle(.white.opacity(0.66))
+                .contentTransition(.opacity)
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 10).padding(.vertical, 6)
+        .background(.black.opacity(0.46), in: Capsule())
+        .padding(10)
+    }
+
+    private func seitenVerhaeltnis(_ bild: UIImage) -> CGFloat {
+        guard bild.size.height > 0 else { return 1 }
+        // Gedeckelt, damit ein extremes Panorama oder ein sehr schmales
+        // Hochformat den Bildschirm nicht sprengt.
+        return min(max(bild.size.width / bild.size.height, 0.55), 1.8)
+    }
+
+    /// Original und Ergebnis im selben Rahmen, umgeschaltet per Tipp.
+    ///
+    /// Hier lag ein Schieber mit Trennlinie. Der zeigt beide Zustaende
+    /// gleichzeitig, aber er verlangt auch, dass man ihn greift und haelt —
+    /// und die Linie liegt die ganze Zeit quer durchs Gesicht. Beim ERGEBNIS
+    /// will man nicht vergleichen, sondern sehen, was herausgekommen ist.
     ///
     /// Die Hoehe kommt aus dem Bildschirm, nicht aus einer festen Zahl: bei
-    /// 186 Punkten wie vorher war das Ergebnis eine Briefmarke unter einer
+    /// 186 Punkten wie frueher war das Ergebnis eine Briefmarke unter einer
     /// Liste. Es ist das Einzige, worauf es hier ankommt.
     @ViewBuilder
     private func directorsCut(vorher: Data, nachher: Data) -> some View {
@@ -299,27 +361,46 @@ struct DirectorWorkspace<Mascot: View>: View {
                 // Platz fuer „Start over" oben rechts. Ohne den liegt der
                 // Knopf auf dem Bild — im Simulator genau so gesehen.
                 Color.clear.frame(height: 26)
-                GeometryReader { geo in
-                    BeforeAfterSlider(
-                        before: vorherBild,
-                        after: nachherBild,
-                        axis: .vertical,
-                        showLabels: true,
-                        showDivider: true,
-                        // Steht still, bis jemand zieht. Ein von selbst
-                        // wanderndes Bild waehrend man es ansieht ist
-                        // Unruhe, kein Vergleich.
-                        isAnimating: false,
-                        interactive: true,
-                        contentFill: false
-                    )
-                    .frame(width: geo.size.width, height: geo.size.height)
-                }
-                // Rund die halbe Bildschirmhoehe. Genug, dass ein Gesicht
-                // wirklich zu erkennen ist.
-                .frame(height: UIScreen.main.bounds.height * 0.46)
-                .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                .shadow(color: Theme.textPrimary.opacity(0.14), radius: 16, y: 8)
+                // EIN TIPP TAUSCHT, KEIN REGLER.
+                //
+                // Hier lag ein `BeforeAfterSlider` mit weisser Trennlinie und
+                // Griff. Der kann mehr — man zieht die Kante beliebig weit —,
+                // aber er verlangt auch mehr: man muss ihn greifen und halten,
+                // und die Linie liegt die ganze Zeit quer durchs Gesicht.
+                //
+                // Beim ERGEBNIS will man nicht vergleichen, sondern sehen, was
+                // herausgekommen ist. Ein Tipp, ein weicher Wechsel, fertig.
+                //
+                // UND DER RAHMEN LIEGT AM FOTO, nicht an einer festen Hoehe.
+                // Vorher stand hier `frame(height:)` — bei einem Hochformat
+                // blieben links und rechts leere Balken stehen. Jetzt gibt das
+                // Seitenverhaeltnis des Bildes die Form vor und die Hoehe ist
+                // nur noch gedeckelt.
+                Color.clear
+                    .aspectRatio(seitenVerhaeltnis(nachherBild), contentMode: .fit)
+                    .frame(maxWidth: .infinity)
+                    .frame(maxHeight: UIScreen.main.bounds.height * 0.46)
+                    .overlay {
+                        ZStack {
+                            Image(uiImage: nachherBild).resizable().scaledToFill()
+                                .opacity(zeigeVorher ? 0 : 1)
+                            Image(uiImage: vorherBild).resizable().scaledToFill()
+                                .opacity(zeigeVorher ? 1 : 0)
+                        }
+                    }
+                    .clipped()
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                    .overlay(alignment: .bottomLeading) { standMarke }
+                    // Der Rahmen der Library: 9 Punkt Polster, Glas, Ecke 23.
+                    // Wer dort seine Bilder ansieht, erkennt hier dieselbe Form.
+                    .padding(9)
+                    .glassEffect(.regular.interactive(),
+                                 in: RoundedRectangle(cornerRadius: 23, style: .continuous))
+                    .contentShape(RoundedRectangle(cornerRadius: 23, style: .continuous))
+                    .onTapGesture {
+                        withAnimation(.smooth(duration: 0.28)) { zeigeVorher.toggle() }
+                    }
+                    .shadow(color: Theme.textPrimary.opacity(0.12), radius: 14, y: 7)
 
                 HStack(spacing: 8) {
                     Text("THE DIRECTOR'S CUT")
@@ -330,24 +411,40 @@ struct DirectorWorkspace<Mascot: View>: View {
                     Rectangle().fill(Theme.textPrimary.opacity(0.10)).frame(height: 1)
                 }
 
+                // DREI WEGE, NACH WICHTIGKEIT.
+                //
+                // Behalten ist der Normalfall und bekommt die volle Breite.
+                // Darunter die beiden Fortsetzungen: dasselbe Bild weiter
+                // bearbeiten, oder eine andere Richtung derselben Vorlage.
+                Button(action: onKeep) {
+                    Label("Keep it", systemImage: "square.and.arrow.down")
+                        .font(.system(size: 16, weight: .bold, design: .rounded))
+                        .foregroundStyle(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 15)
+                        .background(Theme.accent, in: Capsule())
+                        .shadow(color: Theme.accent.opacity(0.28), radius: 10, y: 4)
+                }
+                .buttonStyle(.plain)
+
                 HStack(spacing: 10) {
-                    Button(action: onKeep) {
-                        Label("Keep it", systemImage: "square.and.arrow.down")
-                            .font(.system(size: 15.5, weight: .bold, design: .rounded))
-                            .foregroundStyle(.white)
+                    Button(action: onKeepEditing) {
+                        Label("Keep editing", systemImage: "wand.and.stars")
+                            .font(.system(size: 14.5, weight: .semibold, design: .rounded))
+                            .foregroundStyle(Theme.textPrimary)
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
-                            .background(Theme.accent, in: Capsule())
-                            .shadow(color: Theme.accent.opacity(0.28), radius: 10, y: 4)
+                            .padding(.vertical, 13)
+                            .background(Theme.surface, in: Capsule())
+                            .overlay(Capsule().strokeBorder(Theme.textPrimary.opacity(0.10), lineWidth: 1))
                     }
                     .buttonStyle(.plain)
 
                     Button(action: onTryAnother) {
-                        Text("Try another direction")
-                            .font(.system(size: 15.5, weight: .semibold, design: .rounded))
+                        Text("Try another")
+                            .font(.system(size: 14.5, weight: .semibold, design: .rounded))
                             .foregroundStyle(Theme.textPrimary)
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 14)
+                            .padding(.vertical, 13)
                             .background(Theme.surface, in: Capsule())
                             .overlay(Capsule().strokeBorder(Theme.textPrimary.opacity(0.10), lineWidth: 1))
                     }
@@ -355,6 +452,17 @@ struct DirectorWorkspace<Mascot: View>: View {
                 }
             }
         }
+    }
+
+    /// Seine Zeile. Kein Rahmen, kein Hintergrund, keine Ueberschrift.
+    private func einschaetzung(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: 15.5, weight: .medium, design: .rounded))
+            .foregroundStyle(Theme.textSecondary)
+            .lineSpacing(2)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 2)
     }
 
     // MARK: - Die Ergebnis-Buehne

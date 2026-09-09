@@ -270,6 +270,8 @@ struct OnboardingView: View {
         )
     ]
 
+    @State private var zeigeZiele = false
+
     var body: some View {
         ZStack {
             Theme.background.ignoresSafeArea()
@@ -280,6 +282,27 @@ struct OnboardingView: View {
                         insertion: .opacity,
                         removal: .move(edge: .leading).combined(with: .opacity)
                     ))
+            } else if zeigeZiele {
+                // Letzter Schritt vor der App: die eine Frage. Siehe
+                // `OnboardingGoals.swift` fuer Herkunft und Begruendung.
+                OnboardingZieleView(
+                    schritt: steps.count + 1,
+                    vonSchritten: steps.count + 1,
+                    onZurueck: {
+                        withAnimation(.spring(duration: 0.35)) { zeigeZiele = false }
+                    },
+                    onWeiter: { ziele in
+                        UserDefaults.standard.set(
+                            ziele.map(\.rawValue).joined(separator: ","),
+                            forKey: OnboardingZiel.speicherSchluessel
+                        )
+                        schliessen()
+                    }
+                )
+                .transition(.asymmetric(
+                    insertion: .move(edge: .trailing).combined(with: .opacity),
+                    removal: .move(edge: .trailing).combined(with: .opacity)
+                ))
             } else {
                 tutorial
                     .transition(.asymmetric(
@@ -530,12 +553,19 @@ struct OnboardingView: View {
 
     private func advance() {
         if page >= steps.count {
-            withAnimation { isPresented = false }
-            // AppsFlyer-Funnel + ATT-Abfrage (in-context, nach Onboarding).
-            AppsFlyerEventTracker.trackOnboardingComplete()
-            AdTracking.requestAuthorizationIfAppropriate()
+            // Nach dem Tutorial kommt nicht mehr direkt die App, sondern die
+            // Zielfrage. Ohne sie startet der Director bei jedem ersten Foto
+            // ohne jede Vorinformation.
+            withAnimation(.spring(duration: 0.4)) { zeigeZiele = true }
         } else {
             withAnimation(.spring(duration: 0.4)) { page += 1 }
         }
+    }
+
+    private func schliessen() {
+        withAnimation { isPresented = false }
+        // AppsFlyer-Funnel + ATT-Abfrage (in-context, nach Onboarding).
+        AppsFlyerEventTracker.trackOnboardingComplete()
+        AdTracking.requestAuthorizationIfAppropriate()
     }
 }

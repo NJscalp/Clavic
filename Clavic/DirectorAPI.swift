@@ -257,6 +257,38 @@ enum DirectorAPI {
 
         /// Ein verfehlter Look bekommt nur EINEN Versuch, kein zweites Rendern.
         var isLookMiss: Bool { severity == .look }
+
+        /// Die Beanstandung, die von einem echten Identitaetsverlust spricht.
+        ///
+        /// Der Server stuft solche Faelle bereits im Code auf `major` hoch;
+        /// hier wird nur herausgelesen, WELCHE Beanstandung es war, damit die
+        /// App sie dem Nutzer nennen kann statt „Fehler" zu sagen.
+        ///
+        /// DIE WORTLISTE WAR ZU BREIT UND HAT EIN GUTES BILD GEKOSTET. Sie
+        /// enthielt `face`, `eyes`, `skin tone`, `complexion`, `age` — genau
+        /// die Woerter, mit denen ein Pruefer auch eine gelungene
+        /// FARBKORREKTUR beschreibt („skin tone is warmer"). Ein G7X-Grade ist
+        /// daran als Identitaetsverlust gescheitert und wurde verworfen.
+        ///
+        /// Sie ist absichtlich dieselbe wie auf dem Server. Wer eine der
+        /// beiden aendert, muss die andere mitaendern — sonst wirft die App
+        /// weg, was der Server durchgewunken hat, oder umgekehrt.
+        var identityIssue: String? {
+            guard !ok, severity == .major else { return nil }
+            let woerter = [
+                "identity", "different person", "another person", "not the same person",
+                "looks like someone else", "different woman", "different man", "new person",
+                "lookalike", "look-alike",
+                "face shape", "facial structure", "facial geometry", "bone structure",
+                "jawline", "jaw shape", "nose shape", "different nose", "reshaped",
+                "eye colour", "eye color",
+                "hair", "hairstyle", "hairline", "bangs", "fringe", "ponytail", "braid", "wig",
+            ]
+            return issues.first { issue in
+                let t = issue.lowercased()
+                return woerter.contains { t.contains($0) }
+            }
+        }
     }
 
     private static var reviewURL: URL { URL(string: base + "/v1/director/review")! }

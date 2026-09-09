@@ -15,8 +15,13 @@ import Foundation
 
 /// Zentrale Backend-Konfiguration (gleiches Backend wie die Day-One-App).
 enum BackendConfiguration {
-    /// Vercel-Deploy mit verbundenen APIs (FAL_KEY server-seitig).
-    static let baseURL = "https://limitless-web-beryl.vercel.app"
+    /// Railway-Deploy mit verbundenen APIs (Schlüssel liegen server-seitig).
+    ///
+    /// ACHTUNG beim Ändern: Diese Adresse ist fest einkompiliert. Jede bereits
+    /// installierte App-Version spricht weiter mit der Adresse, mit der sie
+    /// gebaut wurde — ein Serverwechsel erreicht diese Nutzer erst, wenn sie
+    /// aus dem App Store aktualisiert haben.
+    static let baseURL = "https://clavic-backend-production.up.railway.app"
     /// Optionales Shared Secret (nur falls APP_SHARED_SECRET im Backend gesetzt ist).
     static let sharedSecret = ""
 
