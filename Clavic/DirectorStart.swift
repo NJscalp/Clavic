@@ -131,22 +131,28 @@ struct DirectorStart: View {
                 // seinen Vorschlaegen — und alle drei sehen gleich aus, damit
                 // keines wie ein Hinweistext wirkt.
                 VStack(spacing: 14) {
-                    DirectorToolCards(onSwap: onCamera,
-                                      onRemove: onRemoveObjects,
-                                      onUpscale: onUpscale)
-                        .padding(.horizontal, Theme.screenPadding)
-
-                    // Die Looks stehen auch OHNE Foto schon da.
+                    // Die Looks stehen auch OHNE Foto schon da — und ZUERST.
                     //
                     // Vorher sah man auf dem leeren Startbildschirm nur ein
                     // Ablagefach und drei Werkzeuge — dass die App ueberhaupt
                     // Trend-Looks kann, erfuhr man erst nach dem Hochladen und
-                    // einer Bildlesung. Wer sie sieht, weiss sofort, wofuer er
-                    // sein Foto hergibt. Ein Tipp fuehrt dann in die Mediathek
-                    // und merkt sich den Look.
+                    // einer Bildlesung. Sie standen dann zwar hier, aber UNTER
+                    // den Werkzeugen: auf dem Geraet lagen sie damit unterhalb
+                    // des Bildrands, und wer nicht weiterschob, sah sie nie.
+                    //
+                    // Jetzt kommen sie direkt nach dem Ablagefach. Wer sie
+                    // sieht, weiss sofort, wofuer er sein Foto hergibt. Ein
+                    // Tipp fuehrt dann in die Mediathek und merkt sich den Look.
+                    // Die Werkzeuge ruecken darunter — sie brauchen keinen
+                    // Anreiz, man sucht sie gezielt.
                     DirectorTrendCards(onPick: onPickTrend,
                                        photoMissing: true,
                                        photoSelections: $photoSelections)
+
+                    DirectorToolCards(onSwap: onCamera,
+                                      onRemove: onRemoveObjects,
+                                      onUpscale: onUpscale)
+                        .padding(.horizontal, Theme.screenPadding)
                 }
                 .padding(.top, 2)
             } else {

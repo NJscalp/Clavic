@@ -2,22 +2,26 @@
 //  DirectorTrendCards.swift
 //  Clavic
 //
-//  Die Trend-Looks direkt am Start waehlbar, sobald ein Foto liegt.
+//  Die Trend-Looks am Start — als Liste, nicht als Karussell.
 //
 //  WARUM SIE HIERHER GEHOEREN. Bisher kamen die Trends erst NACH der Bildlesung
 //  des Directors — man musste erst „See what he'd do" druecken und abwarten, um
 //  ueberhaupt zu sehen, dass es sie gibt. Wer wusste, dass er Golden Hour will,
 //  musste trotzdem durch die Beratung.
 //
-//  Jetzt stehen sie mit Namen und Vorschau da. Der Director wird dadurch nicht
-//  uebergangen: Wer eine Karte antippt, bekommt trotzdem seine Lesung des Fotos
-//  — sie fliesst nur in DIESEN einen Look, statt eine Auswahl vorzuschlagen.
-//  Vorher: „Was soll ich machen?" Jetzt zusaetzlich: „Mach mir das hier, aber
-//  richtig fuer dieses Bild."
+//  WARUM UNTEREINANDER STATT NEBENEINANDER. Erst standen sie in einer
+//  waagerechten Reihe. Auf dem Geraet waren davon zweieinhalb Karten zu sehen,
+//  die dritte lief am rechten Rand ins Nichts — von sechs Looks kannte man drei
+//  und ahnte nichts von den anderen. Eine waagerechte Reihe versteckt, was sie
+//  zeigen soll. Untereinander steht jeder Look mit Namen und Zeile da, und die
+//  Liste hat keinen Rand, hinter dem noch etwas liegen koennte.
 //
-//  Gleiche Bauweise wie `DirectorToolCards` — Bild oben, Titel und Zeile
-//  darunter, dieselbe Ecke, derselbe Rand. Zwei verschiedene Kartenstile auf
-//  einem Bildschirm haetten so ausgesehen, als kaemen sie aus zwei Apps.
+//  UND DER SCHATTEN WURDE ABGESCHNITTEN. Die Reihe lag in einer eigenen
+//  `ScrollView`; die schneidet an ihren Kanten, und zwar mitten durch den
+//  Schatten der ersten und letzten Karte. Man sah eine harte senkrechte Naht
+//  neben den Karten. Ein `padding` half nur gegen die obere und untere Kante,
+//  nicht gegen die seitlichen. Ohne eigene ScrollView gibt es nichts mehr, das
+//  schneiden koennte.
 //
 
 import PhotosUI
@@ -27,7 +31,7 @@ struct DirectorTrendCards: View {
     /// Wird mit dem gewaehlten Look aufgerufen.
     var onPick: (TikTokTrends.Look) -> Void = { _ in }
 
-    /// Liegt noch kein Foto? Dann fuehrt eine Karte zuerst in die Mediathek.
+    /// Liegt noch kein Foto? Dann fuehrt eine Zeile zuerst in die Mediathek.
     ///
     /// Die Looks stehen auch ohne Foto da, damit man SIEHT, was die App kann,
     /// bevor man etwas hergibt. Ein Tipp darf dann aber nicht ins Leere laufen:
@@ -37,78 +41,79 @@ struct DirectorTrendCards: View {
     var photoMissing: Bool = false
     @Binding var photoSelections: [PhotosPickerItem]
 
-    private static let kartenBreite: CGFloat = 132
+    private static let bildBreite: CGFloat = 58
+    private static let bildHoehe: CGFloat = 74
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text(photoMissing ? "Looks you can pick" : "Or pick a look")
                 .font(.system(size: 13, weight: .bold, design: .rounded))
                 .foregroundStyle(Theme.textSecondary)
-                .padding(.horizontal, Theme.screenPadding)
 
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    ForEach(TikTokTrends.all) { look in
-                        if photoMissing {
-                            PhotosPicker(selection: $photoSelections,
-                                         maxSelectionCount: 1,
-                                         matching: .images) {
-                                inhalt(look)
-                            }
-                            .buttonStyle(.plain)
-                            .simultaneousGesture(TapGesture().onEnded { onPick(look) })
-                        } else {
-                            karte(look)
+            VStack(spacing: 9) {
+                ForEach(TikTokTrends.all) { look in
+                    if photoMissing {
+                        PhotosPicker(selection: $photoSelections,
+                                     maxSelectionCount: 1,
+                                     matching: .images) {
+                            zeile(look)
                         }
+                        .buttonStyle(.plain)
+                        .simultaneousGesture(TapGesture().onEnded { onPick(look) })
+                    } else {
+                        Button { onPick(look) } label: { zeile(look) }
+                            .buttonStyle(.plain)
                     }
                 }
-                .padding(.horizontal, Theme.screenPadding)
-                // Ohne das schneidet der Schatten der ersten und letzten Karte
-                // an der Scroll-Kante ab.
-                .padding(.vertical, 4)
             }
         }
+        .padding(.horizontal, Theme.screenPadding)
     }
 
-    private func karte(_ look: TikTokTrends.Look) -> some View {
-        Button { onPick(look) } label: { inhalt(look) }
-            .buttonStyle(.plain)
-    }
-
-    /// Das Aussehen einer Karte — einmal beschrieben, von beiden Wegen benutzt.
-    private func inhalt(_ look: TikTokTrends.Look) -> some View {
-            VStack(alignment: .leading, spacing: 7) {
-                // Das „after"-Asset zeigt, was der Look tut. Faellt es aus,
-                // bleibt die Flaeche ruhig statt ein Fragezeichen zu zeigen —
-                // eine fehlende Vorschau ist kein Grund, die Karte zu verlieren.
-                Color.clear
-                    .aspectRatio(3.0 / 4.0, contentMode: .fit)
-                    .frame(width: Self.kartenBreite)
-                    .background(Theme.surfaceHigh)
-                    .overlay {
-                        Image(look.after)
-                            .resizable()
-                            .scaledToFill()
-                    }
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-
-                VStack(alignment: .leading, spacing: 1) {
-                    Text(look.title)
-                        .font(.system(size: 13.5, weight: .bold, design: .rounded))
-                        .foregroundStyle(Theme.textPrimary)
-                    Text(look.caption)
-                        .font(.system(size: 11, weight: .medium, design: .rounded))
-                        .foregroundStyle(Theme.textSecondary)
+    /// Eine Zeile: Vorschau links, Name und Beschreibung rechts.
+    ///
+    /// Das „after"-Asset zeigt, was der Look tut. Faellt es aus, bleibt die
+    /// Flaeche ruhig statt ein Fragezeichen zu zeigen — eine fehlende Vorschau
+    /// ist kein Grund, die Zeile zu verlieren.
+    private func zeile(_ look: TikTokTrends.Look) -> some View {
+        HStack(spacing: 12) {
+            Color.clear
+                .frame(width: Self.bildBreite, height: Self.bildHoehe)
+                .background(Theme.surfaceHigh)
+                .overlay {
+                    Image(look.after)
+                        .resizable()
+                        .scaledToFill()
                 }
-                .lineLimit(1)
-                .frame(width: Self.kartenBreite, alignment: .leading)
+                .clipShape(RoundedRectangle(cornerRadius: 11, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(look.title)
+                    .font(.system(size: 15.5, weight: .bold, design: .rounded))
+                    .foregroundStyle(Theme.textPrimary)
+                Text(look.caption)
+                    .font(.system(size: 12.5, weight: .medium, design: .rounded))
+                    .foregroundStyle(Theme.textSecondary)
             }
-            .padding(7)
-            .background(Theme.surface, in: RoundedRectangle(cornerRadius: 17, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 17, style: .continuous)
-                    .strokeBorder(Theme.textPrimary.opacity(0.08), lineWidth: 1)
-            )
-            .shadow(color: Theme.textPrimary.opacity(0.10), radius: 10, x: 0, y: 5)
+            .lineLimit(1)
+
+            Spacer(minLength: 0)
+
+            Image(systemName: "chevron.right")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundStyle(Theme.textTertiary)
+        }
+        .padding(9)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Theme.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(Theme.textPrimary.opacity(0.06), lineWidth: 1)
+        )
+        // Weich und tief statt hart und nah: ein enger, dunkler Schatten zeichnet
+        // eine sichtbare Kante um die Karte, ein weiter heller laesst sie
+        // schweben. Gemessen am Rest der Ansicht — die Werkzeugkarten liegen
+        // auf denselben Werten.
+        .shadow(color: Theme.textPrimary.opacity(0.07), radius: 12, x: 0, y: 5)
     }
 }
