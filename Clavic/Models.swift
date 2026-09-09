@@ -155,6 +155,25 @@ final class VideoProject {
     /// Bild-Qualität für Image-Edit: "low" (1K), "medium" (2K), "high" (4K).
     var imageQuality: String = "low"
 
+    /// Alle Stände VOR dem Ergebnis, vom Original an: `[Original,
+    /// Zwischenstand 1, …]`. Das Ergebnis selbst liegt als Datei in Documents
+    /// und wird beim Anzeigen hinten angehängt.
+    ///
+    /// WOFÜR. Ohne das kann die Bibliothek gar kein Vorher zeigen — bis hierher
+    /// wurde an JEDER Stelle `referenceImagesData: []` übergeben, das Quellfoto
+    /// war nach der Generierung schlicht weg. Der Vergleich in der Detailansicht
+    /// hängt daran.
+    ///
+    /// Verkleinert abgelegt (lange Kante 1200 px, JPEG 0,8 ≈ 150–250 kB je
+    /// Stand). Der Vergleich wird auf Bildschirmgröße gezeigt; die volle
+    /// Auflösung ein zweites Mal zu halten, würde die Bibliothek ohne Nutzen
+    /// aufblähen.
+    @Attribute(.externalStorage) var stepImagesData: [Data] = []
+
+    /// Was der Schritt von `stepImagesData[k]` zum nächsten Stand gemacht hat —
+    /// der Prompt, kurz. Ein Eintrag je Übergang, darf leer sein.
+    var stepTitles: [String] = []
+
     init(
         prompt: String,
         templateTitle: String = "",

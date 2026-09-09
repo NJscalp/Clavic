@@ -1219,7 +1219,10 @@ struct SoloShotView: View {
                         data,
                         prompt: instruction.isEmpty ? "Solo shot" : instruction,
                         cost: cost,
-                        quality: quality
+                        quality: quality,
+                        // Vorher/Nachher: die Szene OHNE die eingesetzte Person.
+                        // Genau der Unterschied, den man sehen will.
+                        vorher: backgroundData
                     )
                     resultData = data
                     if let ui = UIImage(data: data) {
@@ -1279,7 +1282,8 @@ struct SoloShotView: View {
     /// Gleiche Ablage wie im Chat und im Agent: Datei in Documents, Thumbnail
     /// fürs Raster, SwiftData-Eintrag. Damit taucht der Solo Shot in der
     /// Bibliothek auf, ohne dass man ihn extra sichern muss.
-    private func persistToLibrary(_ data: Data, prompt: String, cost: Int, quality: String) {
+    private func persistToLibrary(_ data: Data, prompt: String, cost: Int, quality: String,
+                                  vorher: Data? = nil) {
         let ext = data.starts(with: [0x89, 0x50, 0x4E, 0x47]) ? "png" : "jpg"
         let project = VideoProject(
             prompt: prompt,
@@ -1294,6 +1298,8 @@ struct SoloShotView: View {
         let dest = URL.documentsDirectory.appending(path: filename)
         do { try data.write(to: dest) } catch { return }
         project.localVideoFilename = filename
+        project.setzeKette(vorher.map { [$0] } ?? [],
+                           titel: [VersionChain.kurzerTitel(prompt)])
         if let img = UIImage(data: data),
            let thumb = img.preparingThumbnail(of: CGSize(width: 600, height: 600 * img.size.height / max(img.size.width, 1))) {
             project.thumbnailData = thumb.jpegData(compressionQuality: 0.8)

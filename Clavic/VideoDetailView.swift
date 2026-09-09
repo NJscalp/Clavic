@@ -132,14 +132,27 @@ struct VideoDetailView: View {
     private var playerSection: some View {
         Group {
             if project.isImageOutput, project.status == .succeeded, let image = resultImage {
-                Image(uiImage: image)
-                    .resizable()
-                    .scaledToFit()
-                    .clipShape(RoundedRectangle(cornerRadius: Theme.cornerLarge, style: .continuous))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: Theme.cornerLarge, style: .continuous)
-                            .strokeBorder(Theme.stroke, lineWidth: 1)
-                    )
+                // Mit Vorgeschichte ein Vergleich, ohne sie das nackte Bild.
+                //
+                // Ältere Einträge haben keine — bis zu dieser Änderung wurde an
+                // JEDER Stelle `referenceImagesData: []` übergeben, das
+                // Quellfoto war nach der Generierung weg. Für sie bleibt es
+                // beim Bild allein; nachträglich erfinden lässt es sich nicht.
+                let staende = project.versionImages
+                if staende.count >= 2 {
+                    VersionSlider(versions: staende,
+                                  titles: project.stepTitles,
+                                  cornerRadius: Theme.cornerLarge)
+                } else {
+                    Image(uiImage: image)
+                        .resizable()
+                        .scaledToFit()
+                        .clipShape(RoundedRectangle(cornerRadius: Theme.cornerLarge, style: .continuous))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: Theme.cornerLarge, style: .continuous)
+                                .strokeBorder(Theme.stroke, lineWidth: 1)
+                        )
+                }
             } else if let player {
                 VideoPlayer(player: player)
                     .aspectRatio(aspectRatioValue, contentMode: .fit)

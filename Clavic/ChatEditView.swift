@@ -28,7 +28,6 @@ struct ChatEditView: View {
     @State private var revealedResults: Set<UUID> = []
     /// Inline comparison state. Tapping a result swaps the pixels in-place;
     /// there is no separate comparison screen or draggable comparison widget.
-    @State private var showingOriginalResults: Set<UUID> = []
     @State private var isWorking = false
     @State private var isLoadingPhoto = false
     @State private var quality: ChatQuality = .medium
@@ -49,6 +48,12 @@ struct ChatEditView: View {
     @State private var videoDuration: ChatVideoAPI.Duration = .short
     @State private var saveToast: String?
     @State private var previewItem: ChatImagePreviewItem?
+    /// Alle bisherigen Stände des Bildes, ältester zuerst — das Ausgangsfoto
+    /// und jedes Ergebnis darauf. Trägt den Vorher/Nachher-Vergleich, auch über
+    /// mehrere Nachbesserungen hinweg.
+    @State private var kette: [Data] = []
+    /// Ein Titel je Übergang.
+    @State private var ketteTitel: [String] = []
     @State private var showSubscriptionGate = false
     /// Start des laufenden Jobs — speist die Wartezeit-Anzeige im Ladeplatzhalter.
     @State private var workStartedAt: Date?
@@ -554,76 +559,13 @@ struct ChatEditView: View {
                     stageBadge(msg: msg, step: step)
                     Spacer()
                     if !msg.isOriginal, msg.beforeImage != nil {
-                        Label(
-                            showingOriginalResults.contains(msg.id) ? "Original · tap for result" : "Result · tap for original",
-                            systemImage: "hand.tap"
-                        )
+                        Label("Drag to compare", systemImage: "arrow.left.and.right")
                             .font(.system(size: 11, weight: .medium, design: .rounded))
                             .foregroundStyle(Theme.textTertiary)
-                            .contentTransition(.opacity)
                     }
                 }
 
-                // Result and original occupy the exact same frame. One tap on
-                // the photo switches between them; no extra tab/full-screen
-                // comparison and no slider handle obscuring the image.
-                Group {
-                    if !msg.isOriginal, let bData = msg.beforeImage, let bUI = ChatImageCache.image(for: bData) {
-                        ZStack(alignment: .topLeading) {
-                            Image(uiImage: ui)
-                                .resizable()
-                                .scaledToFit()
-                                .opacity(showingOriginalResults.contains(msg.id) ? 0 : 1)
-                            Image(uiImage: bUI)
-                                .resizable()
-                                .scaledToFit()
-                                .opacity(showingOriginalResults.contains(msg.id) ? 1 : 0)
-
-                            Text(showingOriginalResults.contains(msg.id) ? "ORIGINAL" : "RESULT")
-                                .font(.system(size: 10, weight: .black, design: .rounded))
-                                .tracking(0.6)
-                                .foregroundStyle(.white)
-                                .padding(.horizontal, 9).padding(.vertical, 5)
-                                .background(.black.opacity(0.48), in: Capsule())
-                                .padding(12)
-                                .contentTransition(.opacity)
-                        }
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            withAnimation(.easeInOut(duration: 0.28)) {
-                                if showingOriginalResults.contains(msg.id) {
-                                    showingOriginalResults.remove(msg.id)
-                                } else {
-                                    showingOriginalResults.insert(msg.id)
-                                }
-                            }
-                        }
-                    } else {
-                        Image(uiImage: ui).resizable().scaledToFill()
-                            .modifier(RevealWipe(
-                                ui: ui,
-                                active: !msg.isOriginal && !revealedResults.contains(msg.id),
-                                onStarted: { revealedResults.insert(msg.id) }
-                            ))
-                    }
-                }
-                // WICHTIG — Reihenfolge: erst das Seitenverhältnis, dann NUR eine
-                // Höhen-Grenze. Kein `maxWidth: .infinity` vor dem Rahmen, sonst
-                // ist der Rahmen immer bildschirmbreit und ein Hochformat sitzt
-                // mit weißen Balken darin. So legt sich der Rahmen exakt ums Bild.
-                .aspectRatio(ui.size.width / max(ui.size.height, 1), contentMode: .fit)
-                .frame(maxHeight: 470)
-                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-                .overlay {
-                    RoundedRectangle(cornerRadius: 20, style: .continuous)
-                        .strokeBorder(Theme.stroke, lineWidth: 1)
-                }
-                .shadow(color: .black.opacity(0.08), radius: 14, y: 8)
-                // Zentrieren passiert erst NACH dem Rahmen — die Karte selbst
-                // bleibt so breit wie das Bild.
-                .frame(maxWidth: .infinity, alignment: .center)
-                // Querformate dürfen bis dicht an den Bildschirmrand laufen.
-                .padding(.horizontal, -(Theme.screenPadding - 6))
+                ergebnisFlaeche(msg, ui: ui, imgData: imgData)
 
                 // Nur Ergebnisse landen hier — das eingefügte Foto läuft über
                 // `sentPhotoBubble`. Der Hinweis „Describe what you want
@@ -648,6 +590,60 @@ struct ChatEditView: View {
             .padding(.horizontal, 16).padding(.vertical, 14)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Theme.danger.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        }
+    }
+
+    /// Die Ergebnisfläche: Vergleich, wenn es etwas zu vergleichen gibt.
+    ///
+    /// HIER LAG EIN TIPP-UMSCHALTER — ein Tipp aufs Bild schaltete zwischen
+    /// Original und Ergebnis. Zwei Zustände, dazwischen nichts; der Übergang,
+    /// also genau das, was der Edit gemacht hat, war nie zu sehen. Bei
+    /// mehreren Nachbesserungen fehlte außerdem jeder Zwischenstand: das
+    /// „Vorher" war immer nur der eine Schritt davor.
+    @ViewBuilder
+    private func ergebnisFlaeche(_ msg: ChatMessage, ui: UIImage, imgData: Data) -> some View {
+        let vorher: [Data] = msg.chain.isEmpty
+            ? (msg.beforeImage.map { [$0] } ?? [])
+            : msg.chain
+        let staende = vorher.compactMap { ChatImageCache.image(for: $0) } + [ui]
+
+        if !msg.isOriginal, staende.count >= 2 {
+            VersionSlider(versions: staende,
+                          titles: msg.chainTitles,
+                          cornerRadius: 20,
+                          showsRail: staende.count >= 3,
+                          onTap: {
+                              previewItem = ChatImagePreviewItem(
+                                  imageData: imgData, beforeData: msg.beforeImage,
+                                  caption: nil, steps: vorher, stepTitles: msg.chainTitles)
+                          })
+                .frame(maxHeight: 470)
+                .shadow(color: .black.opacity(0.08), radius: 14, y: 8)
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.horizontal, -(Theme.screenPadding - 6))
+        } else {
+            Image(uiImage: ui).resizable().scaledToFill()
+                .modifier(RevealWipe(
+                    ui: ui,
+                    active: !msg.isOriginal && !revealedResults.contains(msg.id),
+                    onStarted: { revealedResults.insert(msg.id) }
+                ))
+                // WICHTIG — Reihenfolge: erst das Seitenverhältnis, dann NUR eine
+                // Höhen-Grenze. Kein `maxWidth: .infinity` vor dem Rahmen, sonst
+                // ist der Rahmen immer bildschirmbreit und ein Hochformat sitzt
+                // mit weißen Balken darin. So legt sich der Rahmen exakt ums Bild.
+                .aspectRatio(ui.size.width / max(ui.size.height, 1), contentMode: .fit)
+                .frame(maxHeight: 470)
+                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .strokeBorder(Theme.stroke, lineWidth: 1)
+                }
+                .shadow(color: .black.opacity(0.08), radius: 14, y: 8)
+                // Zentrieren passiert erst NACH dem Rahmen — die Karte selbst
+                // bleibt so breit wie das Bild.
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.horizontal, -(Theme.screenPadding - 6))
         }
     }
 
@@ -1293,6 +1289,15 @@ struct ChatEditView: View {
             UIImage(data: data)?.cgImage.map { CGSize(width: $0.width, height: $0.height) }
         }
         let beforeForThisEdit = currentImage
+        // Kette hier nachziehen statt an den zehn Stellen, an denen ein Bild in
+        // die Ansicht kommt: dies ist der einzige Weg, auf dem ein neuer Stand
+        // entsteht. Passt der letzte bekannte Stand nicht zum Eingang, hat
+        // jemand ein anderes Bild gewählt und die Kette fängt neu an.
+        if kette.last != beforeForThisEdit {
+            kette = beforeForThisEdit.map { [$0] } ?? []
+            ketteTitel = []
+        }
+        let vorgeschichte = kette
 
         await MainActor.run {
             // Jetzt erst wandert das im Eingabefeld gehaltene Foto in den Chat —
@@ -1338,18 +1343,25 @@ struct ChatEditView: View {
                 await MainActor.run {
                     store.consume(cost)
                     currentImage = finalData
+                    let titelJetzt = ketteTitel + [VersionChain.kurzerTitel(rawPrompt)]
                     if let lastIdx = messages.indices.last {
-                        messages[lastIdx] = ChatMessage(
+                        var m = ChatMessage(
                             role: .assistant,
                             text: rawPrompt,
                             image: finalData,
                             isLoading: false,
                             beforeImage: beforeForThisEdit
                         )
+                        m.chain = vorgeschichte
+                        m.chainTitles = titelJetzt
+                        messages[lastIdx] = m
                     }
+                    kette.append(finalData)
+                    ketteTitel.append(VersionChain.kurzerTitel(rawPrompt))
                     isWorking = false
                     // Ergebnis in „My Creations" (Library) ablegen.
-                    persistToLibrary(finalData, prompt: rawPrompt, cost: cost)
+                    persistToLibrary(finalData, prompt: rawPrompt, cost: cost,
+                                     staende: vorgeschichte, titel: titelJetzt)
                     ChatSessionStore.save(messages: messages, currentImage: currentImage)
                 }
             case .failure(let reason):
@@ -1420,7 +1432,8 @@ struct ChatEditView: View {
     /// gleiche Persistenz wie Template-/Studio-Bilder (Datei in Documents +
     /// Thumbnail + SwiftData-Eintrag). Fehler werden still geschluckt (das
     /// Ergebnis bleibt im Chat sichtbar).
-    private func persistToLibrary(_ data: Data, prompt: String, cost: Int) {
+    private func persistToLibrary(_ data: Data, prompt: String, cost: Int,
+                                  staende: [Data] = [], titel: [String] = []) {
         // Bytes 1:1 in Documents schreiben (verlustfrei), Endung nach Signatur.
         let ext = (data.starts(with: [0x89, 0x50, 0x4E, 0x47])) ? "png" : "jpg"
         let project = VideoProject(
@@ -1440,6 +1453,7 @@ struct ChatEditView: View {
             return
         }
         project.localVideoFilename = filename
+        project.setzeKette(staende, titel: titel)
         // Thumbnail (verkleinert) fürs Library-Raster.
         if let img = UIImage(data: data),
            let thumb = img.preparingThumbnail(of: CGSize(width: 600, height: 600 * img.size.height / max(img.size.width, 1))) {
@@ -1515,6 +1529,11 @@ struct ChatMessage: Identifiable, Codable {
     var videoURL: String? = nil
     /// Referenzbild direkt vor diesem Edit (für Vorher/Nachher im Vollbild).
     var beforeImage: Data? = nil
+    /// Alle Stände VOR `image`, ältester zuerst. Mit `image` zusammen die
+    /// vollständige Kette — `beforeImage` kennt immer nur den letzten Schritt.
+    var chain: [Data] = []
+    /// Ein Titel je Übergang.
+    var chainTitles: [String] = []
 
     enum Role: String, Codable { case user, assistant }
 }
@@ -1562,23 +1581,41 @@ struct ChatImagePreviewItem: Identifiable {
     let imageData: Data
     let beforeData: Data?
     let caption: String?
+    /// Alle Stände VOR `imageData`, ältester zuerst. Leer = nur Vorher/Nachher
+    /// über `beforeData`, so wie es die älteren Aufrufer übergeben.
+    var steps: [Data] = []
+    /// Ein Titel je Übergang.
+    var stepTitles: [String] = []
 }
 
-/// Vollbild-Vorschau: heller Hintergrund im App-Look, und der Vergleich läuft
-/// über EINEN Tap aufs Bild statt über einen Umschalter. Vorher und Nachher
-/// liegen exakt deckungsgleich übereinander und werden nur überblendet — das
-/// Bild springt also nie, es wechselt weich an derselben Stelle.
+/// Vollbild-Vorschau: heller Hintergrund im App-Look, der Vergleich läuft über
+/// einen Griff, den man zieht.
+///
+/// HIER STAND EIN TIPP-UMSCHALTER. Einmal tippen zeigte das Original, nochmal
+/// tippen das Ergebnis — ein Schnitt zwischen zwei Zuständen. Man sah nie den
+/// Übergang, und genau der ist das, was der Filter gemacht hat. Wer mehrfach
+/// nachbesserte, bekam von den Zwischenständen ohnehin nichts zu sehen: das
+/// Vorher war immer nur der EINE Schritt davor.
+///
+/// Jetzt legt der Griff frei, so weit man zieht, und ab drei Ständen führt die
+/// Leiste darunter durch jeden einzelnen.
 struct ChatImageFullscreenView: View {
     let item: ChatImagePreviewItem
     var onSave: (Data) -> Void
 
     @Environment(\.dismiss) private var dismiss
-    /// true = Original sichtbar. Nur relevant, wenn es ein Vorher-Bild gibt.
-    @State private var showingBefore = false
 
     private var afterImage: UIImage? { UIImage(data: item.imageData) }
     private var beforeImage: UIImage? { item.beforeData.flatMap { UIImage(data: $0) } }
-    private var hasCompare: Bool { beforeImage != nil && afterImage != nil }
+    /// Die vollständige Kette. `steps` gewinnt; kennt der Aufrufer sie nicht,
+    /// bleibt es beim einen Schritt aus `beforeData`.
+    private var staende: [UIImage] {
+        let vorher: [Data] = item.steps.isEmpty
+            ? (item.beforeData.map { [$0] } ?? [])
+            : item.steps
+        return vorher.compactMap { UIImage(data: $0) } + (afterImage.map { [$0] } ?? [])
+    }
+    private var hasCompare: Bool { staende.count >= 2 }
 
     private let previewInset: CGFloat = 20
     private let previewCorner: CGFloat = 18
@@ -1594,8 +1631,19 @@ struct ChatImageFullscreenView: View {
                     .padding(.bottom, 10)
 
                 Group {
-                    if let after = afterImage {
-                        stackedPreview(after: after, before: beforeImage)
+                    if hasCompare {
+                        vergleich()
+                    } else if let after = afterImage {
+                        Image(uiImage: after)
+                            .resizable()
+                            .scaledToFit()
+                            .clipShape(RoundedRectangle(cornerRadius: previewCorner, style: .continuous))
+                            .overlay(
+                                RoundedRectangle(cornerRadius: previewCorner, style: .continuous)
+                                    .strokeBorder(Theme.stroke, lineWidth: 1)
+                            )
+                            .shadow(color: .black.opacity(0.12), radius: 18, y: 8)
+                            .padding(.horizontal, previewInset)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -1603,7 +1651,6 @@ struct ChatImageFullscreenView: View {
                 footer
             }
         }
-        .onAppear { if !hasCompare { showingBefore = false } }
     }
 
     private var topBar: some View {
@@ -1621,7 +1668,7 @@ struct ChatImageFullscreenView: View {
             Spacer()
 
             Button {
-                onSave(showingBefore ? (item.beforeData ?? item.imageData) : item.imageData)
+                onSave(item.imageData)
             } label: {
                 Image(systemName: "square.and.arrow.down")
                     .font(.system(size: 14, weight: .bold))
@@ -1644,10 +1691,11 @@ struct ChatImageFullscreenView: View {
                     .lineLimit(3)
             }
             if hasCompare {
-                Text(showingBefore ? "Tap to see the result" : "Tap to see the original")
+                Text(staende.count >= 3
+                     ? "Drag the handle to compare · use the bar for each step"
+                     : "Drag the handle to compare")
                     .font(.system(size: 12, weight: .semibold, design: .rounded))
                     .foregroundStyle(Theme.textSecondary.opacity(0.8))
-                    .contentTransition(.opacity)
             }
         }
         .padding(.horizontal, 24)
@@ -1655,54 +1703,16 @@ struct ChatImageFullscreenView: View {
         .padding(.bottom, 16)
     }
 
-    /// Beide Bilder deckungsgleich gestapelt; getauscht wird nur die Deckkraft.
-    /// Dadurch bleibt die Position exakt gleich und der Wechsel ist ein Fade.
-    private func stackedPreview(after: UIImage, before: UIImage?) -> some View {
-        GeometryReader { geo in
-            let w = max(0, geo.size.width - previewInset * 2)
-            let h = max(0, geo.size.height - previewInset * 2)
-
-            ZStack {
-                Image(uiImage: after)
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: w, height: h)
-                    .opacity(showingBefore ? 0 : 1)
-
-                if let before {
-                    Image(uiImage: before)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(width: w, height: h)
-                        .opacity(showingBefore ? 1 : 0)
-                }
-            }
-            .frame(width: w, height: h)
-            .clipShape(RoundedRectangle(cornerRadius: previewCorner, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: previewCorner, style: .continuous)
-                    .strokeBorder(Theme.stroke, lineWidth: 1)
-            )
-            .overlay(alignment: .topLeading) {
-                if hasCompare {
-                    Text(showingBefore ? "BEFORE" : "AFTER")
-                        .font(.system(size: 10, weight: .black, design: .rounded))
-                        .tracking(0.6)
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 9).padding(.vertical, 5)
-                        .background(.black.opacity(0.45), in: Capsule())
-                        .padding(12)
-                        .contentTransition(.opacity)
-                }
-            }
-            .shadow(color: .black.opacity(0.12), radius: 18, y: 8)
-            .frame(width: geo.size.width, height: geo.size.height)
-            // Ganzes Bild ist die Schaltfläche — kein separater Umschalter.
-            .contentShape(Rectangle())
-            .onTapGesture {
-                guard hasCompare else { return }
-                withAnimation(.easeInOut(duration: 0.32)) { showingBefore.toggle() }
-            }
+    /// Der Vergleich. Bei genau zwei Ständen ein reiner Vorher/Nachher-Schieber,
+    /// darüber hinaus zusätzlich die Schrittleiste.
+    private func vergleich() -> some View {
+        VStack {
+            Spacer(minLength: 0)
+            VersionSlider(versions: staende,
+                          titles: item.stepTitles,
+                          cornerRadius: previewCorner)
+                .shadow(color: .black.opacity(0.12), radius: 18, y: 8)
+            Spacer(minLength: 0)
         }
         .padding(.horizontal, previewInset)
     }

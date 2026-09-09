@@ -60,6 +60,11 @@ struct DirectorWorkspace<Mascot: View>: View {
     let photo: Data?
     /// Ein zweites Bild zum Vergleichen (Vorher), falls es ein Ergebnis gibt.
     let before: Data?
+    /// Alle Stände VOR `photo`, ältester zuerst. Leer heißt: was in `before`
+    /// steht, ist die ganze Vorgeschichte.
+    var staende: [Data] = []
+    /// Ein Titel je Übergang.
+    var staendeTitel: [String] = []
     let isWorking: Bool
     /// Zwischenstand aus dem Renderpfad, etwa „Fixing: plastic skin".
     let note: String?
@@ -307,36 +312,6 @@ struct DirectorWorkspace<Mascot: View>: View {
 
     // MARK: - Der Director's Cut
 
-    /// Sagt, WO man ist und WAS ein Tipp tut.
-    ///
-    /// Vorher stand hier nur „AFTER" mit einem Finger-Symbol. Das benennt den
-    /// Zustand, aber nicht das Paar — wer nicht tippt, erfaehrt nie, dass es
-    /// ueberhaupt ein Vorher gibt. Und ein Symbol allein liest niemand als
-    /// „hier kann man umschalten".
-    ///
-    /// Jetzt steht beides da: der aktuelle Zustand fett, dahinter in
-    /// Grauweiss, was der Tipp bringt. Damit ist der Vergleich schon aus dem
-    /// Stand zu verstehen, ohne ihn ausprobiert zu haben.
-    private var standMarke: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "hand.tap.fill")
-                .font(.system(size: 9.5, weight: .bold))
-            Text(zeigeVorher ? "BEFORE" : "AFTER")
-                .font(.system(size: 10, weight: .black, design: .rounded))
-                .tracking(1.1)
-                .contentTransition(.opacity)
-            Text(zeigeVorher ? "TAP FOR AFTER" : "TAP FOR BEFORE")
-                .font(.system(size: 9.5, weight: .semibold, design: .rounded))
-                .tracking(0.6)
-                .foregroundStyle(.white.opacity(0.66))
-                .contentTransition(.opacity)
-        }
-        .foregroundStyle(.white)
-        .padding(.horizontal, 10).padding(.vertical, 6)
-        .background(.black.opacity(0.46), in: Capsule())
-        .padding(10)
-    }
-
     private func seitenVerhaeltnis(_ bild: UIImage) -> CGFloat {
         guard bild.size.height > 0 else { return 1 }
         // Gedeckelt, damit ein extremes Panorama oder ein sehr schmales
@@ -344,12 +319,20 @@ struct DirectorWorkspace<Mascot: View>: View {
         return min(max(bild.size.width / bild.size.height, 0.55), 1.8)
     }
 
-    /// Original und Ergebnis im selben Rahmen, umgeschaltet per Tipp.
+    /// Original und Ergebnis im selben Rahmen, mit einem Griff dazwischen.
     ///
-    /// Hier lag ein Schieber mit Trennlinie. Der zeigt beide Zustaende
-    /// gleichzeitig, aber er verlangt auch, dass man ihn greift und haelt —
-    /// und die Linie liegt die ganze Zeit quer durchs Gesicht. Beim ERGEBNIS
-    /// will man nicht vergleichen, sondern sehen, was herausgekommen ist.
+    /// HIER STAND EIN TIPP-UMSCHALTER, und darunter dieser Grund: ein Schieber
+    /// „verlangt, dass man ihn greift und haelt — und die Linie liegt die ganze
+    /// Zeit quer durchs Gesicht. Beim ERGEBNIS will man nicht vergleichen,
+    /// sondern sehen, was herausgekommen ist."
+    ///
+    /// Der Einwand war richtig, er galt aber einem Schieber, der in der Mitte
+    /// startet. `VersionSlider` startet bei 12 Prozent: das Ergebnis steht
+    /// ganzflaechig da, die Naht sitzt am linken Rand und nicht im Gesicht.
+    /// Ein einziger Wisch beim Erscheinen zeigt, dass man ziehen kann, dann
+    /// bleibt es ruhig. Was der Umschalter nicht konnte und der Griff kann:
+    /// den UEBERGANG zeigen — und bei mehrfach nachbearbeiteten Bildern jeden
+    /// Zwischenstand statt nur den ersten und den letzten.
     ///
     /// Die Hoehe kommt aus dem Bildschirm, nicht aus einer festen Zahl: bei
     /// 186 Punkten wie frueher war das Ergebnis eine Briefmarke unter einer
@@ -376,30 +359,18 @@ struct DirectorWorkspace<Mascot: View>: View {
                 // blieben links und rechts leere Balken stehen. Jetzt gibt das
                 // Seitenverhaeltnis des Bildes die Form vor und die Hoehe ist
                 // nur noch gedeckelt.
-                Color.clear
-                    .aspectRatio(seitenVerhaeltnis(nachherBild), contentMode: .fit)
+                let kette = staende.isEmpty ? [vorherBild] : staende.compactMap { UIImage(data: $0) }
+                VersionSlider(versions: kette + [nachherBild],
+                              titles: staendeTitel,
+                              cornerRadius: 16,
+                              showsRail: kette.count >= 2)
                     .frame(maxWidth: .infinity)
                     .frame(maxHeight: UIScreen.main.bounds.height * 0.46)
-                    .overlay {
-                        ZStack {
-                            Image(uiImage: nachherBild).resizable().scaledToFill()
-                                .opacity(zeigeVorher ? 0 : 1)
-                            Image(uiImage: vorherBild).resizable().scaledToFill()
-                                .opacity(zeigeVorher ? 1 : 0)
-                        }
-                    }
-                    .clipped()
-                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
-                    .overlay(alignment: .bottomLeading) { standMarke }
                     // Der Rahmen der Library: 9 Punkt Polster, Glas, Ecke 23.
                     // Wer dort seine Bilder ansieht, erkennt hier dieselbe Form.
                     .padding(9)
                     .glassEffect(.regular.interactive(),
                                  in: RoundedRectangle(cornerRadius: 23, style: .continuous))
-                    .contentShape(RoundedRectangle(cornerRadius: 23, style: .continuous))
-                    .onTapGesture {
-                        withAnimation(.smooth(duration: 0.28)) { zeigeVorher.toggle() }
-                    }
                     .shadow(color: Theme.textPrimary.opacity(0.12), radius: 14, y: 7)
 
                 HStack(spacing: 8) {

@@ -29,6 +29,16 @@ struct AgentView: View {
     @State private var attachments: [Data] = []          // Fotos für den nächsten Zug
     @State private var lastResult: Data?                 // letztes erzeugtes Bild → impliziter Input für Folge-Edits
     @State private var lastImages: [Data] = []           // zuletzt angehängte Original-Fotos → für Options/Folge-Edits
+    /// Alle bisherigen Stände dieses Bildes, ältester zuerst: das Ausgangsfoto
+    /// und jedes Ergebnis, das darauf folgte.
+    ///
+    /// Wofür: damit der Vergleich in der Bibliothek nicht nur „Foto rein, Bild
+    /// raus" zeigen kann, sondern jeden einzelnen Schritt dazwischen. Wer drei
+    /// Mal nachbessert, hat drei Zwischenstände — die waren bisher nach dem
+    /// Absenden weg.
+    @State private var kette: [Data] = []
+    /// Was der jeweilige Schritt gemacht hat, ein Eintrag je Übergang.
+    @State private var ketteTitel: [String] = []
     @State private var isWorking = false
     /// Was auf dem Foto angestrichen wurde. Füttert die Schnellaufträge der
     /// Regie-Leiste — sie soll über DIESES Bild reden, nicht über Fotos.
@@ -52,7 +62,6 @@ struct AgentView: View {
     @State private var pendingItems: [PhotosPickerItem] = []
     @State private var previewItem: ChatImagePreviewItem?
     @State private var animatedUserMsgs: Set<UUID> = []   // Pop-in + Larper-Reaktion nur einmal je Bild-Nachricht
-    @State private var showingOriginalResults: Set<UUID> = []
     @State private var toast: String?
     @State private var showSubscriptionGate = false
     @FocusState private var inputFocused: Bool
@@ -422,6 +431,8 @@ struct AgentView: View {
                     },
                     photo: letzter?.resultImage ?? lastImages.first,
                     before: letzter?.resultImage != nil ? lastImages.first : nil,
+                    staende: letzter?.resultImage != nil ? (letzter?.chain ?? []) : [],
+                    staendeTitel: letzter?.chainTitles ?? [],
                     isWorking: letzter?.isLoading ?? false,
                     note: letzter?.loadingNote,
                     picks: letzter?.picks ?? [],
@@ -705,56 +716,7 @@ struct AgentView: View {
                                 .textSelection(.enabled)
                         }
                         if let result = msg.resultImage, let ui = UIImage(data: result) {
-                            ZStack(alignment: .topLeading) {
-                                Image(uiImage: ui)
-                                    .resizable()
-                                    .scaledToFit()
-                                    .opacity(showingOriginalResults.contains(msg.id) ? 0 : 1)
-
-                                if let beforeData = msg.beforeImage,
-                                   let before = UIImage(data: beforeData) {
-                                    Image(uiImage: before)
-                                        .resizable()
-                                        .scaledToFit()
-                                        .opacity(showingOriginalResults.contains(msg.id) ? 1 : 0)
-
-                                    Text(showingOriginalResults.contains(msg.id) ? "ORIGINAL" : "RESULT")
-                                        .font(.system(size: 10, weight: .black, design: .rounded))
-                                        .tracking(0.6)
-                                        .foregroundStyle(.white)
-                                        .padding(.horizontal, 9).padding(.vertical, 5)
-                                        .background(.black.opacity(0.48), in: Capsule())
-                                        .padding(12)
-                                        .contentTransition(.opacity)
-                                }
-                            }
-                            .frame(maxWidth: 300)
-                            .clipShape(RoundedRectangle(cornerRadius: 16))
-                            .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.stroke, lineWidth: 1))
-                            .contentShape(Rectangle())
-                            .onTapGesture {
-                                guard msg.beforeImage != nil else {
-                                    previewItem = ChatImagePreviewItem(imageData: result, beforeData: nil, caption: nil)
-                                    return
-                                }
-                                withAnimation(.easeInOut(duration: 0.28)) {
-                                    if showingOriginalResults.contains(msg.id) {
-                                        showingOriginalResults.remove(msg.id)
-                                    } else {
-                                        showingOriginalResults.insert(msg.id)
-                                    }
-                                }
-                            }
-
-                            if msg.beforeImage != nil {
-                                Label(
-                                    showingOriginalResults.contains(msg.id) ? "Original · tap for result" : "Result · tap for original",
-                                    systemImage: "hand.tap"
-                                )
-                                .font(.system(size: 11, weight: .medium, design: .rounded))
-                                .foregroundStyle(Theme.textTertiary)
-                                .contentTransition(.opacity)
-                            }
+                            ergebnisBlock(msg, result: result, bild: ui)
                             HStack(spacing: 10) {
                                 agentActionButton(icon: "square.and.arrow.down", text: "Save") { saveImage(result) }
                                 agentActionButton(icon: "arrow.uturn.up", text: "Edit again") { useAsInput(result) }
@@ -766,6 +728,59 @@ struct AgentView: View {
                 Spacer(minLength: msg.picks.isEmpty ? 40 : 0)
             }
         }
+    }
+
+    /// Das fertige Bild in der Blase — mit Vergleichsgriff statt Umschalter.
+    ///
+    /// HIER LAG EIN TIPP-UMSCHALTER: einmal tippen zeigte das Original, nochmal
+    /// tippen das Ergebnis. Zwei Zustände, dazwischen nichts. Man sah, DASS
+    /// sich etwas geändert hat, nie aber, WAS — und wer mehrfach nachbesserte,
+    /// bekam von den Zwischenständen gar nichts zu sehen.
+    ///
+    /// Jetzt liegen beide deckungsgleich übereinander und der Griff legt frei,
+    /// so viel man will. Ab drei Ständen kommt die Schrittleiste dazu.
+    @ViewBuilder
+    private func ergebnisBlock(_ msg: AgentMessage, result: Data, bild: UIImage) -> some View {
+        // Ältere Nachrichten (und die Testfälle) kennen nur `beforeImage` —
+        // daraus wird eine Kette mit einem Schritt.
+        let vorher: [Data] = msg.chain.isEmpty
+            ? (msg.beforeImage.map { [$0] } ?? [])
+            : msg.chain
+        let staende = vorher.compactMap { UIImage(data: $0) } + [bild]
+
+        if staende.count >= 2 {
+            VersionSlider(versions: staende,
+                          titles: msg.chainTitles,
+                          cornerRadius: 16,
+                          showsRail: staende.count >= 3,
+                          onTap: { previewItem = vorschau(msg, result: result) })
+                .frame(maxWidth: 300)
+            Label(staende.count >= 3 ? "Drag to compare · slide through every step"
+                                     : "Drag to compare · tap to open",
+                  systemImage: "arrow.left.and.right")
+                .font(.system(size: 11, weight: .medium, design: .rounded))
+                .foregroundStyle(Theme.textTertiary)
+        } else {
+            Image(uiImage: bild)
+                .resizable()
+                .scaledToFit()
+                .frame(maxWidth: 300)
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .overlay(RoundedRectangle(cornerRadius: 16).strokeBorder(Theme.stroke, lineWidth: 1))
+                .contentShape(Rectangle())
+                .onTapGesture { previewItem = vorschau(msg, result: result) }
+        }
+    }
+
+    private func vorschau(_ msg: AgentMessage, result: Data) -> ChatImagePreviewItem {
+        let vorher: [Data] = msg.chain.isEmpty
+            ? (msg.beforeImage.map { [$0] } ?? [])
+            : msg.chain
+        return ChatImagePreviewItem(imageData: result,
+                                    beforeData: msg.beforeImage,
+                                    caption: nil,
+                                    steps: vorher,
+                                    stepTitles: msg.chainTitles)
     }
 
     /// On-brand Lade-Text: der generische „Thinking…"-Platzhalter wird ersetzt,
@@ -1376,6 +1391,24 @@ struct AgentView: View {
         let refs: [Data] = sourceImages.isEmpty ? [AiCharacter.seedImageData()] : sourceImages
         let beforeForCompare = sourceImages.first
 
+        // Die Vorgeschichte fürs Vorher/Nachher — HIER nachgezogen, nicht an
+        // den fünf Stellen, an denen ein Foto in die Ansicht kommt. `runEdit`
+        // ist der einzige Weg, auf dem überhaupt ein neuer Stand entsteht, und
+        // es sieht sein Eingangsbild selbst. Passt der letzte bekannte Stand
+        // nicht zum Eingang, hat jemand ein anderes Foto gewählt und die Kette
+        // fängt neu an.
+        if kette.last != beforeForCompare {
+            kette = beforeForCompare.map { [$0] } ?? []
+            ketteTitel = []
+        }
+        let vorgeschichte = kette
+        let schrittTitel = ketteTitel + [VersionChain.kurzerTitel(action.prompt)]
+        // Verkleinern kostet je Stand einige Millisekunden — nicht auf dem
+        // Hauptthread, sonst hakt genau in dem Moment die Tastatur.
+        let gepackteKette = await Task.detached(priority: .utility) {
+            VersionChain.pack(vorgeschichte)
+        }.value
+
         await MainActor.run {
             if let last = messages.indices.last {
                 messages[last].isLoading = true
@@ -1409,6 +1442,8 @@ struct AgentView: View {
         let projekt = startProject(
             prompt: action.prompt, cost: cost, quality: quality.apiValue
         )
+        projekt.stepImagesData = gepackteKette
+        projekt.stepTitles = schrittTitel
         do {
             let taskID = try await ImageEditAPI.createTask(request)
             projekt.taskID = taskID
@@ -1496,9 +1531,13 @@ struct AgentView: View {
                         m.loadingNote = nil
                         m.resultImage = finalData
                         m.beforeImage = beforeForCompare
+                        m.chain = vorgeschichte
+                        m.chainTitles = schrittTitel
                         messages[last] = m
                     }
                     lastResult = finalData   // impliziter Input für den nächsten Folge-Edit
+                    kette.append(finalData)
+                    ketteTitel.append(VersionChain.kurzerTitel(action.prompt))
                     isWorking = false
                     finishProject(projekt, data: finalData)
                 }
@@ -1838,6 +1877,12 @@ struct AgentView: View {
         var completed: [(option: DirectorAPI.Option, data: Data)] = []
         var failures = 0
 
+        // Vorher/Nachher: alle Fassungen entstehen aus DEMSELBEN Foto, jede hat
+        // also genau einen Schritt. Einmal verkleinert, für alle benutzt.
+        let gepackteQuelle = await Task.detached(priority: .utility) {
+            VersionChain.pack(Array(sourceImages.prefix(1)))
+        }.value
+
         for (index, option) in options.enumerated() {
             if let messageIndex = messages.firstIndex(where: { $0.id == loadingID }) {
                 messages[messageIndex].loadingNote = options.count == 1
@@ -1856,6 +1901,8 @@ struct AgentView: View {
             let projekt = startProject(
                 prompt: option.prompt, cost: costPerImage, quality: quality.apiValue
             )
+            projekt.stepImagesData = gepackteQuelle
+            projekt.stepTitles = [VersionChain.kurzerTitel(option.prompt)]
             do {
                 let taskID = try await ImageEditAPI.createTask(request)
                 projekt.taskID = taskID
@@ -1930,6 +1977,8 @@ struct AgentView: View {
             )
             resultMessage.resultImage = item.data
             resultMessage.beforeImage = sourceImages.first
+            resultMessage.chain = Array(sourceImages.prefix(1))
+            resultMessage.chainTitles = [VersionChain.kurzerTitel(item.option.prompt)]
             withAnimation(.smooth(duration: 0.48)) {
                 messages.append(resultMessage)
             }
@@ -1957,6 +2006,8 @@ struct AgentView: View {
         attachments = []
         lastResult = nil
         lastImages = []
+        kette = []
+        ketteTitel = []
     }
 
     /// Legt das Projekt an, BEVOR gerendert wird.
@@ -2129,6 +2180,12 @@ struct AgentMessage: Identifiable {
     var loadingNote: String? = nil // Zwischenstatus beim Laden (z. B. „Checking realism…")
     var resultImage: Data? = nil   // vom Agenten erzeugtes Bild (bei .assistant)
     var beforeImage: Data? = nil   // Quellbild für Vorher/Nachher im Vollbild
+    /// Alle Stände VOR `resultImage`, ältester zuerst. Mit `resultImage`
+    /// zusammen ergibt das die vollständige Kette für den Vergleich — auch bei
+    /// mehreren Nachbesserungen, wo `beforeImage` nur den letzten Schritt kennt.
+    var chain: [Data] = []
+    /// Ein Titel je Übergang der Kette.
+    var chainTitles: [String] = []
     /// Ein, zwei oder drei Vorschläge — so viele, wie das Foto verdient.
     var picks: [DirectorAPI.Option] = []
     /// Der Vorschlag, den er selbst nehmen würde. Bei genau einem immer der.
