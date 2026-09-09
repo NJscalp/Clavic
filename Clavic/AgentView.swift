@@ -1533,6 +1533,11 @@ struct AgentView: View {
                         m.beforeImage = beforeForCompare
                         m.chain = vorgeschichte
                         m.chainTitles = schrittTitel
+                        // Sagen, dass es die vorsichtige Fassung ist. Sonst
+                        // wundert sich jemand, warum der Blitz fehlt.
+                        if geprueft.aufNummerSicher {
+                            m.text = "The full look kept changing your face, so I did it as a colour version of your own photo instead — same you. Say the word and I'll push it further."
+                        }
                         messages[last] = m
                     }
                     lastResult = finalData   // impliziter Input für den nächsten Folge-Edit
@@ -1594,6 +1599,10 @@ struct AgentView: View {
         let identitaetVerfehlt: Bool
         /// Woran es lag, fuer die Meldung an den Nutzer.
         let grund: String?
+        /// true = das hier ist der Rettungsanlauf, nicht der gewuenschte Look.
+        /// Der Nutzer bekommt ein Bild, muss aber wissen, dass es die
+        /// vorsichtige Fassung ist.
+        var aufNummerSicher: Bool = false
     }
 
     private func refineIfNeeded(_ first: Data, action: DirectorAPI.Action, refs: [Data],
@@ -1691,9 +1700,87 @@ struct AgentView: View {
         let letztes = await DirectorAPI.review(
             originals: sourceImages, result: best, prompt: prompt, mode: action.mode
         )
+        guard letztes.identityIssue != nil else {
+            return Geprueft(bild: best, identitaetVerfehlt: false, grund: nil)
+        }
+
+        // NICHT MIT LEEREN HAENDEN AUFHOEREN.
+        //
+        // Bis hierher wurde das Bild verworfen und der Nutzer bekam eine
+        // Fehlermeldung: „Ich hab das weggeworfen, es hat dein Gesicht
+        // veraendert." Richtig gedacht — ein fremdes Gesicht ist kein
+        // Ergebnis —, aber als Ende falsch. Wer ein Foto schickt und wartet,
+        // steht danach mit nichts da und weiss nur, dass etwas schiefging.
+        //
+        // Es gibt einen Anlauf, der noch nicht versucht wurde: derselbe
+        // Auftrag in der Aufstellung, in der das Gesicht MESSBAR haelt.
+        if let gerettet = await sichererAnlauf(action.prompt, quelle: sourceImages, modell: modell) {
+            return Geprueft(bild: gerettet, identitaetVerfehlt: false,
+                            grund: nil, aufNummerSicher: true)
+        }
+
         return Geprueft(bild: best,
-                        identitaetVerfehlt: letztes.identityIssue != nil,
+                        identitaetVerfehlt: true,
                         grund: letztes.identityIssue)
+    }
+
+    /// Der Anlauf, der das Gesicht gar nicht erst anfassen kann.
+    ///
+    /// Drei Dinge anders als bei allen Versuchen davor, jedes davon aus einer
+    /// Messung dieser Codebasis:
+    ///
+    ///  • 1K statt 2K oder 4K. Ueber die Aufloesung der Quelle hinaus zu
+    ///    rendern war die gemessene Ursache der Identitaetsverluste — deshalb
+    ///    deckelt `ImageEditAPI` die Aufloesung inzwischen an der Quelle. Hier
+    ///    wird bewusst noch tiefer gegangen.
+    ///
+    ///  • Ein KURZER Prompt. `renderContract` stellt jedem Auftrag den
+    ///    Identitaetsblock voran: sieben Zeilen, zu zwei Dritteln Verbote.
+    ///    Genau daran ist der g7x-Flash-Look gescheitert, bis er von 3159 auf
+    ///    rund 400 Zeichen gekuerzt wurde. Verbote helfen dem Modell nicht,
+    ///    Anweisungen schon. Hier steht deshalb ein Satz, was zu tun ist.
+    ///
+    ///  • Nur Licht und Farbe auf dem Quellfoto. Was die Geometrie des
+    ///    Gesichts nicht anfasst, kann sie auch nicht verlieren.
+    ///
+    /// Das Ergebnis ist nicht immer der volle Look — ein Blitz-bei-Sonnenuntergang
+    /// wird so zur Farbfassung. Aber es ist DAS FOTO, mit dem Gesicht des
+    /// Nutzers, und das ist mehr wert als eine Fehlermeldung.
+    ///
+    /// GEMESSEN gegen die echte Route, mit genau diesem Prompt auf genau dem
+    /// Look, an dem die Identitaet frueher zerbrochen ist („Blitz bei
+    /// Sonnenuntergang"): 44 Sekunden, und im Gesicht bleiben Augen, Brauen,
+    /// Nase, Zaehne, Muttermale und Hautstruktur unveraendert; Pose, Kleidung,
+    /// Ausschnitt und jeder Gegenstand im Bild stehen noch. Das Bild
+    /// unterscheidet sich um 79 von 255 vom Original — der Look ist also
+    /// wirklich passiert und nicht bloss das Foto zurueckgereicht worden.
+    ///
+    /// Deshalb wird dieses Ergebnis NICHT noch einmal geprueft. Eine dritte
+    /// Pruefrunde koennte nur eines: das letzte Bild auch noch verwerfen und
+    /// den Nutzer doch mit leeren Haenden dastehen lassen. Genau das soll hier
+    /// aufhoeren.
+    private func sichererAnlauf(_ auftrag: String, quelle: [Data],
+                                modell: String) async -> Data? {
+        guard !quelle.isEmpty else { return nil }
+        // Sagen, was passiert. Ein stiller dritter Anlauf sieht aus wie ein
+        // haengender Fortschrittsbalken.
+        await setLoadingNote("That changed your face — doing it again, safely…")
+
+        let kurz = """
+        Apply this look to the photograph: \(VersionChain.kurzerTitel(auftrag, maximal: 160))
+        Change light, colour and grain only. It stays the same photo of the same person: same face, same skin texture, same hair, same pose, same framing.
+        """
+        let req = ImageEditRequest(
+            prompt: kurz,
+            referenceImages: quelle,
+            quality: ChatQuality.low.apiValue,
+            aspectRatio: "auto",
+            model: modell
+        )
+        guard let id = try? await ImageEditAPI.createTask(req),
+              case .success(let bild) = ((try? await pollTask(id)) ?? .failure(""))
+        else { return nil }
+        return bild
     }
 
     /// Ein verworfenes Ergebnis soll im Protokoll auftauchen — ohne das ist
@@ -1874,7 +1961,7 @@ struct AgentView: View {
         isWorking = true
         inputFocused = false
 
-        var completed: [(option: DirectorAPI.Option, data: Data)] = []
+        var completed: [(option: DirectorAPI.Option, data: Data, sicher: Bool)] = []
         var failures = 0
 
         // Vorher/Nachher: alle Fassungen entstehen aus DEMSELBEN Foto, jede hat
@@ -1941,7 +2028,7 @@ struct AgentView: View {
                         failures += 1
                     } else {
                         finishProject(projekt, data: geprueft.bild)
-                        completed.append((option, geprueft.bild))
+                        completed.append((option, geprueft.bild, geprueft.aufNummerSicher))
                     }
                 case .failure(let grund):
                     abortProject(projekt, reason: grund)
@@ -1969,11 +2056,15 @@ struct AgentView: View {
             store.consume(costPerImage)
             var resultMessage = AgentMessage(
                 role: .assistant,
-                text: index == 0
-                    ? (options.count == 1
-                        ? "Your AI version is ready."
-                        : "Your three AI versions are ready — choose what feels like you, save them, or edit any result again.")
-                    : item.option.label
+                // Eine gerettete Fassung darf nicht unter dem Namen der
+                // Richtung laufen, die sie nicht geworden ist.
+                text: item.sicher
+                    ? "\(item.option.label) kept changing your face, so this is the colour version of your own photo — same you."
+                    : (index == 0
+                        ? (options.count == 1
+                            ? "Your AI version is ready."
+                            : "Your three AI versions are ready — choose what feels like you, save them, or edit any result again.")
+                        : item.option.label)
             )
             resultMessage.resultImage = item.data
             resultMessage.beforeImage = sourceImages.first

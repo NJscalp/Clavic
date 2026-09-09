@@ -418,11 +418,11 @@ enum VersionChain {
     /// Der Prompt ist oft ein ganzer Satz. Auf der Leiste ist Platz für ein
     /// paar Wörter, also erster Satz, hart gekappt — lieber abgeschnitten als
     /// dreizeilig umbrochen.
-    static func kurzerTitel(_ prompt: String) -> String {
+    static func kurzerTitel(_ prompt: String, maximal: Int = 34) -> String {
         let erster = prompt.split(whereSeparator: { ".!?\n".contains($0) }).first.map(String.init) ?? prompt
         let sauber = erster.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard sauber.count > 34 else { return sauber }
-        return String(sauber.prefix(33)).trimmingCharacters(in: .whitespaces) + "…"
+        guard sauber.count > maximal else { return sauber }
+        return String(sauber.prefix(maximal - 1)).trimmingCharacters(in: .whitespaces) + "…"
     }
 
     /// Ist das ein Platzhalter statt eines echten Ausgangsfotos?
