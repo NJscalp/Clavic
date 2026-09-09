@@ -26,7 +26,6 @@
 //
 
 import SwiftUI
-import AVFoundation
 
 // MARK: - Modell
 
@@ -164,87 +163,6 @@ enum ObFlow {
                 bilder: ["trend_redsunset_after", "trend_y2kdigicam_after", "trend_redlight_after"])
     ]
 
-}
-
-// MARK: - Schleifen-Video
-
-/// Spielt eine mp4 aus dem Bundle stumm in Endlosschleife.
-///
-/// Haerteanforderungen, die hier gezielt geloest sind:
-///  • Kein Doppelstart, wenn SwiftUI die View neu auswertet — sonst stapeln
-///    sich Player und der Ton-/Bildtakt geraet durcheinander.
-///  • Kein Stall-Warten: bei lokalen Dateien ist Puffern unnoetig und fuehrt
-///    nur zu Rucklern beim Start.
-///  • Pausiert im Hintergrund und laeuft beim Zurueckkehren weiter. Ohne das
-///    bleibt der Player nach einem App-Wechsel stehen und wirkt eingefroren.
-struct SchleifenVideo: UIViewRepresentable {
-    let name: String
-
-    func makeUIView(context: Context) -> SchleifenView {
-        let v = SchleifenView()
-        v.backgroundColor = .clear
-        v.starte(name: name)
-        return v
-    }
-
-    func updateUIView(_ uiView: SchleifenView, context: Context) {
-        uiView.starte(name: name)          // no-op, wenn schon derselbe Clip laeuft
-    }
-
-    static func dismantleUIView(_ uiView: SchleifenView, coordinator: ()) {
-        uiView.stoppe()
-    }
-
-    final class SchleifenView: UIView {
-        private var spieler: AVQueuePlayer?
-        private var schleife: AVPlayerLooper?
-        private var aktuell: String?
-        private var beobachter: [NSObjectProtocol] = []
-
-        override class var layerClass: AnyClass { AVPlayerLayer.self }
-        private var videoLayer: AVPlayerLayer { layer as! AVPlayerLayer }
-
-        func starte(name: String) {
-            guard aktuell != name else { return }          // schuetzt vor Doppelstart
-            stoppe()
-            guard let url = Bundle.main.url(forResource: name, withExtension: "mp4") else { return }
-
-            let element = AVPlayerItem(url: url)
-            element.preferredForwardBufferDuration = 1      // lokal, kein Vorpuffern noetig
-            let q = AVQueuePlayer()
-            q.isMuted = true
-            q.automaticallyWaitsToMinimizeStalling = false  // sonst wartet er am Start
-            q.actionAtItemEnd = .advance
-            schleife = AVPlayerLooper(player: q, templateItem: element)
-            videoLayer.player = q
-            videoLayer.videoGravity = .resizeAspect
-            spieler = q
-            aktuell = name
-            q.play()
-
-            let z = NotificationCenter.default
-            beobachter.append(z.addObserver(forName: UIApplication.didEnterBackgroundNotification,
-                                            object: nil, queue: .main) { [weak self] _ in
-                self?.spieler?.pause()
-            })
-            beobachter.append(z.addObserver(forName: UIApplication.willEnterForegroundNotification,
-                                            object: nil, queue: .main) { [weak self] _ in
-                self?.spieler?.play()
-            })
-        }
-
-        func stoppe() {
-            spieler?.pause()
-            videoLayer.player = nil
-            schleife = nil
-            spieler = nil
-            aktuell = nil
-            beobachter.forEach { NotificationCenter.default.removeObserver($0) }
-            beobachter.removeAll()
-        }
-
-        deinit { stoppe() }
-    }
 }
 
 // MARK: - Sprechblase
