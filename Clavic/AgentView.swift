@@ -558,6 +558,32 @@ struct AgentView: View {
                         // Tastatur gegen die Leiste an — sichtbar als Ruckler.
                         withAnimation(Self.composerMotion) { showComposer = true }
                         Task { @MainActor in inputFocused = true }
+                    },
+                    // EINEN LOOK DIREKT WAEHLEN — und trotzdem durch den Director.
+                    //
+                    // Der kurze Weg waere, das Rezept unveraendert zu rendern. Dann
+                    // waere die Karte aber nur ein Filterknopf, und der Look wuesste
+                    // nichts von dem Foto, auf das er trifft: dieselbe Anweisung fuer
+                    // eine Mittagsaufnahme und fuer ein Abendbild.
+                    //
+                    // Ueber `send` geht das Foto erst zur Bildlesung. Der Director
+                    // sieht, welches Licht schon da ist und wo die Person steht, und
+                    // gibt das Rezept darauf zugeschnitten zurueck. Das ist der
+                    // Unterschied zwischen einem Filter und einer Regieanweisung.
+                    onPickTrend: { look in
+                        Task {
+                            await send(
+                                override: """
+                                Give me the \(look.title) look on this photo. Read the photo \
+                                first and tune the look to what is actually in it — the light \
+                                it already has, the time of day, and where the subject sits in \
+                                the frame.
+
+                                \(look.option.prompt)
+                                """,
+                                display: look.title
+                            )
+                        }
                     }
                 )
 

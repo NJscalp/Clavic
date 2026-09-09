@@ -73,6 +73,9 @@ struct DirectorStart: View {
     var onClear: () -> Void = {}
     /// Der zweite Weg: nicht fragen, sondern selbst ansagen.
     var onOwnIdea: () -> Void = {}
+    /// Der dritte Weg: einen Look direkt waehlen. Der Director liest das Foto
+    /// trotzdem — die Lesung fliesst dann in genau diesen Look.
+    var onPickTrend: (TikTokTrends.Look) -> Void = { _ in }
 
     @State private var appeared = false
     @State private var shimmer = false
@@ -136,6 +139,11 @@ struct DirectorStart: View {
                 VStack(spacing: 12) {
                     losKnopf
                     eigeneIdeeZeile
+                    // Die Trends stehen UNTER den beiden Wegen, nicht darueber.
+                    // Der Director bleibt das Angebot des Hauses; wer schon
+                    // weiss, was er will, findet den kurzen Weg trotzdem sofort.
+                    DirectorTrendCards(onPick: onPickTrend)
+                        .padding(.top, 2)
                 }
                 .transition(.opacity.combined(with: .offset(y: 10)))
             }
