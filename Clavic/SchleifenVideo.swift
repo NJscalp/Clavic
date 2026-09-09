@@ -35,19 +35,43 @@ import AVFoundation
 import SwiftUI
 import UIKit
 
-/// Spielt einen Clip aus dem Bundle stumm in Endlosschleife.
+/// Spielt einen Clip stumm in Endlosschleife.
 struct SchleifenVideo: UIViewRepresentable {
-    let name: String
+    /// Der Clip. Fehlt er, bleibt die Flaeche leer statt abzustuerzen.
+    let quelle: URL?
+    var gravity: AVLayerVideoGravity = .resizeAspect
+    /// Aus, solange die Ansicht nicht sichtbar sein soll (anderer Tab, Sheet
+    /// darueber). Spart Dekodierung, ohne den Aufbau wegzuwerfen.
+    var isActive: Bool = true
+
+    /// Aus dem Bundle, ueber den Dateinamen ohne Endung.
+    init(name: String, gravity: AVLayerVideoGravity = .resizeAspect, isActive: Bool = true) {
+        // `.mov` als zweiter Versuch: die Maskottchen-Clips der Buehne liegen
+        // in dem Format vor, und ein Aufrufer soll den Unterschied nicht
+        // kennen muessen.
+        self.quelle = Bundle.main.url(forResource: name, withExtension: "mp4")
+            ?? Bundle.main.url(forResource: name, withExtension: "mov")
+        self.gravity = gravity
+        self.isActive = isActive
+    }
+
+    init(url: URL, gravity: AVLayerVideoGravity = .resizeAspect, isActive: Bool = true) {
+        self.quelle = url
+        self.gravity = gravity
+        self.isActive = isActive
+    }
 
     func makeUIView(context: Context) -> SchleifenView {
         let v = SchleifenView()
         v.backgroundColor = .clear
-        v.starte(name: name)
+        if let quelle { v.starte(url: quelle, gravity: gravity) }
+        v.setzeAktiv(isActive)
         return v
     }
 
     func updateUIView(_ uiView: SchleifenView, context: Context) {
-        uiView.starte(name: name)          // no-op, wenn schon derselbe Clip laeuft
+        if let quelle { uiView.starte(url: quelle, gravity: gravity) }  // no-op bei gleichem Clip
+        uiView.setzeAktiv(isActive)
     }
 
     static func dismantleUIView(_ uiView: SchleifenView, coordinator: ()) {
@@ -71,12 +95,15 @@ final class SchleifenView: UIView {
     private var hintereEbene: AVPlayerLayer { vorneIstA ? ebeneB : ebeneA }
 
     private var quelle: URL?
-    private var aktuell: String?
+    private var aktuell: URL?
     private var grenzen: [(AVPlayer, Any)] = []
     private var lebenszyklus: [NSObjectProtocol] = []
     private var wachhund: Timer?
     private var zuletztGesehen: Double = -1
     private var pausiert = false
+    /// Was der Aufrufer will — getrennt davon, ob die Ansicht gerade im
+    /// Fenster haengt. Beides muss stimmen, damit gespielt wird.
+    private var willLaufen = true
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -103,16 +130,12 @@ final class SchleifenView: UIView {
 
     // MARK: Start und Stopp
 
-    func starte(name: String) {
-        guard aktuell != name else { return }          // schuetzt vor Doppelstart
+    func starte(url: URL, gravity: AVLayerVideoGravity = .resizeAspect) {
+        guard aktuell != url else { return }           // schuetzt vor Doppelstart
         stoppe()
-        // `.mov` als zweiter Versuch: die Maskottchen-Clips der Buehne liegen
-        // in dem Format vor, und ein Aufrufer soll den Unterschied nicht
-        // kennen muessen.
-        guard let url = Bundle.main.url(forResource: name, withExtension: "mp4")
-                ?? Bundle.main.url(forResource: name, withExtension: "mov") else { return }
-
-        aktuell = name
+        ebeneA.videoGravity = gravity
+        ebeneB.videoGravity = gravity
+        aktuell = url
         quelle = url
         pausiert = false
 
@@ -124,6 +147,32 @@ final class SchleifenView: UIView {
         starteDurchgang(url, auf: vorne)
         beobachteLebenszyklus()
         starteWachhund()
+    }
+
+    /// An oder aus, ohne den Aufbau wegzuwerfen.
+    ///
+    /// Gebraucht von den Vorschauen: eine Kachel in einem anderen Tab soll
+    /// nicht dekodieren, aber beim Zurueckkommen sofort wieder laufen.
+    func setzeAktiv(_ aktiv: Bool) {
+        guard willLaufen != aktiv else { return }
+        willLaufen = aktiv
+        wendeLaufAn()
+    }
+
+    override func willMove(toWindow newWindow: UIWindow?) {
+        super.willMove(toWindow: newWindow)
+        // Aus der Ansicht gescrollt heisst: nicht dekodieren.
+        wendeLaufAn(fenster: newWindow != nil)
+    }
+
+    private func wendeLaufAn(fenster: Bool? = nil) {
+        let sichtbar = fenster ?? (window != nil)
+        pausiert = !(willLaufen && sichtbar)
+        if pausiert {
+            spielerA.pause(); spielerB.pause()
+        } else if vorne.timeControlStatus != .playing {
+            vorne.play()
+        }
     }
 
     func stoppe() {

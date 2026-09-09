@@ -105,11 +105,22 @@ final class PlayerContainerController: UIViewController {
 }
 
 /// Loopende Lade-Animation (gleicher Intro-Clip) für die Generierung.
+///
+/// NAHTLOS, nicht über `LoopingVideoView`. Der lässt bei jeder Wiederholung ein
+/// Bild aus — dieselbe Sache, die im Onboarding als Ruckler auffiel, gemessen
+/// als Sprung von 49,5 von 255 statt 0,8. Auf einer Kachel im Raster fällt das
+/// kaum auf; hier steht die Animation gross auf dem Bildschirm und läuft bei
+/// JEDER Generierung eine halbe bis eine Minute lang. Alle vier Sekunden ein
+/// Loch ist genau die Stelle, an der eine App billig wirkt.
+///
+/// Der Clip selbst trägt das: letztes zu erstem Bild springt um 2,08 von 255,
+/// ein normaler Bildwechsel im Clip liegt bei 2,67. Die Naht ist unsichtbar,
+/// sobald sie überhaupt gezeigt wird.
 struct IntroLoader: View {
     var body: some View {
         Group {
-            if let url = Bundle.main.url(forResource: "intro", withExtension: "mp4") {
-                LoopingVideoView(url: url)
+            if Bundle.main.url(forResource: "intro", withExtension: "mp4") != nil {
+                SchleifenVideo(name: "intro")
             } else {
                 ProgressView().tint(Theme.accent)
             }
