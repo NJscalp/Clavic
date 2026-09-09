@@ -1363,10 +1363,41 @@ struct AgentView: View {
             let taskID = try await ImageEditAPI.createTask(request)
             projekt.taskID = taskID
             try? modelContext.save()
-            let result = try await pollTask(taskID, onTick: { sekunden in
+            var result = try await pollTask(taskID, onTick: { sekunden in
                 guard let last = messages.indices.last, messages[last].isLoading else { return }
                 messages[last].loadingNote = Self.renderNote(seconds: sekunden)
             })
+
+            // ZWEITER ANLAUF BEI FEHLALARM DER INHALTSPRUEFUNG.
+            //
+            // GEMESSEN am 09.09.2026: Ein gewoehnliches Strandfoto in Bikini —
+            // keine Nacktheit — wird von `gpt-image-2.5-sunburst` reproduzierbar
+            // mit "Content flagged as potentially sensitive" abgewiesen, und zwar
+            // unabhaengig vom Prompt: auch "apply a warm colour grade, change
+            // only colour" wurde abgelehnt. Sechs von acht Trend-Looks scheiterten
+            // an diesem einen Foto.
+            //
+            // Nano Banana 2 akzeptiert dieselbe Aufnahme und liefert ein Ergebnis,
+            // das die Realism-QA besteht. Fuer eine App, deren Zielgruppe Strand-
+            // und Urlaubsfotos bearbeitet, ist das kein Randfall, sondern der
+            // Normalfall — und eine Fehlermeldung waere hier die falsche Antwort
+            // auf einen Fehlalarm.
+            if case .failure(let reason) = result,
+               ImageEditAPI.isContentFlagged(reason),
+               request.model != ImageEditAPI.contentFallbackModel {
+                await setLoadingNote("Trying a different engine…")
+                var retry = request
+                retry.model = ImageEditAPI.contentFallbackModel
+                if let retryID = try? await ImageEditAPI.createTask(retry) {
+                    projekt.taskID = retryID
+                    try? modelContext.save()
+                    result = try await pollTask(retryID, onTick: { sekunden in
+                        guard let last = messages.indices.last, messages[last].isLoading else { return }
+                        messages[last].loadingNote = Self.renderNote(seconds: sekunden)
+                    })
+                }
+            }
+
             switch result {
             case .success(let imageData):
                 // Realism-QA: Ergebnis prüfen und bei Bedarf EINMAL korrigiert neu

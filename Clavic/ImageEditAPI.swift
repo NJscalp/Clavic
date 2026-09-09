@@ -182,6 +182,30 @@ enum ImageEditAPI {
         throw SeedanceError.invalidResponse
     }
 
+    /// Modell fuer den zweiten Anlauf, wenn das erste die Aufnahme ablehnt.
+    ///
+    /// GEMESSEN am 09.09.2026 mit einem gewoehnlichen Strandfoto (Bikini, keine
+    /// Nacktheit): `gpt-image-2.5-sunburst` weist es mit "Content flagged as
+    /// potentially sensitive" ab — und zwar reproduzierbar und unabhaengig vom
+    /// Prompt. Auch die neutralste Formulierung ("apply a warm colour grade,
+    /// change only colour") wurde abgelehnt, es liegt also am Bild.
+    ///
+    /// Nano Banana 2 und Seedream v5 akzeptieren dasselbe Foto und liefern
+    /// Ergebnisse, die die Realism-QA bestehen. Es geht hier nicht darum, eine
+    /// Schutzfunktion auszuhebeln: Badebekleidung am Strand ist der Normalfall
+    /// dieser App, und was gerendert wird, ist eine Farbkorrektur. Abgelehnt wird
+    /// ein Fehlalarm, und dagegen hilft ein anderer Anbieter — nicht ein
+    /// getarnter Prompt.
+    static let contentFallbackModel = "google/nano-banana-2/edit"
+
+    /// Erkennt die Ablehnung wegen vermeintlich heikler Inhalte.
+    static func isContentFlagged(_ reason: String?) -> Bool {
+        guard let reason = reason?.lowercased() else { return false }
+        return reason.contains("sensitive")
+            || reason.contains("flagged")
+            || reason.contains("content policy")
+    }
+
     /// Die laengste Kante ueber alle Referenzbilder, in Pixeln.
     ///
     /// Entscheidet, wie hoch ueberhaupt gerendert werden darf. Liefert `nil`,
