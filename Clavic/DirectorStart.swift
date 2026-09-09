@@ -130,19 +130,34 @@ struct DirectorStart: View {
                 // tut genau eine Sache. Deshalb stehen sie hier und nicht in
                 // seinen Vorschlaegen — und alle drei sehen gleich aus, damit
                 // keines wie ein Hinweistext wirkt.
-                DirectorToolCards(onSwap: onCamera,
-                                  onRemove: onRemoveObjects,
-                                  onUpscale: onUpscale)
-                    .padding(.horizontal, Theme.screenPadding)
-                    .padding(.top, 2)
+                VStack(spacing: 14) {
+                    DirectorToolCards(onSwap: onCamera,
+                                      onRemove: onRemoveObjects,
+                                      onUpscale: onUpscale)
+                        .padding(.horizontal, Theme.screenPadding)
+
+                    // Die Looks stehen auch OHNE Foto schon da.
+                    //
+                    // Vorher sah man auf dem leeren Startbildschirm nur ein
+                    // Ablagefach und drei Werkzeuge — dass die App ueberhaupt
+                    // Trend-Looks kann, erfuhr man erst nach dem Hochladen und
+                    // einer Bildlesung. Wer sie sieht, weiss sofort, wofuer er
+                    // sein Foto hergibt. Ein Tipp fuehrt dann in die Mediathek
+                    // und merkt sich den Look.
+                    DirectorTrendCards(onPick: onPickTrend,
+                                       photoMissing: true,
+                                       photoSelections: $photoSelections)
+                }
+                .padding(.top, 2)
             } else {
                 VStack(spacing: 12) {
                     losKnopf
                     eigeneIdeeZeile
-                    // Die Trends stehen UNTER den beiden Wegen, nicht darueber.
-                    // Der Director bleibt das Angebot des Hauses; wer schon
-                    // weiss, was er will, findet den kurzen Weg trotzdem sofort.
-                    DirectorTrendCards(onPick: onPickTrend)
+                    // Mit Foto stehen die Trends UNTER den beiden Wegen, nicht
+                    // darueber. Der Director bleibt das Angebot des Hauses; wer
+                    // schon weiss, was er will, findet den kurzen Weg trotzdem.
+                    DirectorTrendCards(onPick: onPickTrend,
+                                       photoSelections: $photoSelections)
                         .padding(.top, 2)
                 }
                 .transition(.opacity.combined(with: .offset(y: 10)))

@@ -20,17 +20,28 @@
 //  einem Bildschirm haetten so ausgesehen, als kaemen sie aus zwei Apps.
 //
 
+import PhotosUI
 import SwiftUI
 
 struct DirectorTrendCards: View {
     /// Wird mit dem gewaehlten Look aufgerufen.
     var onPick: (TikTokTrends.Look) -> Void = { _ in }
 
+    /// Liegt noch kein Foto? Dann fuehrt eine Karte zuerst in die Mediathek.
+    ///
+    /// Die Looks stehen auch ohne Foto da, damit man SIEHT, was die App kann,
+    /// bevor man etwas hergibt. Ein Tipp darf dann aber nicht ins Leere laufen:
+    /// er merkt sich den Look und fragt nach dem Bild. Ein deaktivierter oder
+    /// stummer Knopf waere die schlechtere Antwort — er zeigt etwas Schoenes und
+    /// weigert sich dann, ohne zu sagen warum.
+    var photoMissing: Bool = false
+    @Binding var photoSelections: [PhotosPickerItem]
+
     private static let kartenBreite: CGFloat = 132
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Or pick a look")
+            Text(photoMissing ? "Looks you can pick" : "Or pick a look")
                 .font(.system(size: 13, weight: .bold, design: .rounded))
                 .foregroundStyle(Theme.textSecondary)
                 .padding(.horizontal, Theme.screenPadding)
@@ -38,7 +49,17 @@ struct DirectorTrendCards: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 10) {
                     ForEach(TikTokTrends.all) { look in
-                        karte(look)
+                        if photoMissing {
+                            PhotosPicker(selection: $photoSelections,
+                                         maxSelectionCount: 1,
+                                         matching: .images) {
+                                inhalt(look)
+                            }
+                            .buttonStyle(.plain)
+                            .simultaneousGesture(TapGesture().onEnded { onPick(look) })
+                        } else {
+                            karte(look)
+                        }
                     }
                 }
                 .padding(.horizontal, Theme.screenPadding)
@@ -50,7 +71,12 @@ struct DirectorTrendCards: View {
     }
 
     private func karte(_ look: TikTokTrends.Look) -> some View {
-        Button { onPick(look) } label: {
+        Button { onPick(look) } label: { inhalt(look) }
+            .buttonStyle(.plain)
+    }
+
+    /// Das Aussehen einer Karte — einmal beschrieben, von beiden Wegen benutzt.
+    private func inhalt(_ look: TikTokTrends.Look) -> some View {
             VStack(alignment: .leading, spacing: 7) {
                 // Das „after"-Asset zeigt, was der Look tut. Faellt es aus,
                 // bleibt die Flaeche ruhig statt ein Fragezeichen zu zeigen —
@@ -84,7 +110,5 @@ struct DirectorTrendCards: View {
                     .strokeBorder(Theme.textPrimary.opacity(0.08), lineWidth: 1)
             )
             .shadow(color: Theme.textPrimary.opacity(0.10), radius: 10, x: 0, y: 5)
-        }
-        .buttonStyle(.plain)
     }
 }

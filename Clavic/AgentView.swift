@@ -571,19 +571,7 @@ struct AgentView: View {
                     // gibt das Rezept darauf zugeschnitten zurueck. Das ist der
                     // Unterschied zwischen einem Filter und einer Regieanweisung.
                     onPickTrend: { look in
-                        Task {
-                            await send(
-                                override: """
-                                Give me the \(look.title) look on this photo. Read the photo \
-                                first and tune the look to what is actually in it — the light \
-                                it already has, the time of day, and where the subject sits in \
-                                the frame.
-
-                                \(look.option.prompt)
-                                """,
-                                display: look.title
-                            )
-                        }
+                        Task { await starteLook(look) }
                     }
                 )
 
@@ -978,6 +966,15 @@ struct AgentView: View {
 
     // MARK: - Foto laden
 
+    /// Ein Look, der ohne Foto gewaehlt wurde und auf sein Bild wartet.
+    ///
+    /// Auf dem leeren Startbildschirm stehen die Trend-Karten schon da. Wer dort
+    /// tippt, meint den Look — nur fehlt noch das Bild. Statt den Tipp zu
+    /// verschlucken merken wir ihn und loesen ihn aus, sobald das Foto geladen
+    /// ist. Sonst muesste die Nutzerin nach dem Auswaehlen ein zweites Mal
+    /// dieselbe Karte suchen und antippen.
+    @State private var vorgemerkterLook: TikTokTrends.Look?
+
     private func loadAttachments(_ items: [PhotosPickerItem]) async {
         var loaded: [Data] = []
         for item in items {
@@ -996,7 +993,34 @@ struct AgentView: View {
             attachments.append(contentsOf: loaded)
             if attachments.count > 6 { attachments = Array(attachments.suffix(6)) }
             photoSelections = []
+
+            // Das Bild ist da — jetzt den gemerkten Look ausloesen.
+            if let look = vorgemerkterLook, !attachments.isEmpty {
+                vorgemerkterLook = nil
+                Task { await starteLook(look) }
+            }
         }
+    }
+
+    /// Schickt Foto und Look an den Director.
+    ///
+    /// Ohne Bild wird der Look nur vorgemerkt: die Karte hat die Mediathek schon
+    /// geoeffnet, und `loadAttachments` holt ihn dann hier wieder ab.
+    private func starteLook(_ look: TikTokTrends.Look) async {
+        guard !attachments.isEmpty else {
+            await MainActor.run { vorgemerkterLook = look }
+            return
+        }
+        await send(
+            override: """
+            Give me the \(look.title) look on this photo. Read the photo first and \
+            tune the look to what is actually in it — the light it already has, the \
+            time of day, and where the subject sits in the frame.
+
+            \(look.option.prompt)
+            """,
+            display: look.title
+        )
     }
 
     // MARK: - Senden
