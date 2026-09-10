@@ -67,7 +67,23 @@ final class PersonalPreviews {
 
     /// Startet die Vorschauen fuer ein Foto. Mehrfachaufrufe fuer dasselbe
     /// Foto sind ein no-op.
+    /// AUS. Nicht auskommentiert, sondern ein Schalter — der Rest der Maschine
+    /// ist in Ordnung und wartet auf ein brauchbares Modell.
+    ///
+    /// WARUM ABGESCHALTET. Die Pruefung unten fragt, ob auf der Vorschau EIN
+    /// Gesicht ist — nicht, ob es DAS DES NUTZERS ist. MiniMax komponiert die
+    /// Szene neu und setzt dabei auch fremde Menschen ein; so eine Vorschau
+    /// kommt durch die Pruefung und zeigt dem Nutzer sein Foto mit einer
+    /// anderen Person darin. Genau das wurde gemeldet.
+    ///
+    /// Ein Gesichtsvergleich statt einer Gesichtszaehlung waere die Loesung,
+    /// aber solange das Vorschaumodell in zwei von drei Faellen ohnehin
+    /// unbrauchbar liefert, ist es das nicht wert. Erst ein Modell, das den
+    /// Ausschnitt haelt — dann diese Zeile weg.
+    static let eingeschaltet = false
+
     func starte(fuer foto: Data) {
+        guard Self.eingeschaltet else { return }
         guard quelle != foto else { return }
         stoppe()
         quelle = foto
