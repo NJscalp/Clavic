@@ -39,6 +39,8 @@ struct AgentView: View {
     @State private var kette: [Data] = []
     /// Was der jeweilige Schritt gemacht hat, ein Eintrag je Übergang.
     @State private var ketteTitel: [String] = []
+    /// Die Vorschauen am eigenen Foto. Laufen waehrend der Bildlesung mit.
+    @State private var vorschauen = PersonalPreviews()
     @State private var isWorking = false
     /// Was auf dem Foto angestrichen wurde. Füttert die Schnellaufträge der
     /// Regie-Leiste — sie soll über DIESES Bild reden, nicht über Fotos.
@@ -433,6 +435,7 @@ struct AgentView: View {
                     before: letzter?.resultImage != nil ? lastImages.first : nil,
                     staende: letzter?.resultImage != nil ? (letzter?.chain ?? []) : [],
                     staendeTitel: letzter?.chainTitles ?? [],
+                    eigeneVorschauen: vorschauen.bilder,
                     isWorking: letzter?.isLoading ?? false,
                     note: letzter?.loadingNote,
                     picks: letzter?.picks ?? [],
@@ -1100,6 +1103,11 @@ struct AgentView: View {
 
         let hasImageContext = !contextImages.isEmpty
         await MainActor.run {
+            // Die Vorschauen laufen ab JETZT mit — parallel zur Lesung, in
+            // deren 17 bis 23 Sekunden sie fertig werden. Nicht schon beim
+            // Anhaengen des Fotos: wer ein Bild auswaehlt und es sich wieder
+            // anders ueberlegt, soll dafuer nichts kosten.
+            if let quelle = contextImages.first { vorschauen.starte(fuer: quelle) }
             messages.append(AgentMessage(role: .user, text: bubbleText, images: attached))
             var loadingMsg = AgentMessage(role: .assistant, text: "Thinking…", isLoading: true)
             loadingMsg.isAnalyzing = hasImageContext   // Foto vorhanden → Lupen-Analyse-Animation
@@ -2099,6 +2107,7 @@ struct AgentView: View {
         lastImages = []
         kette = []
         ketteTitel = []
+        vorschauen.leere()
     }
 
     /// Legt das Projekt an, BEVOR gerendert wird.

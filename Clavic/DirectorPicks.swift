@@ -46,6 +46,15 @@ enum DirectorBuehne: Equatable {
 }
 
 struct DirectorPicks: View {
+    /// Vorschauen am eigenen Foto, Look-ID → Bild.
+    ///
+    /// WARUM DAS DIE KARTE VERAENDERT. Bisher stand auf jeder Karte das
+    /// Beispielbild aus dem Hauskatalog — eine fremde Person in diesem Look.
+    /// Man waehlte damit blind: „Golden Hour" sieht am Werbefoto immer gut
+    /// aus, am eigenen Kuechenbild oft nach nichts. Liegt eine eigene
+    /// Vorschau vor, steht sie hier; sonst wie bisher das Beispiel.
+    var eigeneVorschauen: [String: Data] = [:]
+
     let picks: [DirectorAPI.Option]
     /// Die Richtung, die der Director selbst nehmen wuerde.
     var lead: String? = nil
@@ -544,6 +553,7 @@ struct DirectorPicks: View {
     /// Asset noch das eigene Foto passen. Ohne diese Pruefung stuende dort ein
     /// leeres graues Rechteck mit „THE LOOK" darunter.
     private func hatVorschau(_ option: DirectorAPI.Option) -> Bool {
+        if eigeneVorschauen[option.id] != nil { return true }
         if let name = option.preview, !name.isEmpty {
             if name.hasPrefix("http") { return true }
             if UIImage(named: name) != nil { return true }
@@ -653,7 +663,9 @@ struct DirectorPicks: View {
     /// bleibt es der alte Weg ueber den Asset-Katalog.
     @ViewBuilder
     private func vorschau(_ trend: DirectorAPI.Option) -> some View {
-        if let name = trend.preview, name.hasPrefix("http"), let url = URL(string: name) {
+        if let eigenes = eigeneVorschauen[trend.id], let ui = UIImage(data: eigenes) {
+            Image(uiImage: ui).resizable().scaledToFill()
+        } else if let name = trend.preview, name.hasPrefix("http"), let url = URL(string: name) {
             AsyncImage(url: url) { phase in
                 if let bild = phase.image {
                     bild.resizable().scaledToFill()

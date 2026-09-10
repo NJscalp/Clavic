@@ -65,6 +65,9 @@ struct DirectorWorkspace<Mascot: View>: View {
     var staende: [Data] = []
     /// Ein Titel je Übergang.
     var staendeTitel: [String] = []
+    /// Vorschauen am eigenen Foto, Look-ID → Bild. Ersetzt auf den
+    /// Vorschlagskarten das Beispielbild aus dem Hauskatalog.
+    var eigeneVorschauen: [String: Data] = [:]
     let isWorking: Bool
     /// Zwischenstand aus dem Renderpfad, etwa „Fixing: plastic skin".
     let note: String?
@@ -141,6 +144,7 @@ struct DirectorWorkspace<Mascot: View>: View {
 
             if !picks.isEmpty {
                 DirectorPicks(
+                    eigeneVorschauen: eigeneVorschauen,
                     picks: picks, lead: lead, trends: trends,
                     serverTrends: serverTrends,
                     reading: reading,
