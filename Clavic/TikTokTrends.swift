@@ -49,8 +49,24 @@ enum TikTokTrends {
         }
     }
 
+    /// DIE ZEILE SAGT, WANN — NICHT, WAS.
+    ///
+    /// Hier stand die Technik: „Night · direct flash", „Daylight flash · CCD",
+    /// „Hard red · half in dark". Das ist richtig und hilft niemandem, der
+    /// nicht ohnehin weiss, was ein CCD ist. Man muss dann selbst uebersetzen,
+    /// welcher Look das eigene Foto rettet.
+    ///
+    /// Beobachtet an „Prettier: Aesthetic Camera" (App Store, September 2026):
+    /// dort heissen die Looks nach dem MOMENT — „Sunnier Side" fuer helle
+    /// Bilder unter grauem Himmel, „Counter Light" holt Gesichter aus dem
+    /// Gegenlicht zurueck. Die Zeile beantwortet die Frage, die der Nutzer
+    /// tatsaechlich hat: wann brauche ich das?
+    ///
+    /// Der Titel bleibt die Technik — „G7X Flash" ist der Name, unter dem der
+    /// Look auf TikTok laeuft, und den sucht man. Nur die Zeile darunter
+    /// wechselt die Seite.
     static let all: [Look] = [
-        Look(id: "g7xflash", title: "G7X Flash", caption: "Night · direct flash",
+        Look(id: "g7xflash", title: "G7X Flash", caption: "When you vanish in the dark",
              recipe: "", mode: .retouch, fullPrompt: """
              Make this photo look like it was taken at night on a Canon G7X Mark III with the
              built-in flash fired straight at the subject. The whole scene is night — sky, water,
@@ -58,7 +74,7 @@ enum TikTokTrends {
              flat, falling off fast into blackness behind them. Visible sensor noise in the dark
              areas. Keep the face, body, pose and clothing exactly as they are.
              """),
-        Look(id: "y2kdigicam", title: "Y2K Digicam", caption: "Daylight flash · CCD",
+        Look(id: "y2kdigicam", title: "Y2K Digicam", caption: "Makes a flat day look like 2004",
              recipe: "", mode: .retouch, fullPrompt: """
              Make this photo look like a 2004 snapshot from a cheap 3-megapixel digital camera
              with the flash forced on in daylight. Oversaturated blues and greens, hard direct
@@ -66,7 +82,7 @@ enum TikTokTrends {
              orange date stamp "2004 08 14" into the lower right corner. Keep the face, body,
              pose and clothing exactly as they are.
              """),
-        Look(id: "redsunset", title: "Red Sunset", caption: "Flash · burning sky",
+        Look(id: "redsunset", title: "Red Sunset", caption: "When the sky came out boring",
              recipe: "", mode: .retouch, fullPrompt: """
              Make this photo look like a real photograph taken with a camera flash in front of a
              sunset. This must look like an actual sunset someone photographed, not a red filter
@@ -87,7 +103,7 @@ enum TikTokTrends {
              expression, pose, hands and clothing do not move. Keep her real skin texture; the
              flash must not smooth or beautify her.
              """),
-        Look(id: "redlight", title: "Red Light", caption: "Hard red · half in dark",
+        Look(id: "redlight", title: "Red Light", caption: "Club light, on purpose",
              recipe: "", mode: .retouch, fullPrompt: """
              Re-light this photo with a hard red light hitting the person from low and in front,
              like a red traffic light at night. Their face and body glow deep red where the light
@@ -95,14 +111,14 @@ enum TikTokTrends {
              the frame falls to near-black. Keep the face, body, pose and clothing exactly as
              they are.
              """),
-        Look(id: "goldenhour", title: "Golden Hour", caption: "Strong golden wash",
+        Look(id: "goldenhour", title: "Golden Hour", caption: "When the light falls flat",
              recipe: "", fullPrompt: """
              Apply a strong golden hour grade to this photo. Warm everything hard toward gold and
              amber, lift the light, deepen and warm the shadows, add a soft warm haze. Keep the
              existing clouds where they are — recolour them, do not replace them. Keep the face,
              body, pose and clothing exactly as they are.
              """),
-        Look(id: "bluehour", title: "Blue Hour", caption: "Cool blues · evening",
+        Look(id: "bluehour", title: "Blue Hour", caption: "An ordinary evening, cinematic",
              recipe: "", fullPrompt: """
              Apply a blue hour grade to this photo. Cool blue twilight tones, gently darkened,
              moody and cinematic. Keep the existing clouds where they are — recolour them, do not

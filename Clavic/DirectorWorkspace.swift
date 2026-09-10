@@ -108,6 +108,8 @@ struct DirectorWorkspace<Mascot: View>: View {
     /// Mit dem fertigen Bild in den Chat wechseln und dort weiterarbeiten.
     var onKeepEditing: () -> Void = {}
     var onTryAnother: () -> Void = {}
+    /// Speichert das gelesene Foto MIT den Anmerkungen in die Mediathek.
+    var onSaveReading: (Data) -> Void = { _ in }
     /// Reicht die gemessenen Anmerkungen nach oben. Die Leiste unten baut ihre
     /// Schnellauftraege daraus — so redet sie ueber DIESES Foto und nicht
     /// ueber Fotos im Allgemeinen.
@@ -117,6 +119,9 @@ struct DirectorWorkspace<Mascot: View>: View {
     /// Laeuft, solange gelesen wird — treibt den Schimmer in der Zeile.
     @State private var schimmer = false
     @State private var zeigeVorher = false
+    /// Hochzaehlen laesst den Stift noch einmal ueber das Foto laufen.
+    @State private var stiftLauf = 0
+    @State private var gespeichert = false
     /// Die gemessenen Anmerkungen auf dem Foto. Leer, solange gelesen wird.
     @State private var marks: [ReadMark] = []
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -271,7 +276,10 @@ struct DirectorWorkspace<Mascot: View>: View {
                 Image(uiImage: ui)
                     .resizable()
                     .scaledToFit()
-                    .frame(maxHeight: 186)
+                    // Gedeckelt an der Bildschirmhoehe, nicht an einer festen
+                    // Zahl: darunter stehen noch die Einschaetzung und die
+                    // Vorschlaege, die erreichbar bleiben muessen.
+                    .frame(maxHeight: UIScreen.main.bounds.height * 0.42)
                     .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
                     .overlay(
                         RoundedRectangle(cornerRadius: 6, style: .continuous)
@@ -300,7 +308,7 @@ struct DirectorWorkspace<Mascot: View>: View {
                     // dem fertigen Bild eine Kritik an der eigenen Arbeit.
                     .overlay {
                         if !isWorking, !zeigeVorher, before == nil {
-                            DirectorInkNotes(marks: marks, active: true)
+                            DirectorInkNotes(marks: marks, active: true, lauf: stiftLauf)
                                 .padding(9)
                                 .padding(.bottom, 6)
                         }
@@ -452,12 +460,98 @@ struct DirectorWorkspace<Mascot: View>: View {
     /// `.bottom` als Ausrichtung ist nicht Geschmack: die Fuesse der Figur
     /// sollen auf derselben Linie stehen wie die Unterkante des Bildes,
     /// sonst schwebt sie daneben.
+    /// DIE LESUNG IST EIN MOMENT, KEINE FUSSNOTE.
+    ///
+    /// Hier stand das Foto in einer `HStack` NEBEN der Figur und war damit auf
+    /// rund 190 Punkte gedeckelt — ein Daumennagel oben in der Ecke. Darauf
+    /// zeichnet der Director mit rotem Stift an, was ihm auffaellt: das
+    /// Auffaelligste, was diese App tut, war das Kleinste auf dem Bildschirm.
+    /// Beim ERGEBNIS war derselbe Fehler schon einmal behoben worden, der
+    /// Kommentar dort sagt es woertlich: „bei 186 Punkten war das Ergebnis
+    /// eine Briefmarke unter einer Liste."
+    ///
+    /// Jetzt bekommt das Foto die Breite. Die Figur bleibt — sie steht darunter
+    /// neben den beiden Knoepfen, statt dem Bild die Haelfte wegzunehmen.
     private var ergebnisBuehne: some View {
-        HStack(alignment: .bottom, spacing: 2) {
-            bildKarte
-                .frame(maxWidth: .infinity)
-            mascot(.nebenDemFoto)
+        VStack(spacing: 6) {
+            // Mittig ueber zwei Spacer statt ueber `frame(alignment:)`:
+            // ein Hochformat ist schmaler als die Spalte, und die Karte klebte
+            // sonst am linken Rand, waehrend rechts die Haelfte leer stand.
+            HStack(spacing: 0) {
+                Spacer(minLength: 0)
+                bildKarte
+                Spacer(minLength: 0)
+            }
+
+            // Oben ausgerichtet: die Knoepfe gehoeren unter das Foto, nicht
+            // unter die Figur. Bei `.bottom` haengte die Figur die Zeile auf
+            // ihre eigene Hoehe und zwischen Foto und Knoepfen stand ein
+            // Loch von ueber hundert Punkten.
+            HStack(alignment: .top, spacing: 8) {
+                if zeigtLesungsKnoepfe { lesungsKnoepfe }
+                Spacer(minLength: 0)
+                mascot(.nebenDemFoto)
+            }
         }
+    }
+
+    private var zeigtLesungsKnoepfe: Bool {
+        !isWorking && before == nil && !marks.isEmpty && anzuzeigen != nil
+    }
+
+    /// Nochmal ansehen — und mitnehmen.
+    ///
+    /// Der Stift zeichnet einmal und steht dann still; wer wissen will, was
+    /// angestrichen wurde, will es ein zweites Mal sehen. Und „Save" gibt das
+    /// Foto MIT den Anmerkungen heraus: das ist das Bild, das jemand von sich
+    /// aus zeigt — „die App hat mein Foto durchgestrichen" ist eine Geschichte,
+    /// ein Filterergebnis ist keine.
+    private var lesungsKnoepfe: some View {
+        HStack(spacing: 8) {
+            knopf("Play again", "arrow.counterclockwise") { stiftLauf += 1 }
+            knopf(gespeichert ? "Saved" : "Save", gespeichert ? "checkmark" : "square.and.arrow.down") {
+                exportiereLesung()
+            }
+        }
+    }
+
+    private func knopf(_ text: String, _ symbol: String, _ aktion: @escaping () -> Void) -> some View {
+        Button(action: aktion) {
+            HStack(spacing: 5) {
+                Image(systemName: symbol).font(.system(size: 11, weight: .bold))
+                Text(text).font(.system(size: 12.5, weight: .semibold, design: .rounded))
+            }
+            .foregroundStyle(Theme.accent)
+            .padding(.horizontal, 11).padding(.vertical, 7)
+            .background(Theme.accent.opacity(0.10), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .contentTransition(.opacity)
+    }
+
+    /// Foto und Anmerkungen in EIN Bild.
+    ///
+    /// Gerendert wird in Anzeigegroesse mal drei, nicht in der Aufloesung des
+    /// Fotos: die Handschrift ist in Punkten bemessen und waere auf einem
+    /// 4000 Pixel breiten Abzug ein Fliegendreck. So sieht das gespeicherte
+    /// Bild genau aus wie das auf dem Schirm, nur scharf.
+    private func exportiereLesung() {
+        guard let daten = anzuzeigen, let ui = UIImage(data: daten), ui.size.width > 0 else { return }
+        let breite = UIScreen.main.bounds.width - Theme.screenPadding * 2
+        let hoehe = breite * (ui.size.height / ui.size.width)
+        let ansicht = ZStack {
+            Image(uiImage: ui).resizable().scaledToFill()
+            DirectorInkNotes(marks: marks, active: true, sofort: true)
+        }
+        .frame(width: breite, height: hoehe)
+        .clipped()
+
+        let renderer = ImageRenderer(content: ansicht)
+        renderer.scale = 3
+        guard let bild = renderer.uiImage,
+              let jpeg = bild.jpegData(compressionQuality: 0.92) else { return }
+        onSaveReading(jpeg)
+        withAnimation(.easeInOut(duration: 0.2)) { gespeichert = true }
     }
 
 

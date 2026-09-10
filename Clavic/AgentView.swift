@@ -484,6 +484,7 @@ struct AgentView: View {
                             messages[index].beforeImage = nil
                         }
                     },
+                    onSaveReading: { saveImage($0) },
                     onMarks: { readMarks = $0 }
                 )
             }

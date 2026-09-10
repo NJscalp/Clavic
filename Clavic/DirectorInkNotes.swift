@@ -35,6 +35,19 @@ struct DirectorInkNotes: View {
     /// wenn das Foto wirklich steht.
     let active: Bool
 
+    /// Hochzaehlen laesst den Stift noch einmal laufen. Wer wissen will, was
+    /// da angestrichen wurde, will es meist zweimal sehen — und beim Filmen
+    /// braucht man es sowieso.
+    var lauf: Int = 0
+
+    /// Alles sofort und vollstaendig, ohne Animation.
+    ///
+    /// FUER DEN EXPORT. `ImageRenderer` legt eine frische Ansicht an und
+    /// zeichnet sie in einem Zug; `task` und `onAppear` laufen dabei nie. Ohne
+    /// diesen Schalter kaeme ein Bild mit unsichtbaren Strichen heraus — die
+    /// Anmerkungen stehen alle auf Fortschritt 0.
+    var sofort: Bool = false
+
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// Wie weit jeder Strich gezogen ist, 0…1.
     @State private var drawn: [Int: CGFloat] = [:]
@@ -54,7 +67,7 @@ struct DirectorInkNotes: View {
                         width: mark.area.width * geo.size.width,
                         height: mark.area.height * geo.size.height
                     )
-                    let progress = drawn[mark.id] ?? 0
+                    let progress = sofort ? 1 : (drawn[mark.id] ?? 0)
 
                     InkStroke(kind: mark.kind)
                         .trim(from: 0, to: progress)
@@ -76,10 +89,11 @@ struct DirectorInkNotes: View {
     /// angeschaltet wird. Ohne die Marken im Schluessel blieben beim zweiten
     /// Zug die alten Striche stehen.
     private var taskKey: String {
-        "\(active)-" + marks.map { "\($0.id)\($0.label)" }.joined()
+        "\(active)-\(lauf)-" + marks.map { "\($0.id)\($0.label)" }.joined()
     }
 
     private func draw() async {
+        guard !sofort else { return }
         drawn = [:]
         labelsShown = []
         guard active, !marks.isEmpty else { return }
@@ -132,7 +146,7 @@ struct DirectorInkNotes: View {
             .background(Theme.papier.opacity(0.86), in: Capsule())
             .rotationEffect(.degrees(onLeft ? -3.5 : 3.5))
             .fixedSize()
-            .opacity(labelsShown.contains(mark.id) ? 1 : 0)
+            .opacity(sofort || labelsShown.contains(mark.id) ? 1 : 0)
             .position(
                 x: inBand
                     ? (rect.width > rect.height ? bounds.width - 62 : rect.midX)
