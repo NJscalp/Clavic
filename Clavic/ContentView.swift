@@ -333,6 +333,21 @@ struct ContentView: View {
                 }
                 .padding(5)
                 .glassEffect(.regular, in: Capsule())
+                // DIE LEISTE MUSS TIPPS SCHLUCKEN, AUCH NEBEN DEN KNOEPFEN.
+                //
+                // Gemeldet: „ich druecke drauf und dahinter wird was
+                // ausgewaehlt". Genau so war es. Sichtbar ist eine Kapsel,
+                // hittestbar waren nur die drei Knopfflaechen — das 5-Punkt-
+                // Polster ringsum und die 2 Punkt zwischen den Knoepfen
+                // gehoerten zu nichts. Ein Tipp dorthin fiel durch das Glas auf
+                // den Inhalt darunter; im Director liegt dort die Look-Liste,
+                // also wurde ein Look gewaehlt.
+                //
+                // `contentShape` macht die ganze Kapsel hittestbar, der leere
+                // Tipp verbraucht ihn. Die Knoepfe liegen weiter innen und
+                // gewinnen fuer sich selbst — nur die Luecken landen hier.
+                .contentShape(Capsule())
+                .onTapGesture { }
             }
             Spacer(minLength: 0)
         }

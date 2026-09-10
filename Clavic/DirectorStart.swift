@@ -378,6 +378,28 @@ struct DirectorStart: View {
             }
             .frame(width: w, height: geo.size.height)
             .blur(radius: 0.4)
+            // AN DEN SEITEN AUSBLENDEN, NICHT ABSCHNEIDEN.
+            //
+            // Die Streubilder ragen absichtlich ueber den Textspiegel hinaus —
+            // sie sollen vom Rand hereinwachsen. Am Bildschirmrand wurden sie
+            // aber kerzengerade abgesaebelt: eine senkrechte Kante links und
+            // rechts, an der eine Karte einfach aufhoert. Das las sich wie ein
+            // Fehler, nicht wie Absicht.
+            //
+            // Der Verlauf laesst sie auf den letzten Prozenten weich
+            // verschwinden. Innen (8 bis 92 Prozent) bleibt alles unveraendert
+            // deckend, es geht also keine Flaeche verloren.
+            .mask(
+                LinearGradient(
+                    stops: [
+                        .init(color: .clear, location: 0),
+                        .init(color: .black, location: 0.08),
+                        .init(color: .black, location: 0.92),
+                        .init(color: .clear, location: 1),
+                    ],
+                    startPoint: .leading, endPoint: .trailing
+                )
+            )
             .allowsHitTesting(false)
         }
     }

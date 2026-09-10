@@ -493,6 +493,9 @@ struct AgentView: View {
             // Ohne Eingabezeile braucht es nur Luft über der Tableiste.
             .padding(.bottom, showComposer ? 230 : 110)
         }
+        // Bis an die Bildschirmkante, nicht bis an die Sicherheitskante —
+        // sonst endet der Verlauf an einer sichtbaren Linie ueber der Leiste.
+        .ignoresSafeArea(.container, edges: .bottom)
         .scrollDismissesKeyboard(.interactively)
         .simultaneousGesture(TapGesture().onEnded { if inputFocused { inputFocused = false } })
         .overlay(alignment: .bottom) {
@@ -602,6 +605,26 @@ struct AgentView: View {
             .frame(width: geometry.size.width)
             .clipped()
         }
+        // DIE HARTE SCHNITTKANTE UEBER DER LEISTE.
+        //
+        // Gemeldet: „unterhalb der Leiste sehe ich den Untergrund als eigene
+        // Ebene, wo Container abgeschnitten werden." Genau so war es, und der
+        // Grund steht eine Zeile weiter oben: `clipped()` schneidet am Rand
+        // des `GeometryReader` ab — und der endete an der unteren
+        // SICHERHEITSKANTE, also rund 34 Punkte ueber dem Bildschirmrand.
+        // Dort lag eine kerzengerade Linie quer durch die letzte Karte, mit
+        // dem Hintergrund darunter.
+        //
+        // Das Schneiden selbst bleibt richtig: das Maskottchen ragt bewusst
+        // ueber den Seitenrand hinaus. Nur die Flaeche reicht jetzt bis zur
+        // Bildschirmkante, also faellt der Schnitt dorthin, wo ohnehin Schluss
+        // ist. Der Inhalt verschwindet unter der Leiste, statt an einer Kante
+        // zu enden.
+        //
+        // Die 158 Punkte Luft unten bleiben unangetastet — sie sorgen dafuer,
+        // dass die letzte Karte frei ueber die Leiste hinausgescrollt werden
+        // kann.
+        .ignoresSafeArea(.container, edges: .bottom)
     }
 
     private func suggestionChip(_ text: String) -> some View {
